@@ -1,0 +1,30 @@
+{
+ "designation": "2015 KK542",
+ "note": "same-opposition pickup must not withdraw the 1.75: an over-fit 8-obs T14 seed (0.022\") moves to 0.083\" on its own-opposition W84 tracklet alone, and that caution withdrew the confirmation of the 2021 F51 + 2024 F52 single nights, so one search linked W84 only and a second search linked all three. ITF astrometry frozen from the live file (the published arc is the 8 T14 obs).",
+ "obs80": "     K15Ks2K 9C2015 05 17.45019 15 40 33.57 -13 35 27.0                V     T14\n     K15Ks2K 9C2015 05 17.50220 15 40 31.93 -13 35 23.4          22.4 GV     T14\n     N390889 5C2015 05 20.26975 15 39 06.52 -13 32 18.3                      W84\n     N390889 5C2015 05 20.27947 15 39 06.21 -13 32 17.9          23.4        W84\n     N390889 5C2015 05 20.28271 15 39 06.10 -13 32 17.7                      W84\n     K15Ks2K 9C2015 05 24.39373 15 37 00.09 -13 28 05.7                V     T14\n     K15Ks2K 9C2015 05 24.43983 15 36 58.65 -13 28 03.0          22.5 GV     T14\n     K15Ks2K 9C2015 05 24.48091 15 36 57.37 -13 28 00.5                V     T14\n     K15Ks2K 9C2015 05 26.44379 15 35 57.92 -13 26 08.4          22.8 GV     T14\n     K15Ks2K 9C2015 06 18.33918 15 25 48.28 -13 13 42.9          22.9 GV     T14\n     K15Ks2K 9C2015 06 18.38024 15 25 47.36 -13 13 42.7                V     T14\n     P11nYLR  C2021 11 01.39145 03 54 02.470+14 13 36.17         22.5 wU     F51\n     P11nYLR  C2021 11 01.41341 03 54 01.810+14 13 34.35         22.2 wU     F51\n     P11nYLR  C2021 11 01.42446 03 54 01.457+14 13 33.42         22.4 wU     F51\n     P21QGBY  C2024 01 19.56816309 01 42.992+23 12 30.78         22.31wX     F52\n     P21QGBY  C2024 01 19.59320409 01 42.191+23 12 36.02         22.21wX     F52\n     P21QGBY  C2024 01 19.60578509 01 41.762+23 12 38.42         22.26wX     F52\n",
+ "n_obs": 17,
+ "n_apparitions": 3,
+ "seed_apparition": 0,
+ "seed_nights": null,
+ "hold_out_stations": [
+  "W84"
+ ],
+ "seed_U": 7.7,
+ "planted_apparitions": [
+  0,
+  1,
+  2
+ ],
+ "n_fake_tracklets": 3,
+ "expect": {
+  "full_recovery": true,
+  "recovered_apparitions": [
+   0,
+   1,
+   2
+  ],
+  "recovered_tracklets": 3,
+  "rms_max": 0.3,
+  "max_dropped_seed_obs": 0
+ }
+}

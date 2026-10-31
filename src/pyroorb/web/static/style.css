@@ -1,0 +1,802 @@
+:root {
+  --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --border: #30363d;
+  --fg: #c9d1d9; --muted: #8b949e; --accent: #58a6ff; --good: #3fb950;
+  --bad: #f85149; --warn: #d29922; --ra: #f0883e; --dec: #58a6ff;
+  --orbit: #56d4dd; --sel: #bc8cff;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --link: #58a6ff; --link-hover: #79c0ff;
+  /* native controls, scrollbars and any unstyled element render in their dark variants */
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font: 13px/1.4 -apple-system,
+  BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+}
+h1, h2, h3 { margin: 0; font-weight: 600; }
+code, .mono { font-family: var(--mono); }
+/* Links: the browser defaults (#0000ee, visited #551a8b) are unreadable on --bg.
+   A light blue clears WCAG AA (~7.5:1 on --bg); visited keeps the same colour so a
+   link never drops back to a dark hue, and hover lightens and underlines. */
+a, a:visited { color: var(--link); }
+a:hover, a:focus-visible { color: var(--link-hover); }
+button {
+  background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 11px; cursor: pointer; font-size: 12px;
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+button.primary:hover { background: #388bfd; }
+input[type=text] {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 9px; width: 230px; font-size: 13px;
+}
+/* shared focus ring for every plain text-input / select control (the .panetitle-select
+   adds its own box-shadow, so it's kept separate below). */
+input[type=text]:focus, .ephem-form input:focus, #pasteText:focus, #exportResultText:focus,
+.ngselect:focus, .epochctl input[type="date"]:focus, .conval:focus { outline: none; border-color: var(--accent); }
+
+/* ---- top bar ---- */
+#topbar {
+  display: flex; align-items: center; gap: 12px; padding: 9px 14px;
+  background: var(--panel); border-bottom: 1px solid var(--border); flex: 0 0 auto;
+}
+#topbar .brand { font-weight: 700; font-size: 15px; letter-spacing: .3px;
+  cursor: pointer; display: inline-flex; align-items: baseline; gap: 5px; }
+#topbar .brand small { color: var(--muted); font-weight: 400; font-size: 13.2px; }
+/* The mark, tiny, beside the wordmark.  64px source for retina; the brand row
+   is baseline-aligned, so the image centres itself rather than sitting on it. */
+#topbar .brand .brandlogo { width: 18px; height: 18px; align-self: center;
+  border-radius: 4px; flex: 0 0 auto; }
+#topbar .brand:hover .aboutmark { color: var(--accent); }
+.aboutmark { color: var(--border); font-size: 12px; align-self: center; }
+#topbar label { color: var(--muted); font-size: 12px; display: flex; gap: 5px; align-items: center; }
+.spacer { flex: 1; }
+#status { display: flex; gap: 14px; align-items: center; font-size: 12px; }
+#status .stat b { color: #fff; font-size: 14px; }
+#status .stat span { color: var(--muted); margin-right: 3px; }
+.chip { padding: 2px 9px; border-radius: 11px; font-size: 11px; font-weight: 600; }
+.chip.ok { background: rgba(63,185,80,.18); color: var(--good); }
+.chip.suspect { background: rgba(210,153,34,.18); color: var(--warn); }
+.chip.pha { background: rgba(248,81,73,.18); color: var(--bad); }
+.chip.sat { background: rgba(88,166,255,.18); color: var(--accent); }
+/* Satellite element-view toggle (heliocentric ⇄ planet-centric), in the Orbital elements header. */
+.sattoggle { display: inline-flex; gap: 0; margin-left: 8px; vertical-align: middle; }
+/* Elements-panel header: title + frame + epoch flow on the top row (epoch pinned
+   right); the heliocentric⇄planetocentric picker drops to its own centered row. */
+.elem-hd { flex-wrap: wrap; justify-content: flex-start; gap: 4px 10px; }
+.elem-hd .epochctl { margin-left: auto; }
+.elem-hd .sattoggle:not([hidden]) { flex: 0 0 100%; margin: 3px 0 0; justify-content: center; }
+.framelbl { text-transform: none; letter-spacing: normal; font-weight: 400;
+  color: var(--muted); opacity: .7; align-self: center; }
+.framelbl:empty { display: none; }
+.sattoggle .segbtn {
+  padding: 1px 8px; font-size: 11px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--muted);
+}
+.sattoggle .segbtn:first-child { border-radius: 10px 0 0 10px; }
+.sattoggle .segbtn:last-child { border-radius: 0 10px 10px 0; border-left: 0; }
+.sattoggle .segbtn.active { color: var(--accent); background: rgba(88,166,255,.14); border-color: var(--accent); }
+.sattoggle .segbtn:hover { color: var(--fg); }
+
+/* ---- workspace grid ---- */
+#workspace {
+  /* minmax(0, 1fr) on the middle track (not a bare 1fr) so it can shrink BELOW its
+     content's min-content width: a wide middle pane (obs table with the addl columns,
+     the MPC-80 block, a broad ephemeris table) then scrolls INSIDE its own pane instead
+     of expanding the track and shoving the fixed 420px right column off the (overflow:
+     hidden) edge where it can't be reached. All three columns are thus always visible on
+     desktop; the =900px rule below collapses to a single scrolling stack for mobile. */
+  flex: 1; display: grid; grid-template-columns: 280px minmax(0, 1fr) 420px;
+  gap: 8px; padding: 8px; min-height: 0;
+}
+/* min-width:0 lets each grid item shrink to its track (grid items default to min-width:
+   auto = min-content, which would otherwise let a wide pane overflow its track). */
+.col { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+
+/* Collapsed visuals column: drop the fixed right track and hide the column, giving the
+   middle pane the full width. Toggled by #rightColToggle / #rightColTab (app.js), and
+   auto-set by a (min-width:1500px) media query — shown at/above 1500, hidden below. */
+#workspace.right-collapsed { grid-template-columns: 280px minmax(0, 1fr); }
+#workspace.right-collapsed > .col:nth-child(3) { display: none; }
+/* Topbar toggle: mirrors the state (label/chevron flipped in JS). */
+.colcol-btn { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+.colcol-btn[aria-pressed="false"] { background: #1f6feb; border-color: #388bfd; color: #fff; }
+/* Reveal handle: a fixed vertical tab on the right edge, visible only while the column
+   is folded away, so bringing it back is always one obvious click. */
+#rightColTab {
+  position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 30;
+  writing-mode: vertical-rl; padding: 14px 6px; border-radius: 8px 0 0 8px;
+  border-right: 0; background: var(--panel2); color: var(--accent);
+  font-size: 12px; letter-spacing: .5px; box-shadow: -2px 0 10px rgba(0,0,0,.35);
+}
+#rightColTab:hover { background: #1f6feb; color: #fff; border-color: #388bfd; }
+#rightColTab[hidden] { display: none; }   /* [hidden] must beat the block display */
+/* Left column: on short viewports its fixed panels (elements + physical + nongrav)
+   can exceed the column height and the lower ones get clipped. Let the column scroll
+   instead, and floor the history panel so it can't be squeezed to nothing before the
+   scroll kicks in (on tall screens it still grows to fill, so this is a no-op there). */
+#workspace > .col:first-child { overflow-y: auto; }
+#workspace > .col:first-child > .panel:last-child { min-height: 120px; }
+.panel {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  display: flex; flex-direction: column; min-height: 0;
+}
+.panel > .hd {
+  padding: 7px 11px; border-bottom: 1px solid var(--border); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+  display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto;
+}
+.panel > .bd { padding: 9px 11px; overflow: auto; min-height: 0; }
+
+/* ---- elements ---- */
+table.kv { width: 100%; border-collapse: collapse; }
+table.kv td { padding: 2px 0; vertical-align: baseline; }
+table.kv td.k { color: var(--fg); white-space: nowrap; padding-right: 8px;
+  cursor: help; text-decoration: underline dotted var(--border); text-underline-offset: 2px; }
+table.kv td.v { text-align: right; font-family: var(--mono); }
+table.kv td.s { color: var(--muted); font-size: 11px; padding-left: 5px; white-space: nowrap; }
+.physgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+.physgrid .cell .lbl { color: var(--muted); font-size: 11px; }
+.physgrid .cell .val { font-family: var(--mono); font-size: 13px; }
+
+/* ---- observations table ---- */
+#obspanel .bd { padding: 0; }
+table.obs { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.obs thead th {
+  position: sticky; top: 0; background: var(--panel2); color: var(--muted);
+  text-align: right; padding: 5px 8px; font-weight: 600; cursor: pointer;
+  border-bottom: 1px solid var(--border); white-space: nowrap; z-index: 1;
+}
+table.obs thead th.l { text-align: left; }
+table.obs td { padding: 3px 8px; text-align: right; border-bottom: 1px solid #21262d;
+  font-family: var(--mono); white-space: nowrap; }
+table.obs td.l { text-align: left; }
+/* observatory name (obs panel): absorb the table's leftover width and clip to an
+   ellipsis instead of wrapping. max-width:0 + the table's width:100% lets the
+   numeric columns size to content while this flexible column truncates. */
+table.obs td.name { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis;
+  color: var(--muted); }
+/* apparition boundary: the row before an opposition-sized time gap (see
+   APPARITION_GAP_DAYS in app.js) gets a whiter separator than the near-black default,
+   mirroring the solid divider in the O−C plot. */
+table.obs tr.appbreak td { border-bottom-color: #545d68; }
+/* excluded obs: whole row a deep, blackish red so it reads as "out of the fit" */
+table.obs tr.excluded td { background: #3a0c10; color: #f5b0ab; }
+table.obs tr.excluded:hover td { background: #4d1117; }
+table.obs tr.excluded td.code::after { content: " ✕"; }
+table.obs tr.hot td { background: rgba(188,140,255,.10); }
+table.obs tr:hover td { background: rgba(88,166,255,.08); }
+/* rows are clickable to toggle inclusion (live final-fit view) */
+#obspanel table.obs tbody tr { cursor: pointer; }
+#fullStepBtn, #worstBtn, #mpc80Btn, #addlBtn, #copyObsBtn { padding: 3px 9px; font-size: 11px; }
+/* the "toggled-on / stale" blue-button look, shared by the obs-panel toggles and the
+   viz time-scrubber's active mode button (see .timebar button.active). */
+#fullStepBtn.stale, #mpc80Btn.active, #addlBtn.active,
+.timebar button.active { background: #1f6feb; border-color: #388bfd; color: #fff; }
+/* "addl info" ON: let the table exceed the pane so the extra columns scroll right
+   (default width:100% would otherwise squeeze every column to fit). The name-column
+   flex rule (td.name, width:100%) is obs-panel only and unaffected. */
+table.obs.wide { width: auto; min-width: 100%; }
+/* the extra ADES columns: muted, and a divider before the first one (asep) marks
+   where the standard table ends and the scroll-right additions begin. */
+table.obs th.asep, table.obs td.asep { border-left: 2px solid var(--border); }
+table.obs td.addl { color: var(--muted); }
+table.obs td.addl.idcell { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; }
+/* MPC 80-column astrometry block: monospace, fixed width, excluded lines dimmed red.
+   white-space:pre keeps the exact column layout so col-65 'x' lines up. */
+pre.mpc80 { margin: 0; padding: 8px 10px; font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.45; white-space: pre; color: var(--fg);
+  -moz-tab-size: 4; tab-size: 4; }
+pre.mpc80 .exline { color: #f5817a; background: #3a0c10; display: inline-block;
+  width: 100%; }
+/* jump-to-worst flash */
+@keyframes flashpulse { 0% { background: rgba(188,140,255,.55); } 100% { background: transparent; } }
+table.obs tr.flash td { animation: flashpulse 1.6s ease-out; }
+/* right-click bulk-toggle menu */
+.ctxmenu { position: fixed; z-index: 60; background: var(--panel2);
+  border: 1px solid var(--border); border-radius: 7px; padding: 4px;
+  display: flex; flex-direction: column; min-width: 178px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.55); }
+.ctxmenu[hidden] { display: none; }   /* the [hidden] attr must beat display:flex */
+.ctxmenu button { text-align: left; background: transparent; border: 1px solid transparent;
+  padding: 6px 10px; font-size: 12px; border-radius: 4px; }
+.ctxmenu button:hover { background: rgba(88,166,255,.16); }
+/* "not final orbit" replay banner */
+#obsBanner { padding: 6px 11px; font-size: 12px; background: rgba(248,81,73,.14);
+  border-bottom: 1px solid var(--bad); color: #ffb3ad; flex: 0 0 auto; }
+#obsBanner b { color: #fff; }
+#obsBanner a { color: var(--accent); margin-left: 6px; }
+/* Essentially-unconstrained heads-up, above the elements table. Amber (--warn) for a
+   poorly-constrained orbit, red (--bad) when an element is genuinely free (.severe). */
+.constraint-warn { margin: 0 0 8px; padding: 7px 10px; border-radius: 4px;
+  background: rgba(210,153,34,.12); border: 1px solid var(--warn);
+  border-left-width: 3px; font-size: 12px; line-height: 1.45; }
+.constraint-warn.severe { background: rgba(248,81,73,.12); border-color: var(--bad);
+  border-left-color: var(--bad); }
+.constraint-warn .cw-head { font-weight: 600; color: var(--warn); }
+.constraint-warn.severe .cw-head { color: #ffb3ad; }
+.constraint-warn .cw-detail { margin-top: 3px; color: var(--fg); }
+.constraint-warn .cw-note { margin-top: 4px; color: var(--muted); font-size: 11.5px; }
+/* Suppressed orbit (orbitsuppress.js): the element rows carry an interval instead of a value,
+   so the value cell holds two numbers and must be allowed to breathe. Deliberately NOT greyed
+   out -- the interval is the measurement here, not a degraded version of one. */
+table.kv td.os-range { white-space: nowrap; font-size: 11.5px; }
+table.kv td.os-pct { font-variant-numeric: tabular-nums; }
+.os-none { color: var(--muted); font-style: italic; }
+/* Why the 3D pane is empty when the arc determines no orbit. Centred over the canvas rather
+   than beside it: the emptiness is the thing being explained. */
+.orbit-supp-note { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  max-width: 78%; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.5;
+  pointer-events: none; }
+/* ...and once the pane draws the orbits that DO fit (orbitfan.js), the note moves to the top so
+   it does not sit on them. */
+.orbit-supp-note.with-fan { top: 10px; transform: translate(-50%, 0); }
+/* "Show an orbit anyway" (orbitsuppress.js): the asked-for values carry a "~" and the bar names
+   which orbit is on screen. Amber, like the banner it qualifies, not red. */
+.optin-bar .cw-head { color: var(--warn); }
+.optin-bar button { margin-left: 4px; }
+.optin-bar .os-hint { color: var(--muted); font-size: 11.5px; }
+table.kv td.os-optin { white-space: nowrap; color: var(--warn); }
+
+.resbar { display: inline-block; height: 8px; border-radius: 2px; vertical-align: middle; }
+/* Past full scale the bar is clipped -- ragged right edge says "runs off the chart". */
+.resbar.clipped { border-radius: 2px 0 0 2px;
+  clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 50%, calc(100% - 4px) 100%, 0 100%); }
+
+/* ---- viz ---- */
+#viz3d { flex: 1.3; }
+#viz3d .bd { padding: 0; position: relative; }
+#orbitCanvas { width: 100%; height: 100%; display: block; cursor: grab; }
+#orbitCanvas:active { cursor: grabbing; }
+/* Orbarium: the obs pane's alternate view — green sightlines from Earth to the
+   object, rendered into a canvas that fills the panel body. */
+#orbariumWrap { flex: 1 1 auto; position: relative; overflow: hidden; padding: 0;
+  background: radial-gradient(ellipse at 50% 45%, #0c1320 0%, var(--bg) 80%); }
+#orbariumCanvas { width: 100%; height: 100%; display: block; cursor: grab; }
+#orbariumCanvas:active { cursor: grabbing; }
+
+/* ---- central-pane picker (dropdown styled like the pane title) ---- */
+.panepick { display: flex; align-items: center; gap: 7px; }
+.panetitle-select {
+  font: inherit; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--accent); background-color: rgba(88,166,255,.10);
+  border: 1px solid rgba(88,166,255,.45);
+  border-radius: 5px; padding: 1px 20px 1px 7px; margin-left: -5px; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5L5 6.5L8 3.5' stroke='%2358a6ff' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 5px center;
+}
+.panetitle-select:hover { background-color: rgba(88,166,255,.20); border-color: var(--accent); }
+.panetitle-select:focus { outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88,166,255,.30); }
+.panetitle-select option { color: var(--fg); background: var(--panel2);
+  text-transform: none; letter-spacing: 0; }
+/* ---- central-pane framework ----
+   Every central pane owns exactly two elements, both tagged with the same
+   data-pane value as its <option> in #paneSelect: a control strip in the panel
+   header (.panectl) and a body (.panebody). setCentralPane() shows the matching
+   pair and hides all the others, so a pane's buttons can never appear over
+   another pane's content. The !important is the guard that keeps that true: an
+   inline `display` on the element (which is how the obs buttons once showed on
+   every pane) outranks any ordinary rule, but not this one. */
+.panectl { display: flex; gap: 10px; align-items: center; }
+.panectl[hidden], .panebody[hidden] { display: none !important; }
+#ephemParamsBtn { padding: 3px 9px; font-size: 11px; }
+#ephemParamsBtn .gear { font-size: 15px; vertical-align: -2px; }
+#ephemRangeLabel { color: var(--muted); font-size: 11px; }
+
+/* ---- ephemeris pane (reuses table.obs styling; rows clickable to plot) ---- */
+#ephemWrap { padding: 0; flex: 1 1 auto; }
+#ephemWrap table.obs tbody tr { cursor: pointer; }
+#ephemWrap table.obs tbody tr.sel td { background: rgba(188,140,255,.18); }
+#ephemWrap table.obs tbody tr.sel:hover td { background: rgba(188,140,255,.24); }
+#ephemMsg { padding: 10px 12px; color: var(--muted); font-size: 12px; }
+
+/* ---- on-sky location pane (Aladin Lite) ---- */
+/* the body must grow to fill the panel so Aladin gets a non-zero box; an
+   absolutely-positioned div (inset:0) then fills it regardless of %-height quirks */
+#skyview .bd { padding: 0; position: relative; overflow: hidden; flex: 1 1 auto; min-height: 0; }
+#aladin-lite-div { position: absolute; inset: 0; }
+.sky-ph { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; text-align: center; padding: 0 18px; color: var(--muted);
+  font-size: 12px; background: radial-gradient(ellipse at 50% 45%, #0c1320 0%, var(--bg) 80%); }
+.sky-ph a { color: var(--accent); text-decoration: underline; cursor: pointer; }
+/* Flexbox makes each text run and inline element its own flex item and trims the
+   whitespace at every item's edge — so an inline <a> placed DIRECTLY inside the
+   flex-centered .sky-ph loses its surrounding spaces ("Click anephemeris rowto plot").
+   The fix is to wrap the copy in a single child (a <span>; see SKY_PH_DEFAULT). This
+   rule is a global safety net: it restores the spaces for any link still left as a
+   direct flex item, and is a no-op once the copy is wrapped (the <a> is then inside the
+   span, not a flex item, so this selector no longer matches). */
+.sky-ph > a { margin: 0 .25ch; }
+#skyHint { color: var(--muted); font-size: 11px; }
+.orbarium-legend { line-height: 1.55; }
+.iconbtn { padding: 1px 7px; font-size: 13px; line-height: 1.2; background: transparent;
+  border-color: transparent; color: var(--muted); }
+.iconbtn:hover { color: var(--fg); border-color: var(--border); }
+/* settings gear in the topbar (far right) */
+.gearbtn { font-size: 16px; line-height: 1; padding: 3px 7px; margin-left: 2px; }
+.gearbtn:hover { color: var(--accent); }
+/* settings modal: read-only host/data inventory */
+.dialog.settings { width: min(640px, 94vw); }
+.settings-body { max-height: 66vh; overflow: auto; font-size: 12.5px; }
+.settings-loading { color: var(--muted); padding: 14px 2px; }
+.set-platform { color: var(--muted); font-size: 11.5px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.set-group-hd { text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+  font-size: 10.5px; margin: 12px 0 4px; }
+.set-list { list-style: none; margin: 0; padding: 0; }
+.set-row { display: flex; gap: 9px; padding: 6px 0; border-top: 1px solid rgba(48,54,61,.5); }
+.set-row:first-child { border-top: none; }
+.set-mark { flex: 0 0 16px; text-align: center; font-weight: 700; font-size: 13px; }
+.set-mark.ok { color: var(--good); }
+.set-mark.bad { color: var(--warn); }
+.set-mark.bad.crit { color: var(--bad); }
+.set-mark.neutral { color: var(--muted); }
+.set-main { min-width: 0; flex: 1 1 auto; }
+.set-name { color: var(--fg); font-weight: 600; display: flex; flex-wrap: wrap;
+  align-items: baseline; gap: 7px; }
+.set-detail { color: var(--muted); font-weight: 400; font-size: 11px;
+  font-family: var(--mono); }
+.set-path { color: var(--muted); font-size: 10.5px; opacity: .8;
+  overflow-wrap: anywhere; margin-top: 1px; }
+.set-note { color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 2px; }
+.settings-note { color: var(--muted); font-size: 11px; line-height: 1.4; flex: 1 1 auto;
+  max-width: 460px; }
+.vizhint { position: absolute; bottom: 40px; left: 9px; color: var(--muted);
+  font-size: 10px; pointer-events: none; }
+/* time scrubber overlaid at the bottom of the viz */
+.timebar { position: absolute; bottom: 0; left: 0; right: 0; display: flex; gap: 7px;
+  align-items: center; padding: 6px 9px; background: rgba(13,17,23,.82);
+  border-top: 1px solid var(--border); backdrop-filter: blur(3px); }
+.timebar button { padding: 3px 8px; font-size: 11px; }
+/* .timebar button.active shares the blue-toggle look grouped up in the obs-panel section */
+.timebar input[type=range] { flex: 1; min-width: 60px; accent-color: var(--orbit); }
+.timebar input[type=date] { background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 5px; padding: 2px 5px; font-size: 11px;
+  color-scheme: dark; }
+/* fullscreen: the panel fills the screen; canvas grows; controls stay overlaid */
+#viz3d:fullscreen { background: var(--bg); }
+#viz3d:fullscreen .bd { height: calc(100vh - 34px); }
+.legend { position: absolute; top: 6px; right: 9px; font-size: 10px; text-align: right;
+  pointer-events: none; line-height: 1.5; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+  margin-left: 5px; vertical-align: middle; }
+/* the body must grow to fill the fixed-height panel so the SVG's height:100% has
+   a definite box to resolve against (otherwise it collapses to a sliver). */
+#ocplot > .bd { flex: 1 1 auto; min-height: 0; }
+#ocplot svg { width: 100%; height: 100%; display: block; }
+/* systematic-misfit alarm: the O-C title turns bright red when the engine flags a
+   within-apparition residual trend (likely a bad linkage). */
+#ocHead.sysflag { background: var(--bad); color: #fff; border-bottom-color: var(--bad); }
+/* whiten ONLY the title (first child) for contrast on red -- NOT the whole header, or the
+   RA/Dec color-key swatches in .oclegend get washed to white and the key stops keying. */
+#ocHead.sysflag > span:first-child { color: #fff; }
+
+/* ---- history ---- */
+.hist { list-style: none; margin: 0; padding: 0; }
+.hist li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0;
+  border-bottom: 1px solid #21262d; }
+.hist li .stage { font-family: var(--mono); color: var(--accent); flex: 0 0 auto; }
+.hist li .meta { color: var(--muted); font-size: 11px; margin-left: auto; white-space: nowrap; }
+.hist li.dropped .stage { color: var(--muted); text-decoration: line-through; }
+.hist li.clickable { cursor: pointer; }
+.hist li.clickable:hover { background: rgba(88,166,255,.08); }
+.hist li.active { background: rgba(248,81,73,.14); }
+.hist li.active .stage { color: #ffb3ad; }
+
+#msg { padding: 10px 14px; color: var(--warn); font-size: 12px; }
+.loading { color: var(--accent); }
+.empty { color: var(--muted); padding: 20px; text-align: center; }
+
+/* ---- export dropdown + paste/ephemeris dialogs ---- */
+.menuwrap { position: relative; display: inline-flex; }
+.menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 7px;
+  padding: 4px; min-width: 170px; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+.menu button { display: block; width: 100%; text-align: left; border: none;
+  border-radius: 5px; background: transparent; padding: 7px 9px; }
+.menu button:hover { background: var(--panel2); }
+/* "Submit linkage" + its ▾: one split button; [hidden] must beat display:inline-flex */
+.splitbtn[hidden] { display: none; }
+.splitbtn > button.primary:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.splitbtn > button.primary + button.primary { border-top-left-radius: 0; border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(0,0,0,.25); padding-left: 7px; padding-right: 7px; }
+.splitbtn .menu { left: auto; right: 0; min-width: 260px; }
+
+/* Split button (random object): draw on the left, family picker on the right, joined
+   into one control. The label swaps to a countdown while the button is cooling down,
+   so give it a floor width and centre it -- otherwise the top bar jitters each second. */
+.splitwrap > .split-main {
+  border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none;
+  min-width: 92px; text-align: center;
+}
+.splitwrap > .split-caret {
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+  padding-left: 6px; padding-right: 6px; color: var(--muted);
+}
+.splitwrap > .split-caret:hover { color: var(--fg); }
+.splitwrap > .split-main:hover + .split-caret:not(:disabled),
+.splitwrap > .split-caret:hover { border-color: var(--accent); }
+#randomMenu { right: 0; left: auto; min-width: 210px; }
+#randomMenu button { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.overlay { position: fixed; inset: 0; z-index: 50; display: flex;
+  align-items: center; justify-content: center; padding: 16px;
+  background: rgba(1,4,9,.6); backdrop-filter: blur(2px); }
+/* the `display:flex` above outranks the UA [hidden]{display:none}; restore it so a
+   hidden overlay actually stays hidden (otherwise both dialogs cover the page). */
+.overlay[hidden] { display: none; }
+.dialog { background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; width: min(700px, 94vw); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 11px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.dlg-hd { font-weight: 600; font-size: 14px; }
+.dlg-hd small { color: var(--muted); font-weight: 400; margin-left: 8px; font-size: 11px; }
+.dlg-ft { display: flex; gap: 8px; align-items: center; }
+/* about / credits modal */
+.about-body { font-size: 12.5px; line-height: 1.55; color: var(--fg);
+  max-height: 64vh; overflow: auto; }
+.about-body p { margin: 0 0 10px; }
+.about-sub { color: var(--muted); }
+.credits { margin: 0 0 10px; padding-left: 18px; }
+.credits li { margin-bottom: 8px; }
+.credits a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.credits a:hover { text-decoration: underline; }
+.about-foot { color: var(--muted); font-size: 11.5px; border-top: 1px solid var(--border);
+  padding-top: 9px; margin-bottom: 0; }
+#pasteText, #exportResultText { width: 100%; height: 46vh; resize: vertical; background: var(--bg);
+  color: var(--fg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 9px 11px; font-family: var(--mono);
+  font-size: 12px; line-height: 1.45; }
+/* the export box is read-only (copy target); keep it visually identical, no whitespace wrap */
+#exportResultText { white-space: pre; overflow: auto; }
+/* live ITF-search trace feed: terminal-style scrollback */
+#itfTraceText { margin: 0; height: 56vh; overflow: auto; white-space: pre;
+  background: var(--bg); color: var(--fg); font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.4; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 6px; }
+/* the MPC identification document shown verbatim in the final submit confirmation.
+   NO vertical scroll of its own: it sits inside #submitConfirmBody (.about-body,
+   max-height 64vh, overflow auto), and a bounded scroller nested in a scroller
+   hid its last lines whenever the claim/caution lists above pushed its foot past
+   the body's edge -- a trackpad gesture latches to the inner box, which bounced
+   at its end and snapped back while the outer one never moved. One scroller:
+   the body. Horizontal overflow stays local (long ids, white-space: pre). */
+#submitConfirmJson { margin: 4px 0 0; overflow-x: auto; white-space: pre;
+  background: var(--bg); color: var(--fg); font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.4; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 6px; }
+#submitConfirmBody ul.claim { list-style: none; margin: 4px 0 10px; padding: 0 0 0 4px; }
+#submitConfirmBody ul.claim li { font-family: var(--mono); font-size: 12px;
+  padding: 1px 0; color: var(--fg); }
+#submitConfirmBody ul.claim.prose li { font-family: inherit; font-size: 12.5px;
+  color: var(--warn); }
+#submitConfirmBody p { margin: 0 0 4px; }
+.ephem-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.dlg-note { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 10px; }
+.ephem-form label { display: flex; flex-direction: column; gap: 4px;
+  color: var(--muted); font-size: 12px; }
+.ephem-form input { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 9px; font-size: 13px; width: 100%; color-scheme: dark; }
+/* "Suppress unobservables" checkbox: a full-width row under the 2-column grid, with the
+   rule it applies spelled out beneath (and greyed when the site has no horizon). */
+.eph-chk { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px;
+  align-items: center; margin-top: 12px; font-size: 12.5px; cursor: pointer; }
+.eph-chk input { width: 14px; height: 14px; accent-color: var(--accent); }
+.eph-chk small { grid-column: 2; color: var(--muted); font-size: 11px; }
+.eph-chk.disabled { opacity: .5; cursor: default; }
+/* tally of the epochs the display cuts removed, above the ephemeris table */
+.eph-hidden { color: var(--muted); font-size: 11.5px; padding: 6px 8px; }
+/* ... and the break standing in for each removed RUN, inside the table: a dashed rule
+   so two rows either side of it are never read as consecutive epochs. */
+.eph-break td { color: var(--muted); font-size: 10.5px; text-align: center;
+  padding: 3px 8px; background: none;
+  border-top: 1px dashed var(--border); border-bottom: 1px dashed var(--border); }
+.eph-break:hover td { background: none; }
+
+/* ===========================================================================
+   Responsive — desktop (>1100px) keeps the original 3-column grid untouched.
+   Tablet landscape narrows the side columns; tablet-portrait / phone stack to a
+   single scrollable column (orbit first, then elements, then the obs table).
+   =========================================================================== */
+@media (max-width: 1100px) and (min-width: 901px) {
+  #workspace { grid-template-columns: 232px minmax(0, 1fr) 348px; }
+  #workspace.right-collapsed { grid-template-columns: 232px minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  body { height: auto; min-height: 100vh; overflow-y: auto; }
+  #topbar { flex-wrap: wrap; gap: 8px 10px; padding: 9px 11px; }
+  #topbar .brand { flex: 0 0 auto; }
+  #topbar input[type=text] { flex: 1 1 160px; width: auto; min-width: 0; order: 4; }
+  #topbar .spacer { display: none; }
+  #status { order: 6; width: 100%; flex-wrap: wrap; gap: 8px 12px; }
+
+  #workspace {
+    display: flex; flex-direction: column; height: auto; overflow: visible;
+    gap: 10px; padding: 8px;
+  }
+  .col { gap: 10px; }
+  /* reorder: marquee orbit first, then elements/physical/history, then obs */
+  #workspace > .col:nth-child(3) { order: 1; }
+  #workspace > .col:nth-child(1) { order: 2; }
+  #workspace > .col:nth-child(2) { order: 3; }
+  /* the collapse toggle is a desktop-grid affordance; in the mobile stack every
+     column is already shown, so force the visuals column visible even if it was
+     collapsed on desktop, and drop the toggle button + reveal tab. */
+  #workspace.right-collapsed > .col:nth-child(3) { display: flex; }
+  #rightColToggle, #rightColTab { display: none; }
+
+  /* flexible panels need explicit heights once the page (not the panel) scrolls */
+  #viz3d { flex: none; height: 64vh; min-height: 320px; }
+  #ocplot { flex: none; height: 200px; }
+  #obspanel { flex: none; height: 78vh; }
+  #obscol .panel:last-child { flex: none; max-height: 200px; }
+  .col .panel[style*="flex:1"], .col .panel[style*="flex: 1"] { flex: none; }
+  #histBody { max-height: 220px; }
+
+  /* roomier tap targets */
+  button, .timebar button { padding: 7px 12px; }
+  table.obs td, table.obs thead th { padding: 6px 8px; }
+}
+
+@media (max-width: 560px) {
+  #topbar .brand small { display: none; }
+  #workspace { padding: 6px; }
+  .physgrid { grid-template-columns: 1fr; }
+  #viz3d { height: 56vh; }
+  .timebar { flex-wrap: wrap; gap: 6px; }
+  .timebar input[type=range] { order: 5; flex-basis: 100%; }
+}
+
+/* ---- O−C unit segmented switch (arcsec ↔ σ) ---- */
+.ochd-right { display: inline-flex; align-items: center; gap: 10px; }
+/* rounded dark box around BOTH swatches: keeps the orange/blue RA·cosδ / Dec key
+   legible on the red systematic-misfit header (and tidy on the normal one too). */
+.oclegend { display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 2px 7px; }
+/* The colour key IS the axis switch: each entry toggles its own series, so showing
+   one axis alone costs no extra header room. A hidden axis dims to a muted swatch
+   (the colour stays, so the key still keys); one axis always stays on. */
+.oclegend .axkey { border: none; background: none; padding: 0; font: inherit;
+  font-size: 11px; line-height: 1.6; cursor: pointer; opacity: 1;
+  transition: opacity .15s ease; }
+.oclegend .axkey:hover { border: none; opacity: .8; }
+.oclegend .axkey.off { opacity: .35; text-decoration: line-through; }
+.segtoggle { display: inline-flex; align-items: center; padding: 1px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 999px; }
+.segtoggle .seg { border: none; background: transparent; color: var(--muted);
+  font-size: 11px; line-height: 1.6; padding: 1px 9px; border-radius: 999px;
+  cursor: pointer; transition: background .15s ease, color .15s ease; }
+.segtoggle .seg:hover { color: var(--fg); border: none; }
+.segtoggle .seg.active { background: var(--accent); color: #06101f; font-weight: 600; }
+.segtoggle.busy { opacity: .5; pointer-events: none; }
+
+/* --- force-model panel: gravity/+16-ast toggle + non-gravitational model --- */
+#ngPanel > .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* the toggle + the plain-text copy button ride together on the right of that header */
+#ngPanel > .hd .hdright { display: inline-flex; align-items: center; gap: 6px; }
+.ngcopybtn { background: none; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--muted); font-size: 11px; line-height: 1.4; padding: 1px 6px; cursor: pointer; }
+.ngcopybtn:hover { color: var(--fg); border-color: var(--accent); }
+.ngcopybtn.done { color: var(--good); border-color: var(--good); }
+.ngrow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.ngrowlbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+.ngselect { text-transform: none; letter-spacing: 0; font-size: 11px; max-width: 64%;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 2px 4px; cursor: pointer; }
+.ngselect:disabled { opacity: .5; cursor: default; }
+
+/* ---- editable osculating epoch ---- */
+.epochctl { text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--muted);
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.epochctl input[type="date"] {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 1px 5px; font-size: 11px; font-family: inherit;
+  color-scheme: dark; cursor: pointer; }
+.epochctl input[type="date"].busy { opacity: .5; cursor: progress; }
+.ngnote { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.ngnote.bad { color: var(--bad); }
+.ngnote a { color: var(--accent); }
+table.ngtab td.d { text-align: right; padding-left: 6px; white-space: nowrap; }
+.ngsig { font-size: 11px; }
+.ngsig.strong { color: var(--good); }
+.ngsig.weak { color: var(--muted); }
+.ngunit { color: var(--muted); font-size: 10px; text-align: right; margin-top: 2px; }
+/* find_orb's AMR line: the area/mass ratio the 1-parameter SRP model's A1 implies */
+.ngamr { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.ngamr b { font-family: var(--mono); color: var(--fg); font-weight: 600; }
+.ngsigbtn { margin-top: 6px; font-size: 11px; color: var(--accent); background: none;
+  border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+.ngsigbtn:hover:not(:disabled) { border-color: var(--accent); }
+.ngsigbtn:disabled { color: var(--muted); cursor: default; }
+.ngrms { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 12px; }
+.ngrms b { font-family: var(--mono); }
+.ngmuted { color: var(--muted); }
+
+/* constrained-fit panel (find_orb limited_orbit) */
+#conPanel > .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.contoggle { text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--muted);
+  display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.contoggle input { cursor: pointer; }
+.conrow { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+.conlab { flex: 1 1 auto; font-size: 12px; color: var(--fg); display: flex;
+  align-items: center; gap: 5px; cursor: pointer; min-width: 0; }
+.conlab input { cursor: pointer; flex: 0 0 auto; }
+.conval { width: 84px; flex: 0 0 auto; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 5px; padding: 2px 5px;
+  font-family: var(--mono); font-size: 11px; }
+.conunit { flex: 0 0 auto; width: 34px; color: var(--muted); font-size: 10px; }
+.conpresets { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.conpreset { text-transform: none; letter-spacing: 0; font-size: 11px; cursor: pointer;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 6px; }
+.conpreset:hover { border-color: var(--accent); }
+.conactions { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.conapply { text-transform: none; letter-spacing: 0; font-size: 12px; cursor: pointer;
+  background: var(--accent); color: #06121f; border: none; border-radius: 5px;
+  padding: 3px 12px; font-weight: 600; }
+.conapply:hover { filter: brightness(1.08); }
+.conhint { color: var(--muted); font-size: 10.5px; line-height: 1.45; margin-top: 7px;
+  padding-top: 6px; border-top: 1px solid var(--border); }
+.ngnote .bad, span.bad { color: var(--bad); }
+
+/* ---- ephemeral flash banners (reusable toasts) -------------------------
+   A transient notice that holds at full opacity for ~1.8s then fades out over
+   ~1.2s and removes itself. Two variants:
+     .info  — the light-blue slider colour (var(--orbit)) with black text,
+     .alert — white-on-red, matching the systematic-misfit resid warning header.
+   Host is a fixed top-centre stack so multiple banners queue without overlap. */
+.flashhost { position: fixed; top: 56px; left: 50%; transform: translateX(-50%);
+  z-index: 70; display: flex; flex-direction: column; gap: 8px; align-items: center;
+  pointer-events: none; }
+.flash { padding: 9px 12px 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  line-height: 1.4; max-width: 80vw; text-align: center;
+  box-shadow: 0 6px 22px rgba(0,0,0,.45); pointer-events: auto;
+  display: flex; align-items: center; gap: 10px;
+  animation: flashlife 3s ease-out forwards; }
+.flash.info { background: var(--orbit); color: #000; }
+.flash.alert { background: var(--bad); color: #fff; }
+/* 3s total = 1.8s full-opacity hold + 1.2s fade-out (60% of 3s = 1.8s) */
+@keyframes flashlife {
+  0% { opacity: 1; }
+  60% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* .warn — the amber advisory (e.g. "this nongrav model's values may be non-physical").
+   Slightly longer-lived than the confirmations (5s), and always dismissible via its × button. */
+.flash.warn { background: #f0ad3c; color: #201400;
+  animation: flashlife-warn 5s ease-out forwards; }
+@keyframes flashlife-warn {           /* 4s hold + 1s fade */
+  0% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* per-banner dismiss button */
+.flash-msg { flex: 1; }
+.flash-x { flex: none; cursor: pointer; background: none; border: 0; color: inherit;
+  font-size: 18px; line-height: 1; font-weight: 700; opacity: .55; padding: 0 2px; }
+.flash-x:hover { opacity: 1; }
+/* an action inside a banner (the session-expired banner's Re-fit, expirednote.js) */
+.flash-act { flex: none; cursor: pointer; margin-left: 10px; padding: 3px 10px; border-radius: 6px;
+  border: 1px solid rgba(0,0,0,.35); background: rgba(255,255,255,.35); color: inherit;
+  font: inherit; font-weight: 700; }
+.flash-act:hover { background: rgba(255,255,255,.6); }
+
+/* ---- notice log: corner indicator, flying dot & log panel ---------------
+   Every flash banner (above) is also filed here. A moderate dot the banner's
+   colour flies into the corner button (#bannerLogBtn); clicking it opens the log
+   panel of everything that has flashed. Wiring lives in noticelog.js. */
+.logbtn { position: relative; display: inline-flex; align-items: center; justify-content: center;
+  padding: 3px 7px; min-width: 26px; }
+.logbtn .log-dot { width: 11px; height: 11px; border-radius: 50%;
+  background: var(--border); transition: background .2s ease; }
+.logbtn.has-log:hover .log-dot { filter: brightness(1.15); }
+.logbtn .log-count { position: absolute; top: -3px; right: -3px; min-width: 15px; height: 15px;
+  padding: 0 3px; border-radius: 8px; background: var(--accent); color: #06101f;
+  font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; }
+/* brief pulse when a dot arrives */
+.logbtn.arrived { animation: logarrive .45s ease-out; }
+@keyframes logarrive {
+  0% { transform: scale(1); } 35% { transform: scale(1.32); } 100% { transform: scale(1); }
+}
+
+/* Sticky banners (ITF search / linkage) never fade on a timer — they wait for the
+   × or an off-banner click. !important overrides every .flash* animation rule above. */
+.flash.sticky { animation: none !important; opacity: 1 !important; }
+
+/* the moderate dot flung from a banner into the corner */
+.banner-flydot { position: fixed; z-index: 90; width: 16px; height: 16px; border-radius: 50%;
+  margin: -8px 0 0 -8px; pointer-events: none;
+  animation: flydot .6s cubic-bezier(.45,.05,.75,.35) forwards; }
+@keyframes flydot {
+  0%   { transform: translate(0, 0) scale(1);         opacity: 1; }
+  70%  {                                              opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(.4); opacity: .35; }
+}
+
+/* the drop-down log panel */
+.bannerlog { position: fixed; z-index: 71; width: min(360px, 88vw); max-height: 60vh;
+  overflow: hidden; display: flex; flex-direction: column;
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
+  box-shadow: 0 10px 34px rgba(0,0,0,.55); }
+.bannerlog[hidden] { display: none; }   /* [hidden] must beat the display:flex above */
+.bannerlog-hd { display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-size: 12px; font-weight: 700; color: var(--fg); letter-spacing: .3px; }
+.bannerlog-clear { background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; padding: 2px 8px; }
+.bannerlog-clear:hover { color: var(--fg); border-color: var(--muted); }
+.bannerlog-list { overflow-y: auto; padding: 4px 0; }
+.log-empty { padding: 16px 12px; color: var(--muted); font-size: 12px; text-align: center; }
+.log-row { display: flex; align-items: baseline; gap: 9px; padding: 7px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.04); }
+.log-row:last-child { border-bottom: 0; }
+.log-row-dot { flex: none; width: 9px; height: 9px; border-radius: 50%;
+  align-self: center; box-shadow: 0 0 6px rgba(0,0,0,.4); }
+.log-row-msg { flex: 1; font-size: 12px; line-height: 1.4; color: var(--fg); word-break: break-word; }
+.log-row-time { flex: none; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+
+/* ---- impact-location pane (Phase 1) -------------------------------------
+   The central "Impact location" view. A headline (warn = predicted impact,
+   good = no impact), a key/value or crossings table, and a muted footer
+   noting the searched window + force model. Reuses table.obs for the
+   crossings table; only the surrounding card chrome is new. */
+.impact-msg { padding: 16px; color: var(--muted); }
+.impact-card { padding: 14px 16px; }
+.impact-headline { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.impact-headline.warn { color: var(--bad); }
+.impact-headline.ok { color: var(--good); }
+.impact-sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+.impact-kv { border-collapse: collapse; }
+.impact-kv td { padding: 4px 14px 4px 0; vertical-align: top; }
+.impact-kv td:first-child { color: var(--muted); white-space: nowrap; }
+.impact-kv td:last-child { color: var(--fg); font-variant-numeric: tabular-nums; }
+table.impact-cross { width: 100%; }
+table.impact-cross a { color: var(--accent); text-decoration: none; font-size: 11px; }
+table.impact-cross a:hover { text-decoration: underline; }
+.impact-footprint { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border, #2a2a2a); }
+.impact-footprint .fp-hd { font-size: 12px; font-weight: 600; color: var(--fg); margin-bottom: 6px; }
+.impact-note { padding: 0 16px 6px; color: var(--warn); font-size: 11px; }
+.impact-foot { padding: 4px 16px 14px; color: var(--muted); font-size: 11px; }
+
+/* ---- Earth Impacts pane: impact-location section header --------------- */
+.impact-sec-hd { padding: 9px 16px 7px; font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .5px; color: var(--accent);
+  border-bottom: 1px solid var(--border); background: rgba(88,166,255,.05); }
+.impact-sec-hd .impact-sec-sub { display: block; margin-top: 2px; font-weight: 400;
+  text-transform: none; letter-spacing: 0; color: var(--muted); font-size: 11px; }
+.impact-sec-hd .impact-sec-sub strong { color: var(--warn); }
+
+/* nongrav robustness (jackknife) shown as a secondary line under each coefficient */
+table.ngtab tr.ngjkrow td.ngjk { font-size: 11px; color: var(--muted); padding: 0 0 4px 6px;
+  border: none; white-space: nowrap; }
+table.ngtab tr.ngjkrow td { border: none; }
+.ngjkbad { color: var(--bad); font-weight: 600; }
+table.ngtab tr.ngjkrow.bad td.ngjk { color: var(--bad); }
+
+/* ---- Tools menu (toolsmenu.js): Random, ITF search/trace, NEOCP monitor ---- */
+.toolsmenu { min-width: 200px; }
+.toolsmenu .splitwrap { display: flex; width: 100%; }
+.toolsmenu .splitwrap > .split-main { flex: 1; width: auto; text-align: left; min-width: 0; }
+.toolsmenu .splitwrap > .split-caret { flex: none; width: auto; }
+.toolsmenu #randomMenu { top: 0; left: calc(100% + 6px); right: auto; }
+.menu a { display: block; padding: 7px 9px; border-radius: 5px; color: var(--fg);
+  text-decoration: none; }
+.menu a:hover { background: var(--panel2); }
+.menu button:disabled { color: var(--muted); cursor: default; background: transparent; }
+
+/* digest2 (d2note.js, d2tracklets.js): the raw / no-ID switch, and the per-tracklet column --
+   its header flips the flavour, so it reads as a control; a score at the NEOCP's 65 bar is
+   picked out. */
+.d2-switch { margin-left: 6px; font-weight: 400; }
+.d2-switch button.d2-flav { font-size: 11px; padding: 0 6px; margin-left: 2px; opacity: .7; }
+.d2-switch button.d2-flav.active { opacity: 1; border-color: var(--warn); }
+table.obs th.d2h { text-decoration: underline dotted; white-space: nowrap; }
+table.obs td.d2c { font-variant-numeric: tabular-nums; color: var(--muted); }
+table.obs td.d2c.d2hot { color: var(--warn); font-weight: 600; }

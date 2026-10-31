@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyRoOrb</title>
+<!-- Favicons.  The .ico (16/32/48) is the legacy fallback every browser still
+     asks for; the 32/96/192 PNGs are what modern browsers actually pick, the
+     180 is iOS's home-screen icon, and the manifest carries 192/512 for
+     Android / installed-PWA surfaces. -->
+<link rel="icon" href="/static/icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/pyroorb-32.png">
+<link rel="icon" type="image/png" sizes="96x96" href="/static/icons/pyroorb-96.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icons/pyroorb-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/pyroorb-180.png">
+<link rel="manifest" href="/static/icons/site.webmanifest">
+<meta name="theme-color" content="#252932">
+<link rel="stylesheet" href="/static/style.css">
+<!-- web add-ons: styles -->
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-956W73JTP9"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-956W73JTP9');
+</script>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="brand" id="aboutLink" role="button" tabindex="0"
+       title="About PyRoOrb — what this is &amp; credits"><img class="brandlogo"
+         src="/static/icons/pyroorb-64.png" alt="" width="18" height="18">PyRoOrb
+    <span class="aboutmark">ⓘ</span></div>
+  <input type="text" id="desig" placeholder="type object name or designation here…"
+         autocomplete="off" spellcheck="false">
+  <button class="primary" id="fitBtn">Fit</button>
+  <button id="pasteBtn" title="Paste OBS80 / ADES observations and fit them">Paste obs</button>
+  <!-- Tools menu (toolsmenu.js): the occasional actions, folded out of the top bar.
+       The items keep their ids, so app.js / randomobj.js drive them exactly as before
+       (itfBtn enabled once an orbit loads, itfTraceBtn shown after a search). Web add-ons
+       installed on this server add their own links at the marker below (web/addons.py). -->
+  <div class="menuwrap" id="toolsWrap">
+    <button id="toolsBtn" aria-haspopup="true" aria-expanded="false"
+            title="Random object, ITF search and trace, and more">Tools ▾</button>
+    <div id="toolsMenu" class="menu toolsmenu" hidden>
+      <!-- Random object: split button (draw | pick a family). The family menu is built at
+           load from GET /api/random_families so the list can't drift from the engine's. -->
+      <div class="menuwrap splitwrap" id="randomWrap">
+        <button id="randomBtn" class="split-main"
+                title="Fit a random real asteroid">🎲 Random</button>
+        <button id="randomMenuBtn" class="split-caret" aria-haspopup="true" aria-expanded="false"
+                aria-label="Choose which family the random object comes from"
+                title="Choose which family the random object comes from">▾</button>
+        <div id="randomMenu" class="menu" hidden></div>
+      </div>
+      <button id="itfBtn" disabled
+              title="Search the MPC Isolated Tracklet File for unlinked observations of this object">ITF search</button>
+      <button id="itfTraceBtn" hidden
+              title="Re-open the live decision trace of the most recent ITF search">ITF trace</button>
+      <a id="idqueueLink" href="https://www.pyroorb.net/identifications/policies" target="_blank"
+         rel="noopener" title="How the PyRoOrb identification queue works, with links to submit or upload a document and to the live dashboard (opens in a new tab)">Identification queue ↗</a>
+      <!-- web add-ons: menu -->
+    </div>
+  </div>
+  <div class="menuwrap splitbtn" id="itfSubmitWrap" hidden>
+    <button id="itfSubmitBtn" class="primary"
+            title="Submit this linkage to the PyRoOrb identification queue, which checks it, extends it with any ITF tracklets and forwards it to the Minor Planet Center">Submit linkage</button><button
+            id="itfSubmitMore" class="primary" aria-haspopup="menu"
+            title="Other ways to submit this linkage">▾</button>
+    <div id="itfSubmitMenu" class="menu" hidden>
+      <button id="itfDownloadBtn">Download linkage file (JSON)</button>
+      <button id="itfDirectBtn" hidden>Submit directly to the MPC (skip the queue)</button>
+      <button id="itfIdentityBtn">Change name / e-mail…</button>
+    </div>
+  </div>
+  <div class="menuwrap">
+    <button id="exportBtn" title="Export this orbit" disabled>Export ▾</button>
+    <div id="exportMenu" class="menu" hidden>
+      <button data-export="mpec">Pseudo-MPEC (HTML)</button>
+      <button data-export="elements">Orbital elements (8-line)</button>
+      <button data-export="mpcorb">MPCORB line</button>
+      <button data-export="sof">SOF record</button>
+      <button data-export="state">State vector + covariance (JSON)</button>
+      <button data-export="covar">find_orb covar.json</button>
+      <button data-export="ephem">Ephemeris…</button>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div id="status"></div>
+  <button id="rightColToggle" class="colcol-btn" aria-pressed="true"
+          title="Show or hide the visuals column (3D orbit, sky view, O−C plot). Auto-shows at ≥1500px wide, auto-hides below.">Visuals ▸</button>
+  <button id="settingsBtn" class="iconbtn gearbtn" title="Settings — data files &amp; environment status"
+          aria-label="Settings" aria-haspopup="dialog">⚙</button>
+  <div class="menuwrap">
+    <button id="bannerLogBtn" class="iconbtn logbtn" aria-haspopup="dialog" aria-expanded="false"
+            title="Notice log — every banner that has appeared. Click to review.">
+      <span class="log-dot" aria-hidden="true"></span>
+      <span id="bannerLogCount" class="log-count" hidden>0</span>
+    </button>
+  </div>
+</div>
+
+<div id="msg"></div>
+
+<div id="workspace" hidden>
+  <!-- left column: elements + physical + history -->
+  <div class="col" style="min-width:0">
+    <div class="panel" style="flex:0 0 auto">
+      <div class="hd elem-hd">
+        <span class="hd-title">Orbital elements</span>
+        <span id="frameLbl" class="framelbl"></span>
+        <label id="epochCtl" class="epochctl" title="Osculating epoch — pick a date to integrate the orbit to and read the elements there (the calendar's Today is built in). Residuals are unchanged until the next Full step." hidden>
+          epoch <input type="date" id="elemEpoch">
+        </label>
+        <span id="satToggle" class="sattoggle" hidden></span>
+      </div>
+      <div class="bd">
+        <div id="constraintBanner" class="constraint-warn" hidden></div>
+        <table class="kv"><tbody id="elemBody"></tbody></table>
+      </div>
+    </div>
+    <div class="panel" style="flex:0 0 auto">
+      <div class="hd">Physical &amp; classification</div>
+      <div class="bd"><div class="physgrid" id="physBody"></div></div>
+    </div>
+    <div class="panel" id="ngPanel" style="flex:0 0 auto" hidden>
+      <div class="hd">Force model
+        <span class="segtoggle" id="astToggle" role="group" aria-label="asteroid perturbers">
+          <button class="seg active" data-ast="0" title="Sun + 8 planets + GR (DE440)">gravity</button>
+          <button class="seg" data-ast="1" title="Add the 16 massive-asteroid perturbers (sb441-n16) and re-fit">+16 ast</button>
+        </span>
+      </div>
+      <div class="bd">
+        <label class="ngrow"><span class="ngrowlbl">non-grav</span>
+          <select id="ngSelect" class="ngselect" title="Re-solve the orbit with out-gassing / Yarkovsky terms"></select>
+        </label>
+        <div id="ngBody"></div>
+      </div>
+    </div>
+    <div class="panel" id="conPanel" style="flex:0 0 auto" hidden>
+      <div class="hd">Constrained fit
+        <label class="contoggle" title="Hold orbital elements fixed (find_orb limited_orbit)">
+          <input type="checkbox" id="conToggle"> hold elements fixed</label>
+      </div>
+      <div class="bd" id="conBody" hidden></div>
+    </div>
+    <div class="panel" style="flex:1 1 auto">
+      <div class="hd">How the orbit was fit <span class="mono" id="iodLbl"></span></div>
+      <div class="bd"><ul class="hist" id="histBody"></ul></div>
+    </div>
+  </div>
+
+  <!-- center: observations & residuals -->
+  <div class="col" id="obscol">
+    <div class="panel" id="obspanel" style="flex:1 1 auto">
+      <div class="hd">
+        <span class="panepick">
+          <select id="paneSelect" class="panetitle-select" title="Switch the central pane">
+            <option value="obs">Observations &amp; residuals</option>
+            <option value="orbarium">Orbarium</option>
+            <option value="ephem">View Ephemeris</option>
+            <option value="impact">Earth Impacts</option>
+          </select>
+          <span id="obsCount" class="mono"></span>
+        </span>
+        <!-- One control strip per central pane: .panectl + data-pane, matched by
+             setCentralPane() against the same value as the <option> above and the
+             pane body below. NEVER give one an inline `display` — an inline style
+             outranks the stylesheet and the strip would show on every pane. -->
+        <span id="obsControls" class="panectl" data-pane="obs">
+          <button id="worstBtn" title="Jump to the worst included residual (press w)">⤓ worst</button>
+          <button id="fullStepBtn" title="ONE differential-correction step on the current included set (press f, find_orb-style) — click again to iterate; an unchanged orbit means converged" hidden>Full step →</button>
+          <button id="multiStepBtn" title="Re-solve to convergence on the current included set (press m)" hidden>Multi-step ↻</button>
+          <button id="reAutoBtn" title="Re-run the full automatic pipeline — start orbit, outlier rejection, model discovery — on the current observation set, as if freshly pasted. Discards manual include/exclude edits." hidden>Re-auto-solve 🪄</button>
+          <button id="mpc80Btn" title="Toggle MPC 80-column astrometry — excluded obs carry an 'x' in column 65 (find_orb-style)">MPC 80</button>
+          <button id="addlBtn" title="Show additional per-obs ADES columns — obs ID, trkSub, reported σRA/σDec/σmag, log SNR (scroll right)">＋ addl info</button>
+          <button id="copyObsBtn" title="Copy the astrometry to the clipboard" hidden>⧉ copy</button>
+          <label style="text-transform:none;letter-spacing:0">
+          <input type="checkbox" id="worstFirst"> worst first</label></span>
+        <span id="ephemControls" class="panectl" data-pane="ephem" hidden>
+          <span class="mono" id="ephemRangeLabel" style="text-transform:none;letter-spacing:0"></span>
+          <button id="ephemParamsBtn" title="Ephemeris settings — start date, step, number of steps, observatory"><span class="gear">⚙</span> Ephem Settings</button>
+        </span>
+        <span id="orbariumControls" class="panectl" data-pane="orbarium" hidden></span>
+        <span id="impactControls" class="panectl" data-pane="impact" hidden></span>
+      </div>
+      <!-- pane-owned, but its own state decides too: see paneStateShow() -->
+      <div id="obsBanner" class="paneowned" data-pane="obs" hidden></div>
+      <div class="bd panebody" id="obsScroll" data-pane="obs"></div>
+      <div class="bd panebody" id="orbariumWrap" data-pane="orbarium" hidden>
+        <canvas id="orbariumCanvas"></canvas>
+        <div id="orbariumLegend" class="legend orbarium-legend"></div>
+      </div>
+      <div class="bd panebody" id="ephemWrap" data-pane="ephem" hidden></div>
+      <div class="bd panebody" id="impactWrap" data-pane="impact" hidden></div>
+    </div>
+    <div class="panel" style="flex:0 0 auto; max-height:160px">
+      <div class="hd">Observatories <span class="mono" id="obsCodeCount"></span></div>
+      <div class="bd" id="codeBody"></div>
+    </div>
+  </div>
+
+  <!-- right: 3D orbit + O-C plot -->
+  <div class="col">
+    <div class="panel" id="viz3d">
+      <div class="hd"><span>Heliocentric orbit (3D — drag to rotate, scroll to zoom)</span>
+        <button id="fsBtn" class="iconbtn" title="Fullscreen">⛶</button></div>
+      <div class="bd">
+        <canvas id="orbitCanvas"></canvas>
+        <div class="legend" id="legend"></div>
+        <div class="vizhint">ecliptic J2000 · ☉ at origin</div>
+        <div class="timebar" id="timebar">
+          <button id="tEpoch" title="Snap to the osculating-elements epoch">Fit epoch</button>
+          <button id="tNow" title="Snap to today">Now</button>
+          <input type="range" id="tSlider" min="0" max="1000" value="500" step="1">
+          <input type="date" id="tDate">
+        </div>
+      </div>
+    </div>
+    <div class="panel" id="skyview" hidden style="flex:0 0 auto; height:300px">
+      <div class="hd"><span>On-sky location <span class="mono" id="skyTitle"></span></span>
+        <span id="skyHint" class="mono" style="text-transform:none;letter-spacing:0"></span></div>
+      <div class="bd" id="skyBody" style="padding:0;position:relative">
+        <div id="aladin-lite-div"></div>
+        <div id="skyPlaceholder" class="sky-ph"><span>Click an <a href="#" id="skyPhEphemLink">ephemeris row</a> to plot its sky position.</span></div>
+      </div>
+    </div>
+    <div class="panel" id="ocplot" style="flex:0 0 auto; height:240px">
+      <div class="hd" id="ocHead"><span>O−C residuals vs time</span>
+        <span class="ochd-right" style="text-transform:none">
+          <span class="oclegend" id="ocAxisToggle" role="group" aria-label="O−C axes shown">
+            <button class="axkey" data-axis="ra" style="color:var(--ra)"
+                    title="show / hide the RA·cosδ residuals (one axis must stay on)">● RA·cosδ</button>
+            <button class="axkey" data-axis="dec" style="color:var(--dec)"
+                    title="show / hide the Dec residuals (one axis must stay on)">● Dec</button></span>
+          <span class="segtoggle" id="ocUnitToggle" role="group" aria-label="O−C residual units">
+            <button class="seg active" data-unit="arcsec" title="show residuals in arcseconds">arcsec</button>
+            <button class="seg" data-unit="sigma" title="show residuals normalised by per-obs σ">σ</button>
+          </span></span></div>
+      <div class="bd" id="ocBody" style="padding:4px"></div>
+    </div>
+  </div>
+  <!-- reveal handle for the collapsed visuals column: a fixed edge tab, shown only
+       when that column is folded away, so the way to bring it back is always visible -->
+  <button id="rightColTab" hidden
+          title="Show the visuals column (3D orbit, sky view, O−C plot)">◂&nbsp;Visuals</button>
+</div>
+
+<!-- paste-an-obs-blob loader (WEB_UI_PLAN §2.7) -->
+<!-- about / credits modal -->
+<div id="aboutOverlay" class="overlay" hidden>
+  <div class="dialog about">
+    <div class="dlg-hd">PyRoOrb <small>Python robust orbit determination</small></div>
+    <div class="about-body">
+      <p>Automatic fitting of small-body astrometry to get a high-quality orbit even with sparse or bad data. Suspect observations and
+        mislinked tracklets are automatically excluded without losing valid tracklets. Automatically applies nongravs when needed while also detecting and applying asteroidal perturbers.
+        Uncertainties, ephemerides, two-object proposed identification analysis, and a native search of the MPC
+        <b>Isolated Tracklet File</b> for unattributed tracklets of the object right in a browser tab. ITF search is recursive for maximum discovery, tuned for speed, runs against live SBN ITF
+        contents, and tries a variety of paths until it finds one that works, including LOV and nongravs when needed.</p>
+        <p>The fitting engine and user interface are very much
+        <b>find_orb</b> inspired, but pure-Python, cross-platform and pip-installable. Runs anywhere ASSIST runs; Windows users may need to use WSL2 until Windows wheels are available for ASSIST.</p>
+      <p class="about-sub">Standing on the shoulders of giants:</p>
+      <ul class="credits">
+        <li><a href="https://github.com/Bill-Gray/find_orb" target="_blank" rel="noopener">find_orb</a>
+          (Bill Gray / Project Pluto) — the reference and intellectual foundation. Its initial-orbit
+          cascade, progressive arc extension &amp; automatic blunder rejection, per-obs weighting,
+          MOID / orbit class / uncertainty parameter, nongravitational forces treatment, and constrained fits are emulated here. Logic openly ported in multiple places.</li>
+        <li><a href="https://github.com/matthewholman/assist" target="_blank" rel="noopener">ASSIST</a>
+          (Holman et al.) — solar-system REBOUND setup with ephemeris-quality forces: JPL <b>DE440</b>, general
+          relativity, separate Earth &amp; Moon, and the optional 16 massive-asteroid perturbers.</li>
+        <li><a href="https://github.com/hannorein/rebound" target="_blank" rel="noopener">REBOUND</a>
+          (Rein &amp; Liu) — the python-based <b>IAS15</b> integrator, allowing PyRoOrb to run anywhere python runs.</li>
+        <li>Observations are fetched as ADES live from the MPC Observations API.</li>
+      </ul>
+      <p class="about-foot">CLI and PyPI hopefully coming soon. Created by Peter VanWylen; development significantly accelerated by Agentic AI.</p>
+    </div>
+    <div class="dlg-ft"><div class="spacer"></div><button class="primary" id="aboutClose">Close</button></div>
+  </div>
+</div>
+
+<!-- settings: read-only host/data inventory (no mutation yet) -->
+<div id="settingsOverlay" class="overlay" hidden>
+  <div class="dialog settings">
+    <div class="dlg-hd">Settings <small>host &amp; data inventory — read-only for now</small></div>
+    <div class="settings-body" id="settingsBody">
+      <div class="settings-loading">Loading host status…</div>
+    </div>
+    <div class="dlg-ft">
+      <div class="settings-note">Nothing here is editable yet — this is an inspector for which
+        ephemerides, tables and caches resolved on this host. A missing optional file silently
+        changes the fit, so this is where to look when two hosts disagree.</div>
+      <div class="spacer"></div>
+      <button class="primary" id="settingsClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="pasteOverlay" class="overlay" hidden>
+  <div class="dialog">
+    <div class="dlg-hd">Paste observations <small>OBS80 (MPC 80-col) or ADES (PSV / XML)</small></div>
+    <textarea id="pasteText" spellcheck="false"
+      placeholder="Paste MPC 80-column lines or an ADES file here…"></textarea>
+    <div class="dlg-ft">
+      <div class="spacer"></div>
+      <button id="pasteCancel">Cancel</button>
+      <button id="pasteAdd" title="Merge these observations into the open fit and re-fit the combined arc" hidden>Add to current fit</button>
+      <button class="primary" id="pasteFit">Fit pasted</button>
+    </div>
+  </div>
+</div>
+
+<!-- ITF search options: hunt the Isolated Tracklet File for more observations
+     of the open object. Runs live against the SBN database; NEVER submits. -->
+<div id="itfOverlay" class="overlay" hidden>
+  <div class="dialog">
+    <div class="dlg-hd">ITF search <small>hunt the MPC Isolated Tracklet File for unlinked
+      observations of this object</small></div>
+    <div class="ephem-form">
+      <!-- The values below are only an offline fallback: the modal fills these
+           fields from the engine's own ItfConfig (GET /api/itf_defaults) each
+           time it opens, so a default that moves in the engine cannot leave the
+           UI silently searching on the old one. -->
+      <label>Max ephemeris uncertainty (")
+        <input type="number" id="itfMaxUnc" value="144000" min="60" step="1000"
+          title="Skip corridor windows whose predicted sky uncertainty exceeds this"></label>
+      <label>Corridor width multiplier
+        <input type="number" id="itfUncMult" value="2.5" min="0.5" max="10" step="0.1"
+          title="Scales the 1-sigma corridor half-width used to admit candidates"></label>
+      <label>Faint limit (mag, affects speed)
+        <input type="number" id="itfMagLimit" placeholder="default is 23.5" min="16" max="28" step="0.1"
+          title="Skip corridor windows where the object is predicted fainter than this. The ITF's own depth peaks at 21.5-22.5, so a lower cut sweeps far fewer windows and searches faster; raise it to 24 to search the faint tail too. Left empty, the default is used, deepened per object to at least 1 mag fainter than its brightest predicted magnitude since 1995 so a faint TNO is never skipped outright; a value typed here is used exactly"></label>
+      <label>Candidate ranking
+        <select id="itfRankMode">
+          <option value="ml" selected>ML model</option>
+          <option value="certainty">Certainty match-chi2</option>
+          <option value="legacy">Legacy distance + rate-residual score</option>
+        </select></label>
+      <label>Candidate source
+        <select id="itfCandidateSource">
+          <option value="index" selected>Tracklet index (fast)</option>
+          <option value="scan">Obs-table scan (slow A/B)</option>
+        </select></label>
+      <label title="Gaussian-jitter the seed astrometry to explore variant orbits (stochastic re-runs)">
+        Seed jitter
+        <select id="itfJitter">
+          <option value="" selected>off (deterministic)</option>
+          <option value="1">on (variant orbits)</option>
+        </select></label>
+      <!-- The trace verbosity belongs HERE, with the other launch options: the
+           search reads it once, when it starts. It used to live only in the
+           trace-viewer overlay, where changing it looked like it did nothing
+           (the running search keeps its level) and where a page reload silently
+           reset it -- so most searches ran at the default whatever was picked.
+           The viewer keeps a live copy that re-levels the RUNNING search. -->
+      <label title="How much the search narrates to the live trace feed">
+        Trace detail
+        <select id="itfTraceLevel">
+          <option value="1">1 &mdash; headline (rounds, links, verdict)</option>
+          <option value="2">2 &mdash; narrative</option>
+          <option value="3">3 &mdash; every trial and candidate</option>
+          <option value="4">4 &mdash; + window and database rows</option>
+        </select></label>
+    </div>
+    <div class="dlg-note">Runs live against the SBN database (typically 30&ndash;120&nbsp;s;
+      a very uncertain orbit can take longer). A found linkage replaces the view with the
+      extended fit &mdash; nothing is ever submitted to the MPC from here.</div>
+    <div class="dlg-ft">
+      <div class="spacer"></div>
+      <button id="itfCancel">Cancel</button>
+      <button class="primary" id="itfGo">Search ITF</button>
+    </div>
+  </div>
+</div>
+
+<!-- live ITF-search trace ("see trace" during a running search) -->
+<div id="itfTraceOverlay" class="overlay" hidden>
+  <div class="dialog" style="max-width: 900px; width: 90vw;">
+    <div class="dlg-hd">ITF search trace <small id="itfTraceStatus">live &mdash; the search
+      is narrating every decision as it makes it</small></div>
+    <div class="dlg-row" style="gap:.5em; align-items:center;">
+      <label for="itfTraceLevelLive">Detail</label>
+      <select id="itfTraceLevelLive" title="Re-levels the RUNNING search from
+here on -- lines already emitted are not rewritten. The starting level is
+picked in the ITF search options.">
+        <option value="1">1 &mdash; headline (rounds, links, verdict)</option>
+        <option value="2">2 &mdash; narrative</option>
+        <option value="3">3 &mdash; every trial and candidate</option>
+        <option value="4">4 &mdash; + window and database rows</option>
+      </select>
+    </div>
+    <pre id="itfTraceText"></pre>
+    <div class="dlg-ft">
+      <div class="spacer"></div>
+      <button id="itfTraceStop" hidden title="Stop the running search and free its server resources">Stop search</button>
+      <button id="itfTraceClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ephemeris export parameters -->
+<div id="ephemOverlay" class="overlay" hidden>
+  <div class="dialog">
+    <div class="dlg-hd">Ephemeris export</div>
+    <div class="ephem-form">
+      <label>Start date (UTC)<input type="text" id="ephStart" placeholder="YYYY-MM-DD" maxlength="10"
+        inputmode="numeric" spellcheck="false" autocomplete="off"
+        title="Year-month-day, e.g. 2026-09-30 (spaces or slashes also accepted)"></label>
+      <label>Step (days)<input type="number" id="ephStep" value="1" min="0.01" step="0.5"></label>
+      <label>Steps<input type="number" id="ephN" value="30" min="1" max="2000" step="1"></label>
+      <label>Observatory<input type="text" id="ephSite" value="500" maxlength="4"
+        title="MPC observatory code (500 = geocentre)"></label>
+      <label>Faint limit (V)<input type="number" id="ephFaint" step="0.5" min="0" max="40"
+        placeholder="none"
+        title="Hide epochs predicted fainter than this V magnitude. Blank = show every epoch."></label>
+    </div>
+    <!-- find_orb's "suppress unobservables": drop epochs the observatory could not shoot
+         (target below the horizon, Sun up, or the Moon in the way). Meaningless for the
+         geocentre and other sites with no horizon, so it disables itself for those. -->
+    <label class="eph-chk"><input type="checkbox" id="ephUnobs">
+      <span>Suppress unobservables</span>
+      <small id="ephUnobsHint">below the horizon, in daylight, or behind the Moon</small>
+    </label>
+    <div class="dlg-ft">
+      <div class="spacer"></div>
+      <button id="ephCancel">Cancel</button>
+      <button class="primary" id="ephGo">Open ephemeris</button>
+    </div>
+  </div>
+</div>
+
+<!-- export result: the text product (elements / MPCORB / SOF / ephemeris) for the
+     CURRENT displayed orbit, shown inline for copy/paste rather than a new tab -->
+<div id="exportResultOverlay" class="overlay" hidden>
+  <div class="dialog">
+    <div class="dlg-hd">Export <small id="exportResultTitle"></small></div>
+    <textarea id="exportResultText" spellcheck="false" readonly></textarea>
+    <div class="dlg-ft">
+      <div class="spacer"></div>
+      <button id="exportResultClose">Close</button>
+      <button class="primary" id="exportCopyBtn">Copy</button>
+    </div>
+  </div>
+</div>
+
+<!-- right-click row menu: bulk include/exclude everything above/below the pivot -->
+<div id="rowMenu" class="ctxmenu" hidden>
+  <button data-dir="up">Toggle ⬆ this &amp; above</button>
+  <button data-dir="down">Toggle ⬇ this &amp; below</button>
+</div>
+
+<!-- Aladin Lite v3 (CDS) powers the on-sky location pane, but is loaded LAZILY by app.js
+     (ensureAladin) only when that pane is first used — NOT here. The CDS host
+     (aladin.cds.unistra.fr) is occasionally down and slow-fails (a long TCP timeout, not a
+     fast refusal); a blocking <link>/<script> here would stall the whole page on that hang. -->
+<!-- before app.js: runFit uses FitJob on page load when ?object= names one -->
+<script src="/static/analytics.js"></script>
+<script src="/static/fitjob.js"></script>
+<script src="/static/app.js"></script>
+<script src="/static/noticelog.js"></script>
+<script src="/static/expirednote.js"></script>
+<script src="/static/submitconfirm.js"></script>
+<script src="/static/itfchoice.js"></script>
+<script src="/static/itfcancel.js"></script>
+<script src="/static/convergence.js"></script>
+<script src="/static/dedupnote.js"></script>
+<script src="/static/unboundnote.js"></script>
+<script src="/static/dof.js"></script>
+<script src="/static/ngcopy.js"></script>
+<script src="/static/randomobj.js"></script>
+<script src="/static/toolsmenu.js"></script>
+<script src="/static/pendingnote.js"></script>
+<script src="/static/orbitsuppress.js"></script>
+<script src="/static/d2note.js"></script>
+<!-- web add-ons: scripts -->
+<script src="/static/d2tracklets.js"></script>
+<script src="/static/orbitfan.js"></script>
+</body>
+</html>

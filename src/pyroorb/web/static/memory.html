@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyRoOrb — memory</title>
+<link rel="icon" href="/static/icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/pyroorb-32.png">
+<link rel="stylesheet" href="/static/style.css">
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-956W73JTP9"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-956W73JTP9');
+</script>
+<style>
+  /* This page scrolls and stacks; the workspace stylesheet is built for a fixed
+     full-height app shell, so undo just that much of it here. */
+  body { display: block; height: auto; overflow: auto; padding: 0 0 60px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 18px 16px; }
+  header.bar { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 16px; }
+  header.bar h1 { font-size: 17px; }
+  header.bar .sub { color: var(--muted); font-size: 12px; }
+  header.bar .spacer { flex: 1; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px; margin-bottom: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; }
+  .card .k { color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .4px; }
+  .card .v { font-size: 20px; font-family: var(--mono); margin-top: 3px; }
+  .card .v small { font-size: 11px; color: var(--muted); font-family: inherit; }
+  .card.warn { border-color: var(--warn); }
+  .card.bad { border-color: var(--bad); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); margin: 22px 0 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 5px 8px;
+    border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .4px; }
+  td { padding: 5px 8px; border-bottom: 1px solid #22272e; vertical-align: top; }
+  td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+  tr.sub td { color: var(--muted); font-size: 11.5px; border-bottom: 1px solid #1a1f26; }
+  tr.sub td:first-child { padding-left: 22px; }
+  .bar-cell { width: 120px; }
+  .bar-outer { background: #22272e; border-radius: 3px; height: 8px; overflow: hidden; }
+  .bar-inner { background: var(--accent); height: 100%; }
+  .bar-inner.misc { background: var(--muted); }
+  .bar-inner.native { background: var(--sel); }
+  .note { color: var(--muted); font-size: 11.5px; }
+  .dim { color: var(--muted); }
+  .mono { font-family: var(--mono); }
+  .foot { margin-top: 26px; color: var(--muted); font-size: 11.5px; line-height: 1.6;
+    border-top: 1px solid var(--border); padding-top: 12px; }
+  .foot code { color: var(--fg); }
+  #err { color: var(--bad); margin: 12px 0; }
+  .locked { border: 1px solid var(--warn); border-radius: 8px; padding: 10px 12px;
+    margin-top: 6px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <h1>Memory</h1>
+    <span class="sub" id="when">loading…</span>
+    <span class="spacer"></span>
+    <label class="sub"><input type="checkbox" id="auto"> auto-refresh 10 s</label>
+    <label class="sub" title="Skip the whole-heap pass (faster, no misc breakdown)">
+      <input type="checkbox" id="fast"> tables only</label>
+    <!-- The whole-heap pass is password-gated (it walks everything under the GIL);
+         this pair is revealed only when the server says a password would unlock it. -->
+    <span id="pwBox" hidden>
+      <input type="password" id="pw" placeholder="memory password" size="18"
+             autocomplete="current-password">
+      <button id="unlock">Unlock</button>
+    </span>
+    <button id="lock" hidden title="Forget the password on this browser">Lock</button>
+    <button id="refresh" class="primary">Refresh</button>
+  </header>
+  <div id="err"></div>
+  <div class="cards" id="cards"></div>
+  <div id="body"></div>
+  <div class="foot" id="foot"></div>
+</div>
+<script src="/static/memory.js"></script>
+</body>
+</html>

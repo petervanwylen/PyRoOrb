@@ -1,0 +1,27 @@
+{
+ "designation": "2014 HM543",
+ "note": "the COVARIANCE floor's object: a 3.9-day, 13-obs seed whose other three apparitions sit 14-50 deg off the nominal.  Unfloored, _param_inverse scaled the covariance by the achieved chi2/dof (s2 = 0.0099 here) and placed that truth at 14.5 sigma -- outside the +-5 sigma LOV fan, so the search served 1 of 5 planted tracklets and linked none.  Floored, the same truth reads 1.4 sigma (a parametric bootstrap says 1.0) and the fan reaches it: 5/5 across 3/3 apparitions at 0.185\", the full-arc rms",
+ "obs80": "     K14Hs3M 5C2014 04 23.15340 14 06 36.23 -09 32 56.5          22.3 Vo~9OEkW84\n     K14Hs3M 5C2014 04 23.15663 14 06 36.10 -09 32 55.4          22.3 Vo~9OEkW84\n     K14Hs3M 5C2014 04 23.15987 14 06 35.98 -09 32 54.3          22.3 Vo~9OEkW84\n     K14Hs3M*5C2014 04 25.16738 14 05 23.01 -09 21 26.4          21.6 V ~9OEkW84\n     K14Hs3M 5C2014 04 25.17054 14 05 22.89 -09 21 25.4                 ~9OEkW84\n     K14Hs3M 5C2014 04 25.17371 14 05 22.77 -09 21 24.3                 ~9OEkW84\n     K14Hs3M 5C2014 04 25.17696 14 05 22.65 -09 21 23.2                 ~9OEkW84\n     K14Hs3M 5C2014 04 25.18021 14 05 22.52 -09 21 22.1                 ~9OEkW84\n     K14Hs3M 5C2014 04 27.06816 14 04 14.12 -09 10 39.6          22.8 V ~9OEkW84\n     K14Hs3M 5C2014 04 27.07137 14 04 14.01 -09 10 38.6                 ~9OEkW84\n     K14Hs3M 5C2014 04 27.07455 14 04 13.88 -09 10 37.3                 ~9OEkW84\n     K14Hs3M 5C2014 04 27.07777 14 04 13.77 -09 10 36.4                 ~9OEkW84\n     K14Hs3M 5C2014 04 27.08101 14 04 13.64 -09 10 35.1                 ~9OEkW84\n     K14Hs3M !C2021 03 18.03196 10 01 08.79 +02 15 28.3          23.3 r ~9OEkW84\n     K14Hs3M !C2021 03 18.03955 10 01 08.57 +02 15 30.8                 ~9OEkW84\n     K14Hs3M !C2021 03 18.19929 10 01 04.01 +02 16 19.8                 ~9OEkW84\n     K14Hs3M  C2022 03 27.46076314 24 14.642-12 04 01.68         22.29wU~9OEkF52\n     K14Hs3M  C2022 03 27.47165314 24 14.378-12 03 58.66         21.84wU~9OEkF52\n     K14Hs3M  C2022 03 27.48247114 24 14.099-12 03 55.65         21.96wU~9OEkF52\n     K14Hs3M  C2022 03 27.49340714 24 13.852-12 03 52.99         21.44wU~9OEkF52\n     K14Hs3M  C2022 05 18.26700513 56 21.766-07 31 32.04         21.87wU~9OEkF52\n     K14Hs3M  C2022 05 18.27782613 56 21.465-07 31 29.17         21.94wU~9OEkF52\n     K14Hs3M  C2022 05 18.28871313 56 21.139-07 31 26.60         21.73wU~9OEkF52\n     K14Hs3M  C2022 05 18.29959013 56 20.858-07 31 23.70         21.87wU~9OEkF52\n     K14Hs3M  C2022 05 26.31972813 53 09.093-07 00 43.61         22.3 wU~9OEkF52\n     K14Hs3M  C2022 05 26.34282613 53 08.599-07 00 38.74         22.11wU~9OEkF52\n     K14Hs3M  C2022 05 26.35438013 53 08.356-07 00 36.75         22.0 wU~9OEkF52\n     K14Hs3M  C2024 09 11.37427422 57 20.854+01 47 32.17         22.42wX~9OEkF51\n     K14Hs3M  C2024 09 11.39606722 57 20.103+01 47 25.21         22.14wX~9OEkF51\n     K14Hs3M  C2024 09 11.40939622 57 19.631+01 47 20.95         22.28wX~9OEkF51\n     K14Hs3M  C2024 09 11.42505222 57 19.083+01 47 15.91         22.23wX~9OEkF51\n",
+ "n_obs": 31,
+ "n_apparitions": 4,
+ "seed_apparition": 0,
+ "seed_nights": null,
+ "seed_U": 9.4,
+ "planted_apparitions": [
+  0,
+  1,
+  2
+ ],
+ "n_fake_tracklets": 5,
+ "expect": {
+  "full_recovery": true,
+  "recovered_apparitions": [
+   0,
+   1,
+   2
+  ],
+  "recovered_tracklets": 5,
+  "rms_max": 0.6,
+  "max_dropped_seed_obs": 0
+ }
+}

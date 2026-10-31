@@ -1,0 +1,120 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyroorb"
+version = "0.9.0"
+description = "PyRoOrb — pure-Python find_orb-class asteroid orbit determination (astrometry → orbit, with uncertainties, identifications and hazard products)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+authors = [{ name = "Peter VanWylen" }]
+keywords = ["astronomy", "asteroid", "orbit-determination", "astrometry", "ephemeris", "find_orb"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
+
+# Runtime engine dependencies. The web UI server (pyroorb.web.server) is pure-stdlib,
+# so it needs nothing beyond these. REBOUND + ASSIST carry the DE440 N-body integration
+# (they build C extensions; wheels exist for common platforms). `requests` is used only
+# by the MPCORB bulk-sampler (mpcorb.py); kept here so the whole package imports cleanly.
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "astropy>=6.0",
+    # The Earth-orientation table eop.py pins (IERS-B + Bulletin A predictions); its
+    # coverage ends ~1 yr after the release, so a newer one extends it.
+    "astropy-iers-data>=0.2026.6.8",
+    "rebound>=4.0",
+    "assist>=1.1",
+    "requests>=2.28",
+]
+# NB: ADES parsing (ades.py) and designation packing (packing.py) are both native now --
+# adam_core and sbpy were removed as dependencies (sbpy stays an OPTIONAL cross-check in
+# packing._validate). See PROVENANCE.md.
+
+[project.optional-dependencies]
+# Development / regression suite + the population scanners.
+dev = [
+    "pytest>=7.0",
+    "pytest-xdist>=3.0",
+]
+# ITF search + native index maintenance (pyroorb.itf): the PostgreSQL client for the
+# SBN database, plus the candidate-ranking model runtime — ranking_mode defaults to
+# "ml" (itf/config.py), so without xgboost/pandas every sweep silently falls back to
+# certainty ranking. Required by the deployed web service (the /api/itf_search
+# endpoint and the ITF_MAINTAIN_TURNED_ON maintenance thread) — installed on Railway
+# via requirements.txt (`-e .[itf]`). psycopg2 pinned to 2.9.9: 2.9.11's binary
+# wheel is broken on our target boxes (see src/pyroorb/itf/README.md).
+itf = [
+    "psycopg2-binary==2.9.9",
+    "xgboost>=2.0",
+    "pandas>=2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/petervanwylen/PyRoOrb"
+Documentation = "https://github.com/petervanwylen/PyRoOrb#readme"
+Issues = "https://github.com/petervanwylen/PyRoOrb/issues"
+
+[project.scripts]
+# `pyroorb` runs a fit from the command line; `pyroorb-web` launches the web UI (honours
+# $PORT / $HOST); `pyroorb-itf` is the ITF CLI (search / recovery-suite / maintain; needs
+# your own SBN database); `pyroorb-fetch-data` downloads the reference tables (DE440, the
+# debias tables; --asteroids adds the 616 MB perturber kernel).
+pyroorb = "pyroorb:_cli"
+pyroorb-web = "pyroorb:_web"
+pyroorb-itf = "pyroorb:_itf"
+pyroorb-fetch-data = "pyroorb:_fetch_data"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Data files that ship inside the package: the web UI's static front end, the bundled
+# station table, the vendored digest2 population model, the deployed ITF ranker and the
+# mislinkage model. Large reference tables (DE440, debias) are downloads, never packaged.
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.csv", "*.htm", "*.md", "static/**/*", "package_data/*",
+       "data/*", "training_data/*.json", "model/*"]
+
+# digest2's parsed-model cache (*.npz) is regenerated on first load; never packaged.
+[tool.setuptools.exclude-package-data]
+"*" = ["*.npz"]
+
+# --- Test suite ------------------------------------------------------------------
+# `pytest` from the REPO ROOT runs everything. `pythonpath` puts src/ (the package) and
+# tests/ (the shared _fixtures helpers) on the path, so the suite runs from a checkout
+# with or without an install. The repo-root conftest.py makes the default run offline;
+# `live` is deselected unless --live is passed -- see tests/README.md.
+#
+# norecursedirs is load-bearing, not tidiness: a development checkout may keep
+# nested git checkouts INSIDE the tree (.worktrees/, .claude/), each a full copy with its own
+# tests/ and ~200 fixtures, plus the gitignored find_orb/ reference clone. Without
+# this, collection walks all of them and never finishes.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+addopts = "-q --strict-markers"
+norecursedirs = [
+    ".worktrees", ".claude", "find_orb", ".venv", "ephem", "debias", "lab",
+    "PyRoOrb", "PyRoOrb-dev",
+    "*/data", "node_modules", "*.egg-info",
+]
+markers = [
+    "slow: does a full engine fit or a multi-object sweep (deselect with -m 'not slow')",
+    "live: needs the network or the SBN database; opt in with --live",
+]
+# REBOUND/ASSIST/astropy warn constantly about ephemeris fallbacks and IERS ranges, and
+# the suite asserts on values rather than on warning text -- but pytest's OWN warnings
+# (a test that returns instead of asserting, an unknown mark) must stay visible: that
+# class of warning is how this file's `return "..."`-instead-of-assert bug surfaced.
+filterwarnings = ["ignore", "default::pytest.PytestWarning"]
