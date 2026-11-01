@@ -34,7 +34,8 @@ dependencies = [
     # The Earth-orientation table eop.py pins (IERS-B + Bulletin A predictions); its
     # coverage ends ~1 yr after the release, so a newer one extends it.
     "astropy-iers-data>=0.2026.6.8",
-    "rebound>=4.0",
+    # ASSIST 1.2 builds against REBOUND 4 (it requires rebound>=4.4.11,<5).
+    "rebound>=4.4.11,<5",
     "assist>=1.1",
     "requests>=2.28",
 ]

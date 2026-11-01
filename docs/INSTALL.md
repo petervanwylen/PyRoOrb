@@ -5,7 +5,7 @@ PyRoOrb runs on Linux, macOS and Windows with Python 3.11–3.14. Pick one route
 ## pip or uv (the main route)
 
 ```bash
-pip install rebound numpy setuptools
+pip install "rebound<5" numpy setuptools
 pip install --no-build-isolation assist
 pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 ```
@@ -14,14 +14,15 @@ or, with [uv](https://docs.astral.sh/uv/), which also installs Python itself if 
 none:
 
 ```bash
-uv venv && uv pip install rebound numpy setuptools
+uv venv && uv pip install "rebound<5" numpy setuptools
 uv pip install --no-build-isolation-package assist \
     "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 ```
 
 **A C compiler is needed** for now: ASSIST, the force model PyRoOrb integrates with, has no
 pre-built wheels on PyPI, so the install compiles it -- and its build reads REBOUND's
-headers from the installed `rebound` package, which is why REBOUND goes in first and ASSIST
+headers from the installed `rebound` package -- REBOUND 4, which ASSIST 1.2 requires -- which is
+why REBOUND goes in first and ASSIST
 is built without build isolation (in an isolated build it fails with *"rebound.h" not
 found*).
 

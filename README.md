@@ -60,7 +60,7 @@ sky-plane error ellipse.
 PyRoOrb 0.9 is installed from GitHub; the PyPI release (1.0.0) follows the shake-out.
 
 ```bash
-pip install rebound numpy setuptools && pip install --no-build-isolation assist
+pip install "rebound<5" numpy setuptools && pip install --no-build-isolation assist
 pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 pyroorb-fetch-data          # once: DE440 (~102 MB) + the debias tables (~10 MB)
 ```
