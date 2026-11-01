@@ -437,15 +437,24 @@ def test_one_off_work_is_never_coalesced():
 def test_one_off_work_is_still_admitted():
     """The point of routing paste/reauto through the pool: they are refused when
     the queue is full, instead of running unbounded on the request thread."""
+    import time
     release = threading.Event()
+    blocked = lambda: (release.wait(30), {"ok": True})[1]  # noqa: E731
     try:
-        refused = None
-        for i in range(fq.queue_max() + fq.pool_size() + 5):
-            r = fq.submit(f"filler{i}", lambda: (release.wait(30), {"ok": True})[1])
-            if not r.get("ok"):
-                refused = r
+        # Admission counts WAITING jobs. Fillers can arrive faster than the workers take
+        # them, so a first refusal may come while workers are still idle; once each
+        # worker has picked a job up the queue drains by that many. Fill until a
+        # refusal still holds after the workers have had time to start.
+        n, deadline = 0, time.time() + 20
+        while True:
+            assert time.time() < deadline, "queue never stayed full"
+            n += 1
+            if fq.submit(f"filler{n}", blocked).get("ok"):
+                continue
+            time.sleep(0.3)
+            n += 1
+            if not fq.submit(f"filler{n}", blocked).get("ok"):
                 break
-        assert refused is not None, "queue never filled"
         out = fq.run_bounded(lambda: {"ok": True}, 5, label="paste")
         assert out.get("ok") is False and out.get("busy") is True
     finally:

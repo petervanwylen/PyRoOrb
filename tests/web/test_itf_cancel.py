@@ -21,7 +21,9 @@ import pyroorb.web.engine_api as E  # noqa: E402
 def _clean_jobs(monkeypatch):
     saved = dict(E._ITF_JOBS)
     E._ITF_JOBS.clear()
-    # admission reads live headroom; these tests are about stopping, not capacity
+    # admission reads live headroom and a slot count derived from the machine's RAM (one
+    # slot on a small CI runner); these tests are about stopping, not capacity
+    monkeypatch.setattr(E, "_ITF_MAX_RUNNING", 4)
     monkeypatch.setattr(E, "_itf_capacity_block", lambda: None)
     # a session with an obs list, so itf_search_web reaches the searcher seam
     monkeypatch.setattr(E, "base_obs_for", lambda **kw: (

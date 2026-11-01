@@ -85,7 +85,7 @@ def main(argv=None):
                         "probabilities (the search reads ml_p as one)")
     p.add_argument("--object-weight", action="store_true",
                    help="give every object equal say in the loss (positives "
-                        "are concentrated: one object held 88% of them)")
+                        "are concentrated: one object held 88%% of them)")
     p.add_argument("--pos-weight", type=float, default=None,
                    help="scale_pos_weight override; <1 down-weights positives "
                         "to simulate the serve-time base rate")

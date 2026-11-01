@@ -5,7 +5,7 @@ PyRoOrb runs on Linux, macOS and Windows with Python 3.11–3.14. Pick one route
 ## pip or uv (the main route)
 
 ```bash
-pip install "rebound<5" numpy setuptools
+pip install -U "rebound<5" numpy setuptools wheel
 pip install --no-build-isolation assist
 pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 ```
@@ -14,7 +14,7 @@ or, with [uv](https://docs.astral.sh/uv/), which also installs Python itself if 
 none:
 
 ```bash
-uv venv && uv pip install "rebound<5" numpy setuptools
+uv venv && uv pip install -U "rebound<5" numpy setuptools wheel
 uv pip install --no-build-isolation-package assist \
     "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 ```
@@ -51,6 +51,7 @@ The ITF search reads an SBN database and ranks candidates with a trained model:
 pip install "pyroorb[itf] @ git+https://github.com/petervanwylen/PyRoOrb"
 ```
 
+On macOS the ranker's xgboost also needs the OpenMP runtime: `brew install libomp`.
 It needs your own clone of the SBN database (`SBN_DB_HOST`, `SBN_PUB_PASSWORD`, and for the
 index `ITF_DB_PASSWORD`, in the environment or a `.env` file).
 

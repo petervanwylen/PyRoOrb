@@ -48,16 +48,17 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-xdist>=3.0",
+    "pillow",                # the web UI icon tests decode the images
 ]
 # ITF search + native index maintenance (pyroorb.itf): the PostgreSQL client for the
 # SBN database, plus the candidate-ranking model runtime — ranking_mode defaults to
 # "ml" (itf/config.py), so without xgboost/pandas every sweep silently falls back to
 # certainty ranking. Required by the deployed web service (the /api/itf_search
 # endpoint and the ITF_MAINTAIN_TURNED_ON maintenance thread) — installed on Railway
-# via requirements.txt (`-e .[itf]`). psycopg2 pinned to 2.9.9: 2.9.11's binary
+# via requirements.txt (`-e .[itf]`). psycopg2 2.9.11 is excluded: its binary
 # wheel is broken on our target boxes (see src/pyroorb/itf/README.md).
 itf = [
-    "psycopg2-binary==2.9.9",
+    "psycopg2-binary>=2.9.9,!=2.9.11",
     "xgboost>=2.0",
     "pandas>=2.0",
 ]
