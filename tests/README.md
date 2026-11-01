@@ -12,7 +12,9 @@ and `tests/` on the path; the repo-root `conftest.py` blocks the network and giv
 empty cache, so the default run is offline -- `--live` lifts both):
 
 ```bash
-pytest -n 4                  # everything offline, in parallel (pytest-xdist)
+pytest -n 4                  # everything offline, in parallel (pytest-xdist); the goldens of
+                             # multi-opposition fixtures were recorded with the asteroid
+                             # perturbers, so first: pyroorb-fetch-data --asteroids
 pytest                       # the same serially — ~11 min (this is the timing-guarded run)
 pytest -m "not slow"         # the fast unit tests only — ~3.6 s; the edit loop
 pytest --durations=10        # where the time actually goes

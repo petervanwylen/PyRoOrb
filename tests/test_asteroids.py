@@ -54,7 +54,10 @@ def test_per_call_flag_gravity_is_default():
     d = fa.predict_radec_batch(None, t0, st, tt, Rs)          # default None, env unset
     assert np.array_equal(g, d), "gravity flag must match the env-unset default exactly"
     assert fa._epsilon(False) == fa.IAS15_EPSILON
-    assert fa._epsilon(True) == fa.IAS15_EPSILON_ASTEROIDS
+    # asteroids=True turns the perturbers on only when a kernel is installed; without one the
+    # call is integrated gravity-only, at the gravity tolerance
+    want = fa.IAS15_EPSILON_ASTEROIDS if fa.asteroid_kernel_path() else fa.IAS15_EPSILON
+    assert fa._epsilon(True) == want
 
 
 def test_single_opposition_skipped():

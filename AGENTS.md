@@ -34,7 +34,7 @@ than guess, and record what was read or ported in **PROVENANCE.md** (file + func
 
 From the repo root (`pip install -e ".[dev]"`): `pytest -m "not slow"` (the fast loop),
 `pytest -n 4` (everything offline: the root `conftest.py` blocks the network and uses an empty
-cache), `--live` (network / SBN database), `--benchmark`. `tests/test_regression.py` pins each
+cache; the goldens need the asteroid kernel, `pyroorb-fetch-data --asteroids`), `--live` (network / SBN database), `--benchmark`. `tests/test_regression.py` pins each
 fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects with
 `tests/build_fixtures.py`. Comments and docstrings state the rule and its measured reason
 (`tests/test_public_code_hygiene.py`).

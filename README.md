@@ -46,7 +46,8 @@ a working tool that's also the clearest way to learn orbit determination.
 instead of good data, recovers from a poisoned seed, and **tells you when the
 residuals say something's wrong** rather than hiding it.
 
-🐍 **Use it anywhere.** Linux, macOS and Windows; a small Python API drops into your
+🐍 **Use it anywhere.** Linux and macOS (Windows support is coming in late 2026); a small
+Python API drops into your
 pipeline, with covariance + Monte-Carlo uncertainties and ephemerides that carry a
 sky-plane error ellipse.
 
@@ -65,10 +66,11 @@ pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 pyroorb-fetch-data          # once: DE440 (~102 MB) + the debias tables (~10 MB)
 ```
 
-Python 3.11–3.14 on Linux, macOS or Windows. One dependency, ASSIST, is compiled during the
-install (against the installed REBOUND, hence the first line), so a C compiler is needed: Xcode command-line tools on macOS, "Build Tools for
-Visual Studio" on Windows, `gcc` on Linux. Without a compiler, on Linux or macOS, install
-`assist` and `rebound` from conda-forge first. Details: **[`docs/INSTALL.md`](docs/INSTALL.md)**.
+Python 3.11–3.14 on Linux or macOS. **Windows is not yet supported; support is coming in late
+2026.** One dependency, ASSIST, is compiled during the
+install (against the installed REBOUND, hence the first line), so a C compiler is needed:
+Xcode command-line tools on macOS, `gcc` on Linux. Without a compiler, install `assist` and
+`rebound` from conda-forge first. Details: **[`docs/INSTALL.md`](docs/INSTALL.md)**.
 
 ## Quickstart
 
@@ -135,10 +137,21 @@ loudly. PyRoOrb is built to:
 ## ITF search
 
 PyRoOrb includes a search of the MPC's Isolated Tracklet File for unlinked observations of an
-object (`pyroorb-itf search "2017 CL37"`, or the web UI's **ITF search**). It reads an SBN
-database: running it needs **your own clone of the SBN database** (its address in
-`SBN_DB_HOST`), and `pyroorb-itf maintain` builds the tracklet index it searches. The code is
-included; access to a database is not. It is outside the supported API.
+object (`pyroorb-itf search "2017 CL37"`, or the web UI's **ITF search**).
+
+- **The place to run ITF searches is [pyroorb.net](https://www.pyroorb.net)**, which keeps
+  the index the search needs current.
+- **Searching yourself** needs access to an SBN database: either your own clone of it, or
+  the author's permission to use his (ask in a GitHub issue). A clone takes some setup —
+  the tracklet index and its maintenance jobs — described in
+  **[`docs/ITF_SETUP.md`](docs/ITF_SETUP.md)**.
+- **Please give the author a polite heads-up before any mass ITF searching or submitting**
+  (a GitHub issue). He already runs these searches across the ITF and submits what they
+  find; more people running the same code over the same tracklets produces duplicate
+  identifications, and every duplicate is work the Minor Planet Center has to process and
+  discard.
+
+ITF search is outside the supported Python API.
 
 ## Standing on the shoulders of giants
 

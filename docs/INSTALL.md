@@ -1,6 +1,7 @@
 # Installing PyRoOrb
 
-PyRoOrb runs on Linux, macOS and Windows with Python 3.11–3.14. Pick one route.
+PyRoOrb runs on Linux and macOS with Python 3.11–3.14. **Windows is not yet supported;
+support is coming in late 2026.** Pick one route.
 
 ## pip or uv (the main route)
 
@@ -27,7 +28,6 @@ is built without build isolation (in an isolated build it fails with *"rebound.h
 found*).
 
 - **macOS** — the Xcode command-line tools: `xcode-select --install`.
-- **Windows** — "Build Tools for Visual Studio", workload *Desktop development with C++*.
 - **Linux** — your distribution's `gcc` (e.g. `sudo apt install build-essential`).
 
 ## conda-forge (Linux and macOS, no compiler)
@@ -41,7 +41,6 @@ conda activate pyroorb
 pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 ```
 
-conda-forge has no Windows build of ASSIST; on Windows use the compiler route above.
 
 ## The ITF search extra
 
@@ -52,8 +51,8 @@ pip install "pyroorb[itf] @ git+https://github.com/petervanwylen/PyRoOrb"
 ```
 
 On macOS the ranker's xgboost also needs the OpenMP runtime: `brew install libomp`.
-It needs your own clone of the SBN database (`SBN_DB_HOST`, `SBN_PUB_PASSWORD`, and for the
-index `ITF_DB_PASSWORD`, in the environment or a `.env` file).
+It needs an SBN database; most people should run ITF searches on
+[pyroorb.net](https://www.pyroorb.net) instead. Setting up your own: [`ITF_SETUP.md`](ITF_SETUP.md).
 
 ## Reference data
 
@@ -66,7 +65,7 @@ pyroorb-fetch-data --asteroids     # + the 16-asteroid perturber kernel (~616 MB
 ```
 
 They go to your per-user cache directory (`~/.cache/pyroorb` on Linux,
-`~/Library/Caches/pyroorb` on macOS, `%LOCALAPPDATA%\pyroorb\Cache` on Windows).
+`~/Library/Caches/pyroorb` on macOS).
 `PYROORB_CACHE_DIR` moves the whole cache; `PYROORB_EPHEM_DIR` and `PYROORB_DEBIAS_DIR` move
 the two tables. Downloaded observations are cached for a few hours only, and the cache is held
 under 2 GB (`PYROORB_CACHE_MAX_MB`).
@@ -99,7 +98,8 @@ git clone https://github.com/petervanwylen/PyRoOrb && cd PyRoOrb
 python -m venv .venv && . .venv/bin/activate      # or: uv venv
 pip install -e ".[dev]"
 pytest -m "not slow"                              # the fast tests
-pytest -n 4                                       # everything, offline
+pytest -n 4                                       # everything, offline (needs the asteroid
+                                                  # kernel: pyroorb-fetch-data --asteroids)
 python -m pyroorb.web.devserver                   # web UI that restarts on code edits
 ```
 

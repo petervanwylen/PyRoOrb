@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows is off until ASSIST builds there in CI; add windows-latest back then.
+        # Windows is not yet supported (coming in late 2026); add windows-latest back then.
         os: [ubuntu-latest, macos-latest]
         python: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
@@ -64,8 +64,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PYROORB_CACHE_DIR }}
-          key: pyroorb-tables-v1-${{ runner.os }}
-      - run: pyroorb-fetch-data
+          # The nightly full suite also needs the 616 MB asteroid kernel: the goldens of
+          # multi-opposition fixtures were recorded with the 16 perturbers on (944 Hidalgo picks
+          # another nongrav model without them). Its own key, so a cache saved by a push run
+          # without the kernel is never the one the nightly run restores.
+          key: pyroorb-tables-v1-${{ runner.os }}${{ github.event_name == 'schedule' && '-ast' || '' }}
+      - run: pyroorb-fetch-data ${{ github.event_name == 'schedule' && '--asteroids' || '' }}
       - name: tests (offline; the timing guard is off under CI)
         shell: bash
         run: |

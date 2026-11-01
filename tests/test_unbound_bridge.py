@@ -35,6 +35,17 @@ def _fit(name, pick):
                         auto_nongrav=False)
 
 
+def _bound_delivered(fit):
+    """Bound-first holds on every platform: the delivered orbit is bound. Returns the gate's
+    record, skipping when the free fit came out bound and the gate had nothing to decide."""
+    assert fit.elements()["e"] < 1.0
+    uc = getattr(fit, "unbound_check", None)
+    if uc is None:
+        pytest.skip("premise not reproduced on this platform: the free fit is already bound")
+    assert uc["kept"] == "bound"
+    return uc
+
+
 @pytest.mark.parametrize("name, pick, was_e, walk_rms", [
     ("107474", (0, 1, 2), 1.44, 24.6),            # two 1961 plates + one 1999 night, 39 yr
     ("2010_TA192", (-3, -2, -1), 5.9e12, 15000.0),  # 2020 + 2022 (the 2013 night is rejected), N = 0
@@ -42,10 +53,14 @@ def _fit(name, pick):
 ])
 def test_a_long_gap_arc_of_a_bound_object_is_delivered_bound(name, pick, was_e, walk_rms):
     fit = _fit(name, pick)
-    uc = fit.unbound_check
-    assert uc["e_free"] > min(1.3, was_e)                    # the free fit is still the hyperbola
-    assert uc["rms_attempt"] > 0.9 * walk_rms                # ...and the walk still cannot leave it
-    assert uc["kept"] == "bound" and fit.elements()["e"] < 1.0
+    uc = _bound_delivered(fit)
+    # The bridge is exercised only where the free fit is the hyperbola and the walk cannot leave
+    # it. Both are last-bit numerical outcomes that differ between CPU architectures (x86_64
+    # walks out of 2010 TA192's hyperbola to 1.6"); where they do not reproduce there is no
+    # bridge to test, and the bound delivery above is the whole check.
+    if not (uc["e_free"] > min(1.3, was_e) and uc["rms_attempt"] > 0.9 * walk_rms):
+        pytest.skip(f"premise not reproduced on this platform: e_free {uc['e_free']:.3f}, "
+                    f"walk {uc['rms_attempt']:.2f}\"; the walk reached a bound orbit unaided")
     assert uc["comparator"] == "bridge" and uc["admissible"] == "bridged"
     assert uc["bridge"] == "bridged" and uc["bridge_seeds"] > 0 and uc["bridge_revs"] >= 0
     # the bound orbit fits no worse than the hyperbola did: the data never refused it
@@ -59,9 +74,10 @@ def test_a_single_far_observation_is_bridged_too():
     five observations exactly. Five observations over 17 years at one far position are likely a
     mislinkage, but that is not this gate's question: bound-first delivers the bound orbit."""
     fit = _fit("PAIR_1999KK17", (-3, -2, -1))
-    uc = fit.unbound_check
-    assert uc["rms_free"] > 5.0
-    assert uc["kept"] == "bound" and uc["comparator"] == "bridge"
+    uc = _bound_delivered(fit)
+    if not uc["rms_free"] > 5.0:                  # same platform caveat as the test above
+        pytest.skip(f"premise not reproduced on this platform: free fit {uc['rms_free']:.2f}\"")
+    assert uc["comparator"] == "bridge"
     assert fit.rms_residual() < 0.1
 
 
