@@ -14,13 +14,12 @@
 #   3. creates .venv with a uv-managed Python 3.12 (which carries its own C headers);
 #   4. installs PyRoOrb and its dependencies in ONE uv command. ASSIST builds against REBOUND 4;
 #      a build constraint (rebound<5) pins that for the build;
-#   5. on macOS, the ITF ranker's xgboost needs the OpenMP runtime: installed with Homebrew when
-#      Homebrew is present, otherwise the [itf] extra is left out (fitting and the web UI work
-#      without it);
+#   5. only with --extras itf (the ITF search, which needs your own SBN database): on macOS its
+#      ranker's xgboost needs the OpenMP runtime, installed with Homebrew (brew install libomp);
 #   6. downloads the reference tables (DE440, the debias tables; --asteroids adds the 616 MB
 #      asteroid ephemeris). --no-data skips this.
 #
-# Options: --dir DIR  --extras LIST (default: itf; "" for none; e.g. itf,dev)  --asteroids
+# Options: --dir DIR  --extras LIST (default: none; e.g. itf, or itf,dev)  --asteroids
 #          --no-data  --yes (run system package installs without asking)  -h|--help
 #          Through curl, options go after "bash -s --":  curl -LsSf …/install.sh | bash -s -- --yes
 set -euo pipefail
@@ -33,8 +32,7 @@ main() {
 REPO_URL="${PYROORB_REPO_URL:-https://github.com/petervanwylen/PyRoOrb.git}"
 PYTHON_VERSION="3.12"
 DIR="${PYROORB_DIR:-$HOME/PyRoOrb}"
-EXTRAS="itf"
-EXTRAS_SET=0
+EXTRAS=""
 ASTEROIDS=0
 DATA=1
 YES=0
@@ -47,7 +45,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dir|--extras)
       [ $# -ge 2 ] || die "$1 needs a value, e.g.  --dir ~/PyRoOrb  or  --extras itf,dev  (see --help)"
-      if [ "$1" = --dir ]; then DIR="$2"; else EXTRAS="$2"; EXTRAS_SET=1; fi
+      if [ "$1" = --dir ]; then DIR="$2"; else EXTRAS="$2"; fi
       shift 2 ;;
     --asteroids) ASTEROIDS=1; shift ;;
     --no-data) DATA=0; shift ;;
@@ -152,16 +150,15 @@ if ! command -v uv >/dev/null; then
   command -v uv >/dev/null || die "uv was installed but is not on PATH; open a new terminal and run this again"
 fi
 
-# --- 5 (before installing). the OpenMP runtime for xgboost on macOS ------------------------
+# --- 5 (before installing; --extras itf only). the OpenMP runtime for xgboost on macOS -----
+# xgboost's macOS wheels link against Homebrew's libomp.dylib instead of bundling an OpenMP
+# runtime (Apple's compiler ships none); on Linux the runtime comes with the wheel.
 if [ "$OS" = Darwin ] && [[ ",$EXTRAS," == *",itf,"* ]]; then
   if command -v brew >/dev/null; then
     if ! brew list libomp >/dev/null 2>&1; then
       say "Installing the OpenMP runtime (brew install libomp) for the ITF ranker"
       brew install libomp
     fi
-  elif [ "$EXTRAS_SET" = 0 ]; then
-    warn "Homebrew is not installed, so the ITF extra is left out (its ranker needs Homebrew's libomp). Fitting and the web UI work without it."
-    EXTRAS=""
   else
     warn "You asked for the ITF extra, but Homebrew is not installed: its ranker (xgboost) needs Homebrew's libomp and will not load until you install Homebrew (https://brew.sh) and run  brew install libomp. Fitting and the web UI are unaffected."
   fi

@@ -106,8 +106,9 @@ jobs:
 
   install-script:
     # install.sh, the README's recommended install, run end to end on fresh runners: it installs
-    # uv itself, makes .venv with a uv-managed Python, compiles ASSIST in one uv command, and on
-    # macOS installs Homebrew's libomp for the ITF ranker. Then the web UI must start.
+    # uv itself, makes .venv with a uv-managed Python, compiles ASSIST in one uv command. Then
+    # the web UI must start. The default install has no ITF extra (no xgboost, no libomp); a
+    # second run adds it, which on macOS installs Homebrew's libomp for the ITF ranker.
     needs: guard
     if: github.repository == 'petervanwylen/PyRoOrb'
     strategy:
@@ -122,11 +123,16 @@ jobs:
       - name: the install works
         shell: bash
         run: |
-          .venv/bin/python -c "import pyroorb, assist, rebound, xgboost; print('rebound', rebound.__version__)"
+          .venv/bin/python -c "import pyroorb, assist, rebound; print('rebound', rebound.__version__)"
+          if .venv/bin/python -c "import xgboost" 2>/dev/null; then echo "the default install pulled in xgboost"; exit 1; fi
           .venv/bin/pyroorb --help | head -1
           .venv/bin/pyroorb-web --port 8765 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8765/healthz && exit 0; sleep 2; done
           echo "the web UI did not answer /healthz"; exit 1
+      - name: ./install.sh --extras itf (re-run adds the ITF extra)
+        run: ./install.sh --extras itf --no-data --yes
+      - name: the ITF ranker loads
+        run: .venv/bin/python -c "import xgboost; print('xgboost', xgboost.__version__)"
 
   web-pages:
     needs: guard

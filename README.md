@@ -13,6 +13,7 @@
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
+  <a href="notebooks/README.md">Examples</a> ·
   <a href="#the-web-ui">Web UI</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/INSTALL.md">Install guide</a>
@@ -76,9 +77,9 @@ It needs `curl`, `git` and a C compiler. On **macOS** Apple's Command Line Tools
 the compiler and git (the script starts their installer if needed; `curl` is built in). On
 **Linux** the script prints the install command for anything missing, e.g.
 `sudo apt install build-essential git curl` on Ubuntu/Debian; to let it run that for you,
-pass `--yes` like this: `curl -LsSf … | bash -s -- --yes`. Expect about 1 GB on disk: the
-environment (~750 MB, most of it the ITF ranker's xgboost; `--extras ""` leaves that out) plus
-~150 MB of reference tables in the cache.
+pass `--yes` like this: `curl -LsSf … | bash -s -- --yes`. Expect about 400 MB on disk: the
+environment (~250 MB) plus ~150 MB of reference tables in the cache. The ITF search, which
+needs your own SBN database, is left out; `--extras itf` adds it (~500 MB more).
 
 **By hand, with uv** (recommended) or pip:
 
@@ -119,6 +120,13 @@ When the observations do not determine an orbit (a single short tracklet, say),
 `fit_orbit` still returns the nominal solution, warns, and sets `fit.is_determined` to
 `False`; `fit.determinacy()` says what is known. The functions above are the supported API;
 everything else is internal and may change before 1.0.
+
+## Example notebooks
+
+**[`notebooks/`](notebooks/README.md)** holds ten short worked examples. Each one fits the raw
+observations and checks its answer against JPL. The topics are Apophis's 2029 flyby, Vesta
+passing (197) Arete, a new NEO's first nights, Yarkovsky on Bennu, comet outgassing, the
+interstellar objects, radar, photometry and a Jovian moon.
 
 ## How it works
 
@@ -166,7 +174,8 @@ object (`pyroorb-itf search "2017 CL37"`, or the web UI's **ITF search**).
 - **Searching yourself** needs access to an SBN database: either your own clone of it, or
   the author's permission to use his (ask in a GitHub issue). A clone takes some setup —
   the tracklet index and its maintenance jobs — described in
-  **[`docs/ITF_SETUP.md`](docs/ITF_SETUP.md)**.
+  **[`docs/ITF_SETUP.md`](docs/ITF_SETUP.md)**. The search's extra packages are not
+  installed by default: `./install.sh --extras itf` (or `pip install "pyroorb[itf] @ …"`).
 - **Please give the author a polite heads-up before any mass ITF searching or submitting**
   (a GitHub issue). He already runs these searches across the ITF and submits what they
   find; more people running the same code over the same tracklets produces duplicate

@@ -13,19 +13,19 @@ curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.
 It checks for a C compiler (on macOS it starts the Command Line Tools installer and waits; on
 Linux it prints the package-manager command, or runs it with `--yes`), installs
 [uv](https://docs.astral.sh/uv/) when it is missing, creates `.venv` with a uv-managed
-Python 3.12, installs PyRoOrb (with the ITF extra; on macOS that needs Homebrew's `libomp`,
-which the script installs, or leaves the extra out when there is no Homebrew), and downloads
-the reference tables. Options: `--dir DIR` (where to clone; default `~/PyRoOrb`),
-`--extras itf,dev`, `--asteroids` (adds the 616 MB asteroid ephemeris), `--no-data`, `--yes`.
+Python 3.12, installs PyRoOrb, and downloads the reference tables. Options: `--dir DIR`
+(where to clone; default `~/PyRoOrb`), `--extras itf` (the ITF search, see below; on macOS
+the script also installs Homebrew's `libomp` for it) or `--extras itf,dev`, `--asteroids`
+(adds the 616 MB asteroid ephemeris), `--no-data`, `--yes`.
 Through `curl`, options go after `bash -s --`:
 `curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash -s -- --yes`.
 
 It needs `curl`, `git` and a C compiler: on macOS the Command Line Tools bring git and the
 compiler; on Ubuntu/Debian `sudo apt install build-essential git curl` (the script prints
 the right command for apt, dnf, pacman and zypper, or runs it with `--yes`). The script uses
-its own Python 3.12, whatever Python your system has. The environment takes about 750 MB
-(most of it xgboost, for the ITF ranker; `--extras ""` leaves it out), the reference tables
-about 150 MB more.
+its own Python 3.12, whatever Python your system has. The environment takes about 250 MB
+and the reference tables about 150 MB more; the ITF extra adds about 500 MB (mostly
+xgboost).
 
 **To update** an install made by the script: `cd ~/PyRoOrb && git pull && ./install.sh`
 (the install is editable; re-running it picks up new dependencies).
@@ -75,13 +75,17 @@ pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 
 ## The ITF search extra
 
-The ITF search reads an SBN database and ranks candidates with a trained model:
+The ITF search reads an SBN database and ranks candidates with a trained model. It is not
+installed by default:
 
 ```bash
-uv pip install "pyroorb[itf] @ git+https://github.com/petervanwylen/PyRoOrb"   # or pip install ...
+./install.sh --extras itf                                                      # with the script
+uv pip install "pyroorb[itf] @ git+https://github.com/petervanwylen/PyRoOrb"   # or by hand (or pip install ...)
 ```
 
-On macOS the ranker's xgboost also needs the OpenMP runtime: `brew install libomp`.
+On macOS the ranker's xgboost also needs the OpenMP runtime: `brew install libomp` (the
+script runs it when Homebrew is present). xgboost's macOS wheels link against Homebrew's
+`libomp` rather than bundling an OpenMP runtime; on Linux nothing extra is needed.
 It needs an SBN database; most people should run ITF searches on
 [pyroorb.net](https://www.pyroorb.net) instead. Setting up your own: [`ITF_SETUP.md`](ITF_SETUP.md).
 

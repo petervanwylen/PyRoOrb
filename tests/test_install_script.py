@@ -26,6 +26,14 @@ def test_an_unknown_option_is_refused_first():
     assert out.returncode != 0 and "unknown option" in out.stderr
 
 
+def test_the_default_install_has_no_extras():
+    """The ITF extra (xgboost, and Homebrew's libomp on macOS) needs an SBN database almost
+    nobody has, so it is opt-in: --extras itf."""
+    text = SCRIPT.read_text()
+    assert '\nEXTRAS=""\n' in text
+    assert "brew install libomp" in text and ',$EXTRAS," == *",itf,"*' in text
+
+
 def test_it_pins_rebound_4_for_the_assist_build():
     text = SCRIPT.read_text()
     assert "--build-constraint" in text and "rebound>=4.4.11,<5" in text
