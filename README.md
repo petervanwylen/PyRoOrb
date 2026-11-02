@@ -72,10 +72,20 @@ curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.
 It clones into `~/PyRoOrb` (or run `./install.sh` inside a clone you already have). Then
 `cd ~/PyRoOrb && source .venv/bin/activate` and `pyroorb-web` opens the web UI.
 
+It needs `curl`, `git` and a C compiler. On **macOS** Apple's Command Line Tools provide
+the compiler and git (the script starts their installer if needed; `curl` is built in). On
+**Linux** the script prints the install command for anything missing, e.g.
+`sudo apt install build-essential git curl` on Ubuntu/Debian; to let it run that for you,
+pass `--yes` like this: `curl -LsSf … | bash -s -- --yes`. Expect about 1 GB on disk: the
+environment (~750 MB, most of it the ITF ranker's xgboost; `--extras ""` leaves that out) plus
+~150 MB of reference tables in the cache.
+
 **By hand, with uv** (recommended) or pip:
 
 ```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh     # if you don't have uv yet
 uv venv && uv pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+source .venv/bin/activate   # in every new terminal, before the pyroorb commands
 pyroorb-fetch-data          # once: DE440 (~102 MB) + the debias tables (~10 MB)
 ```
 

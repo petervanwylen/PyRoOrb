@@ -17,18 +17,42 @@ Python 3.12, installs PyRoOrb (with the ITF extra; on macOS that needs Homebrew'
 which the script installs, or leaves the extra out when there is no Homebrew), and downloads
 the reference tables. Options: `--dir DIR` (where to clone; default `~/PyRoOrb`),
 `--extras itf,dev`, `--asteroids` (adds the 616 MB asteroid ephemeris), `--no-data`, `--yes`.
+Through `curl`, options go after `bash -s --`:
+`curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash -s -- --yes`.
+
+It needs `curl`, `git` and a C compiler: on macOS the Command Line Tools bring git and the
+compiler; on Ubuntu/Debian `sudo apt install build-essential git curl` (the script prints
+the right command for apt, dnf, pacman and zypper, or runs it with `--yes`). The script uses
+its own Python 3.12, whatever Python your system has. The environment takes about 750 MB
+(most of it xgboost, for the ITF ranker; `--extras ""` leaves it out), the reference tables
+about 150 MB more.
+
+**To update** an install made by the script: `cd ~/PyRoOrb && git pull && ./install.sh`
+(the install is editable; re-running it picks up new dependencies).
 
 ## By hand: uv (the default) or pip
 
 ```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh     # if you don't have uv yet
 uv venv && uv pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+source .venv/bin/activate          # in every new terminal, before the pyroorb commands
+pyroorb-fetch-data                 # once: the reference tables (see below)
 ```
 
-uv installs Python itself if you have none. With pip, in an environment of your own:
+uv installs Python itself if you have none. With pip, make a virtual environment first:
+current Ubuntu, Debian and Homebrew Pythons refuse a bare `pip install`
+(`externally-managed-environment`).
 
 ```bash
+python3 -m venv .venv              # Ubuntu/Debian: needs  sudo apt install python3-venv
+source .venv/bin/activate
 pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+pyroorb-fetch-data
 ```
+
+To update a by-hand install, run its install line again so it refetches from GitHub:
+`uv pip install --reinstall-package pyroorb "pyroorb @ git+…"`, or with pip
+`pip install --force-reinstall "pyroorb @ git+…"` (which also recompiles ASSIST).
 
 **A C compiler is needed** for now: ASSIST, the force model PyRoOrb integrates with, has no
 pre-built wheels on PyPI, so the install compiles it (about half a minute), against REBOUND 4

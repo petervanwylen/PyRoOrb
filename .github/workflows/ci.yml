@@ -1,5 +1,9 @@
 name: ci
 
+# CI runs on the public repository (petervanwylen/PyRoOrb) only. This file is identical in
+# PyRoOrb-dev, which release_public.py projects from, so every job carries the same
+# repository gate: in PyRoOrb-dev nothing runs (owner, 2026-11-02).
+
 on:
   push:
   pull_request:
@@ -15,14 +19,13 @@ jobs:
   guard:
     # Fails loudly if a path that belongs in the private development repository is ever
     # pushed here (the same list the hygiene and boundary tests use).
+    if: github.repository == 'petervanwylen/PyRoOrb'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - name: no private path in the tree
-        # the public repository only: the private development repository holds them by design
-        if: github.repository == 'petervanwylen/PyRoOrb'
         run: |
           python - <<'EOF'
           import ast, subprocess, sys
@@ -38,9 +41,10 @@ jobs:
 
   secrets:
     # gitleaks over the repository's whole history on every push: a credential committed by
-    # mistake is caught at once, in either repository, long before a release. Pinned version,
+    # mistake is caught at once, before it spreads. Pinned version,
     # checked against its published SHA-256; findings are printed with the secret redacted.
     # A false positive is silenced with a `gitleaks:allow` comment on its line.
+    if: github.repository == 'petervanwylen/PyRoOrb'
     runs-on: ubuntu-latest
     env:
       GITLEAKS_VERSION: "8.24.0"
@@ -59,6 +63,7 @@ jobs:
 
   tests:
     needs: guard
+    if: github.repository == 'petervanwylen/PyRoOrb'
     strategy:
       fail-fast: false
       matrix:
@@ -104,6 +109,7 @@ jobs:
     # uv itself, makes .venv with a uv-managed Python, compiles ASSIST in one uv command, and on
     # macOS installs Homebrew's libomp for the ITF ranker. Then the web UI must start.
     needs: guard
+    if: github.repository == 'petervanwylen/PyRoOrb'
     strategy:
       fail-fast: false
       matrix:
@@ -124,6 +130,7 @@ jobs:
 
   web-pages:
     needs: guard
+    if: github.repository == 'petervanwylen/PyRoOrb'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -140,6 +147,7 @@ jobs:
 
   wheel:
     needs: guard
+    if: github.repository == 'petervanwylen/PyRoOrb'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

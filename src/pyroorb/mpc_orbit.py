@@ -82,12 +82,8 @@ def _get_orb_raw(desig, cache=None, timeout=60):
         # turning a successful lookup into an error, and (via fetch_mpc_seed's
         # catch-all) silently demoting the published-orbit fast path back to IOD
         # until something else happened to create the directory first.
-        try:
-            p = Path(cache)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(raw))
-        except OSError:
-            pass
+        from pyroorb import datadirs
+        datadirs.write_cache(cache, json.dumps(raw))
     return raw
 
 

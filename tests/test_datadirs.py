@@ -58,3 +58,31 @@ def test_a_checkout_keeps_its_existing_tables_and_state(fresh):
 def test_nothing_is_created(fresh):
     datadirs.cache_dir(), datadirs.table_dir("ephem"), datadirs.persistent_default()
     assert not (fresh / "xc").exists() and not (fresh / "xd").exists()
+
+
+def test_write_cache_creates_the_missing_folder(fresh):
+    """A fresh machine has no cache folder; the first cache write creates it (it raised
+    FileNotFoundError after the MPC answered, reported as "the MPC did not answer")."""
+    p = datadirs.cache_dir() / "ades_2023_QJ3.json"
+    assert not p.parent.exists()
+    assert datadirs.write_cache(p, "[]") is True
+    assert p.read_text() == "[]"
+    assert datadirs.write_cache(p.parent / "b.bin", b"\x00") is True
+
+
+def test_write_cache_never_fails_the_fetch(fresh):
+    blocker = fresh / "a_file"
+    blocker.write_text("x")                       # a FILE where the folder should be
+    assert datadirs.write_cache(blocker / "sub" / "c.json", "[]") is False
+
+
+def test_fetch_ades_into_a_missing_cache_folder(fresh, monkeypatch):
+    """The fetch path itself, offline: the MPC answer is stubbed."""
+    import io
+    import json
+    from pyroorb import ades
+    payload = json.dumps([{"ADES_DF": []}]).encode()
+    monkeypatch.setattr(ades.urllib.request, "urlopen", lambda *a, **k: io.BytesIO(payload))
+    cache = fresh / "no" / "such" / "dir" / "ades_X.json"
+    assert ades.fetch_ades("2023 QJ3", cache=cache) == []
+    assert cache.exists()

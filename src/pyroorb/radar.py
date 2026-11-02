@@ -119,10 +119,8 @@ def _fetch_radar_dump(cache_dir=None):
                 return None
         return None
     if cache is not None:
-        try:
-            cache.write_text(json.dumps(raw))
-        except OSError:
-            pass
+        from pyroorb import datadirs
+        datadirs.write_cache(cache, json.dumps(raw))
     return raw
 
 

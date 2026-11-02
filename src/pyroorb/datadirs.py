@@ -22,7 +22,8 @@ Each location is chosen in this order:
    Linux; ``~/Library/Caches/pyroorb`` and ``~/Library/Application Support/pyroorb`` on
    macOS; ``%LOCALAPPDATA%\\pyroorb\\Cache`` and ``%APPDATA%\\pyroorb`` on Windows.
 
-Nothing here creates a directory; the writer does, when it first writes.
+Nothing here creates a directory; the writer does, when it first writes (cache writers go
+through :func:`write_cache`, which does).
 """
 import os
 import sys
@@ -152,6 +153,26 @@ def note_cache_write():
         trim_cache()
     except Exception:                       # pragma: no cover - a trim never fails a fetch
         pass
+
+
+def write_cache(path, data):
+    """Write ``data`` (str or bytes) to the cache file ``path``, creating its folder.
+
+    A cache is an optimisation and must never fail the fetch that fills it: on a fresh
+    machine the cache folder does not exist yet, and a bare ``write_text`` there raised
+    FileNotFoundError after the MPC had already answered -- reported as "the MPC did not
+    answer". Returns True when the file was written; an OSError is swallowed (False)."""
+    p = Path(path)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(data, bytes):
+            p.write_bytes(data)
+        else:
+            p.write_text(data)
+    except OSError:
+        return False
+    note_cache_write()
+    return True
 
 
 def persistent_default():

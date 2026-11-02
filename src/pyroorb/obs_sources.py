@@ -461,8 +461,7 @@ def fetch_obs80(desig, cache=None):
                                      method="GET")
         raw = json.loads(urllib.request.urlopen(req, timeout=60).read())
         if cache:
-            Path(cache).write_text(json.dumps(raw))
-            datadirs.note_cache_write()
+            datadirs.write_cache(cache, json.dumps(raw))
     return raw[0]["OBS80"]            # do NOT strip (preserves col-1 leading spaces)
 
 

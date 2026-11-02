@@ -98,8 +98,7 @@ def fetch_ades(desig, cache=None):
     if isinstance(recs, str):
         recs = json.loads(recs)
     if cache:
-        Path(cache).write_text(json.dumps(recs))
-        datadirs.note_cache_write()
+        datadirs.write_cache(cache, json.dumps(recs))
     return recs
 
 
@@ -295,8 +294,7 @@ def fetch_neocp_xml(desig, cache=None):
     if "<optical" not in txt and "<ades" not in txt:
         raise ValueError(f"NEOCP CGI returned no ADES for {desig!r}")
     if cache:
-        Path(cache).write_text(txt)
-        datadirs.note_cache_write()
+        datadirs.write_cache(cache, txt)
     return txt
 
 

@@ -300,8 +300,43 @@ def get_ephem(asteroids=None):
     if _EPHEM is None:
         with _EPHEM_LOCK:
             if _EPHEM is None:
-                _EPHEM = assist.Ephem(ensure_planets_kernel())
+                planets = ensure_planets_kernel()
+                with _quiet_no_asteroid_notice():
+                    _EPHEM = assist.Ephem(planets)
     return _EPHEM
+
+
+# ASSIST's C library writes this to stderr whenever an Ephem is built without an asteroid
+# kernel -- i.e. on every gravity-only run, the default. It reads like a failure but is the
+# expected state (perturbers are opt-in: pyroorb-fetch-data --asteroids), so it is dropped.
+_NO_ASTEROID_NOTICE = b"The JPL asteroid ephemeris file has not been found."
+
+
+@contextlib.contextmanager
+def _quiet_no_asteroid_notice():
+    """Run the block with C-level stderr (fd 2) captured; re-emit every captured line except
+    ASSIST's no-asteroid-kernel notice. Anything else -- a real ASSIST message, or another
+    thread's output in this short window -- still reaches stderr."""
+    import sys
+    import tempfile
+    try:
+        sys.stderr.flush()
+        saved = os.dup(2)
+    except (OSError, ValueError, AttributeError):    # no usable fd 2: nothing to quiet
+        yield
+        return
+    with tempfile.TemporaryFile() as tmp:
+        os.dup2(tmp.fileno(), 2)
+        try:
+            yield
+        finally:
+            os.dup2(saved, 2)
+            os.close(saved)
+            tmp.seek(0)
+            kept = [ln for ln in tmp.read().splitlines(keepends=True)
+                    if _NO_ASTEROID_NOTICE not in ln]
+            if kept:
+                os.write(2, b"".join(kept))
 
 
 def _make_extras(sim, ephem):
