@@ -19,7 +19,7 @@ This module is that menu: a registry the fit reads, nothing object-specific.
 
 PROVENANCE: the g(r) laws and the A1/A2/A3 radial/transverse/normal decomposition
 are the public Marsden-Sekanina-Yeomans (1973) standard, also used by JPL's
-small-body nongrav solutions and ASSIST; emulated, not copied. See PROVENANCE.md.
+small-body nongrav solutions and ASSIST; emulated, not copied.
 """
 
 # --- g(r) heliocentric-distance scaling laws -------------------------------------

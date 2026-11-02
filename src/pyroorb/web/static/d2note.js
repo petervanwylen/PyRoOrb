@@ -19,7 +19,7 @@
 // Listens on the "pyroorb:render" event app.js's render() dispatches (like dedupnote.js).
 
 (function () {
-  const KEY = "pyroorb.d2flavour";
+  const KEY = "pyroorb.d2flavour";  // a localStorage key name, not a credential  gitleaks:allow
   let flavour = "raw";
   try { if (localStorage.getItem(KEY) === "noid") flavour = "noid"; } catch (e) { /* none */ }
 

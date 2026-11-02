@@ -13,8 +13,13 @@ import argparse
 import os
 import sys
 
-from .config import PREFER_CHOICES
-from .verdict import SearchVerdict
+if __name__ == "__main__":
+    # Run as a program (`python -m pyroorb.itf`): load the `.env` settings file first.
+    from pyroorb.envfile import load_env_file
+    load_env_file()
+
+from .config import PREFER_CHOICES  # noqa: E402
+from .verdict import SearchVerdict  # noqa: E402
 
 
 def main(argv=None):

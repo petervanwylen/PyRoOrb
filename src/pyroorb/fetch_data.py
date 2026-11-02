@@ -21,8 +21,14 @@ engine. Honours PYROORB_EPHEM_DIR -- point it at the volume mount on a host.
 import argparse
 import sys
 
-import pyroorb.force_assist as fa
-import pyroorb.debias as db
+if __name__ == "__main__":
+    # Run as a program: load the `.env` settings file before force_assist and debias read
+    # their folders (PYROORB_EPHEM_DIR / PYROORB_DEBIAS_DIR) at import.
+    from pyroorb.envfile import load_env_file
+    load_env_file()
+
+import pyroorb.force_assist as fa  # noqa: E402
+import pyroorb.debias as db  # noqa: E402
 
 
 def main():

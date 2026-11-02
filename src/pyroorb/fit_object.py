@@ -6,9 +6,15 @@ Reuses the proven geometry/propagation from forward_model (forward model validat
 0.018" against Horizons). Generalizes two things for real data:
   - MPC observatory codes -> geocentric position via the MPC parallax table (ObsCodes)
   - many codes / long arcs (not just site 568 / 3 days)
-Force model: Sun + 8 planets as point masses (MVP; no GR, no non-gravs).
+Force model: ASSIST (JPL DE440 planets + GR, optionally the 16 asteroid perturbers), plus
+non-gravitational terms when the fit earns them (see force_assist and nongrav).
 """
 import os, sys, math
+if __name__ == "__main__":
+    # Run as a program (`python -m pyroorb.fit_object`): load the `.env` settings file before
+    # the engine imports below read their settings.
+    from pyroorb.envfile import load_env_file
+    load_env_file()
 import time as _stime
 from pathlib import Path
 import numpy as np
@@ -4829,7 +4835,9 @@ ASTEROID_A_RANGE = (1.7, 4.5)    # main-belt semi-major axis (au): where the 16 
 # asteroid orbit over the gravity fit's included obs). Reclaiming observations does not count
 # as helping -- the test mirrors what the user sees when toggling the perturbers on a fixed obs
 # set. Without a real margin, sub-mas noise (a 70-object sweep: median Δrms -0.1 mas) or a stray
-# redeem would leave objects in 16-ast mode with no actual improvement (e.g. 220088).
+# redeem would leave objects in 16-ast mode with no actual improvement (e.g. 220088). When the
+# asteroid fit holds obs gravity rejected, the same test also runs on the ASTEROID fit's obs set
+# (gravity's own set can exclude exactly the apparitions only the perturbers fit).
 ASTEROID_KEEP_RMS = 0.02         # arcsec: minimum same-obs RMS improvement to keep the perturbers
 
 
@@ -4938,8 +4946,9 @@ def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
     the only regime where the perturbation is worth the cost; `force=True` bypasses the gate.
     Re-fits with the asteroid force on an evaluator clone, then runs redemption + rejection
     and re-fits to convergence (the better force model commonly reclaims obs gravity had
-    excluded). KEEPS the asteroid orbit iff it redeems obs OR lowers the RMS (reverts to
-    gravity only if strictly worse and nothing was redeemed). Requires the ASSIST backend +
+    excluded). KEEPS the asteroid orbit iff both models refit on the same obs set -- the
+    gravity fit's, or the asteroid fit's own when it holds obs gravity rejected -- show the
+    perturbers lowering the RMS by more than ASTEROID_KEEP_RMS. Requires the ASSIST backend +
     the sb441-n16 kernel (auto-downloaded on first use; gravity fallback if unavailable).
     Returns a NEW FittedOrbit carrying the asteroid-aware evaluator (so a subsequent Full
     step keeps the perturbers), or `fit` unchanged when skipped/unavailable/not improving."""
@@ -5015,6 +5024,25 @@ def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
     state_ab, _ = ev2.fit(np.asarray(fit._state, float), grav_mask, thin=False)
     rms_ast = ev2.rms_arcsec(state_ab, grav_mask)       # asteroid orbit REFIT on the SAME obs
     rms_drop = rms_grav - rms_ast
+    # The same test the other way round: the gravity fit's obs set is ITSELF a product of
+    # the gravity force model -- when the missing perturbation is large, gravity's rejection
+    # amputates exactly the apparitions it cannot fit, and on what is left the perturbers
+    # change nothing. (613383) = 2022 KX28: gravity drops all of 2006/2010/2011 (35 obs,
+    # 40-450" off) and fits 2013-2026 at 0.161"; +16ast holds all 153 at 0.263", while
+    # gravity refit on those 153 manages 57.7". So when the asteroid fit holds obs gravity
+    # rejected, refit gravity on the ASTEROID obs set too (seeded from both orbits, the
+    # better kept -- a stalled gravity LM must not fake a gain) and keep the perturbers if
+    # they win there by the same margin. A stray redeem (220088) that gravity also fits
+    # stays below the margin.
+    if not force and rms_drop <= ASTEROID_KEEP_RMS and (mask_a & ~grav_mask).any():
+        rms_ast_a = fit2.rms_residual()
+        rms_grav_a = min(ev.rms_arcsec(ev.fit(np.asarray(s, float)[:6].copy(), mask_a,
+                                              thin=False)[0], mask_a)
+                         for s in (fit._state, state))
+        if verbose:
+            print(f"  asteroid polish: on the asteroid fit's {int(mask_a.sum())} obs gravity "
+                  f"{rms_grav_a:.3f}\" vs asteroids {rms_ast_a:.3f}\"")
+        rms_drop = max(rms_drop, rms_grav_a - rms_ast_a)
     if not force and rms_drop <= ASTEROID_KEEP_RMS:
         if verbose:
             print(f"  asteroid polish: no real gain (same-obs rms {rms_grav:.3f}->"

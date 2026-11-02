@@ -3,7 +3,7 @@
 Logic ported from find_orb (GPL-2.0; logic openly ported, no source copied):
 `get_sr_orbits` / `find_nth_sr_orbit` / `find_trial_orbit` (orb_func.cpp),
 `find_median_orbit` + `compute_sr_sigmas` (orb_func.cpp), `find_sr_ranges`
-(sr.cpp). See PROVENANCE.md.
+(sr.cpp).
 
 Why SR: an arc too short to curve (a single night, or a few days) does not pin
 the line-of-sight RANGE — Gauss/Herget then return an essentially arbitrary orbit.

@@ -13,7 +13,7 @@ likelihood in the one direction that matters, and the set of ranges within Delta
 minimum is the honest answer -- narrow when the range is measured, and a factor of many when
 it is not.
 
-Logic openly ported from find_orb (GPL-2.0; no source copied; see PROVENANCE.md). find_orb has
+Logic openly ported from find_orb (GPL-2.0; no source copied). find_orb has
 every piece of this: `find_sr_ranges` (sr.cpp) bounds the admissible interval, `find_trial_orbit`
 (orb_func.cpp) builds a transfer at a trial range, and `adjust_herget_results` ->
 `extended_orbit_fit(..., FIT_FIXED_DISTANCES)` is a least-squares refit with the distances HELD

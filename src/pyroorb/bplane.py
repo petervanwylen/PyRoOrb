@@ -2,7 +2,7 @@
 
 The foundation for robust impact probability and for keyholes / resonant returns
 (Valsecchi, Milani, Gronchi & Chesley 2003, A&A 408, 1179; logic openly ported,
-no source copied -- see PROVENANCE.md). The b-plane is the plane through the
+no source copied). The b-plane is the plane through the
 planet's centre orthogonal to the incoming asymptotic relative velocity U; an
 asteroid's crossing point (xi, zeta) on it encodes the encounter:
 

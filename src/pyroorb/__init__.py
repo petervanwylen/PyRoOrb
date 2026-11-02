@@ -140,8 +140,13 @@ def export(fit, format="mpcorb"):
     return getattr(egress, name)(fit)
 
 
+# Every console entry point loads the `.env` settings file BEFORE importing the module it runs:
+# several settings (the ephemeris and debias folders) are read once at import time.
+
 def _cli():
     """Console entry point (`pyroorb ...`) — the fit_object CLI; reads sys.argv."""
+    from pyroorb.envfile import load_env_file
+    load_env_file()
     from pyroorb import cli
     cli.main()
 
@@ -149,6 +154,8 @@ def _cli():
 def _web():
     """Console entry point (`pyroorb-web ...`) — launch the PyRoOrb web UI.
     Honours $PORT / $HOST (set by Railway and friends)."""
+    from pyroorb.envfile import load_env_file
+    load_env_file()
     from pyroorb.web import server
     server.main()
 
@@ -156,13 +163,17 @@ def _web():
 def _itf():
     """Console entry point (`pyroorb-itf search|recovery-suite|maintain ...`) — the ITF CLI
     (also `python -m pyroorb.itf`)."""
+    from pyroorb.envfile import load_env_file
+    load_env_file()
     from pyroorb.itf.__main__ import main
     return main()
 
 
 def _fetch_data():
     """Console entry point (`pyroorb-fetch-data [--asteroids]`) — download the reference
-    tables a fit needs (DE440, the debias tables; optionally the asteroid kernel)."""
+    tables a fit needs (DE440, the debias tables; optionally the asteroid ephemeris)."""
+    from pyroorb.envfile import load_env_file
+    load_env_file()
     from pyroorb.fetch_data import main
     return main()
 

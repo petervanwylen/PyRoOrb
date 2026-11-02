@@ -70,6 +70,22 @@ They go to your per-user cache directory (`~/.cache/pyroorb` on Linux,
 the two tables. Downloaded observations are cached for a few hours only, and the cache is held
 under 2 GB (`PYROORB_CACHE_MAX_MB`).
 
+## Settings: one `.env` file
+
+Every setting can live in one `.env` file of `KEY=value` lines, which every PyRoOrb command
+(`pyroorb`, `pyroorb-web`, `pyroorb-itf`, `pyroorb-fetch-data`, and their `python -m` forms)
+reads at start-up, before anything else:
+
+```bash
+PYROORB_EPHEM_DIR=/path/to/ephem
+PYROORB_DEBIAS_DIR=/path/to/debias
+```
+
+The first file found is used: the path in `PYROORB_ENV_FILE`; `.env` at the root of a source
+checkout; `.env` in the folder you run the command from, or in any folder above it. A variable
+already set in your shell always wins over the file. Keep `.env` out of version control (the
+repository's `.gitignore` already does).
+
 ## Run it
 
 ```bash

@@ -1,7 +1,7 @@
 """Local MPCORB cache + random-asteroid sampling (with optional element filters).
 
 The Minor Planet Center's MPCORB.DAT(.gz) is the catalogue of all ~1.5 M known
-asteroid orbits. We cache it locally (in the download cache, datadirs.cache_dir()) and build a small
+asteroid orbits. We cache it locally (in the cache directory, datadirs.cache_dir()) and build a small
 parsed index (designation + a, e, i, H) so repeated random sampling is fast.
 
     from mpcorb import sample_asteroids

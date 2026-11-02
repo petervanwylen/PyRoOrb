@@ -1,6 +1,6 @@
 """Build STATIC astrometry fixtures + golden fit results for the regression test.
 
-Run this ONCE (needs network + the the download cache cache) to snapshot every object we
+Run this ONCE (needs network + the fetch cache) to snapshot every object we
 rely on into tests/fixtures/*.json. Each fixture holds the fully-parsed obs
 list (positions already debiased, per-obs sigmas attached -- exactly what
 fit_orbit consumes), the meta, and the CURRENT fit result as the golden baseline.

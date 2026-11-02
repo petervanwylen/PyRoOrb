@@ -238,7 +238,7 @@ def test_geocentric_observer_fast_path_is_exact():
 # --------------------------------------------------------------------------
 # ADES -> OBS80 field mapping (band, star catalogue, programme code, reference,
 # reported precision). The reference is the MPC's OWN 80-column line for the same
-# observation: `the download cache/` caches both an object's ADES and its OBS80, and the
+# observation: the fetch cache holds both an object's ADES and its OBS80, and the
 # expectations below are lifted verbatim from that pair for 2026 DB65.
 # --------------------------------------------------------------------------
 

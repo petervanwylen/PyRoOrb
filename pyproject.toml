@@ -42,7 +42,7 @@ dependencies = [
 ]
 # NB: ADES parsing (ades.py) and designation packing (packing.py) are both native now --
 # adam_core and sbpy were removed as dependencies (sbpy stays an OPTIONAL cross-check in
-# packing._validate). See PROVENANCE.md.
+# packing._validate).
 
 [project.optional-dependencies]
 # Development / regression suite + the population scanners.

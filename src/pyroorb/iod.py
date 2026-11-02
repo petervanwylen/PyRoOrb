@@ -2,8 +2,8 @@
 
 ⚠️ PROVENANCE: The *control flow and method-selection logic* in this module was originally an almost
 exact port of Bill Gray's find_orb `initial_orbit()` (find_orb/orb_func.cpp:4217) and its
-helpers, read from the find_orb source. We follow find_orb deliberately and credit it here and in
-PROVENANCE.md. find_orb is GPL-2.0; this project is GPL-3.0 (see LICENSE.md) — because we
+helpers, read from the find_orb source. We follow find_orb deliberately and credit it here.
+find_orb is GPL-2.0; this project is GPL-3.0 (see LICENSE.md) — because we
 reproduce find_orb's *approach/structure* (not copied source lines) and GPL-3.0 is the
 umbrella required by our REBOUND import, this is compatible.
 

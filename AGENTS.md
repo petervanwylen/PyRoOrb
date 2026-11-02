@@ -6,7 +6,7 @@ only with a measurement, and update its line here when you do.
 
 **find_orb is the reference.** PyRoOrb ports Bill Gray's find_orb (GPL-2.0): logic openly
 ported, no source lines copied. When a behaviour is unclear, read the find_orb code rather
-than guess, and record what was read or ported in **PROVENANCE.md** (file + function).
+than guess, and credit what was read or ported in the module's docstring (file + function).
 
 ## Layout (`src/pyroorb/`)
 
@@ -145,5 +145,8 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   visible via `sweepwatch.py` → `/api/memory`, `/healthz`.
 - One Earth-orientation table (`eop.pin()`, no runtime download); one ephemeris
   (`force_assist.get_ephem`, locked).
+- **One settings file** (`envfile.load_env_file`): every command and `python -m` entry loads
+  `.env` BEFORE importing the engine (folders are read at import); a real variable wins; a
+  library import reads none (`tests/test_envfile.py`).
 - `/memory` (`web/webmem.py`): collects before counting, password-gated deep pass;
   `trim_allocator` returns glibc-held pages (verify with RSS).

@@ -19,8 +19,8 @@ band), observing circumstances (obscode categorical, delta, elongation,
 predicted V), and trial-orbit context (U, rms, used/count, oppositions,
 arc span, the time gap being bridged, recursion depth).
 
-    python -m pyroorb.itf.collect --objects-per-split 40 --out the download cache/itf_train.csv   # live
-    python -m pyroorb.itf train-model the download cache/itf_train.csv               # xgboost
+    python -m pyroorb.itf.collect --objects-per-split 40 --out itf_train.csv   # live
+    python -m pyroorb.itf train-model itf_train.csv               # xgboost
 """
 
 import csv

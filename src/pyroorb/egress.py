@@ -4,7 +4,7 @@ wider ecosystem reads: MPC's one-line **MPCORB** record and Project Pluto's
 both; this closes the round-trip).
 
 Both formats at least initially were ported logic from Bill Gray's find_orb (GPL-2.0; logic openly
-ported, no source lines copied — see PROVENANCE.md):
+ported, no source lines copied):
 
   * MPCORB  — ``elem_out.cpp:elements_in_mpcorb_format`` (the ~203-col fixed line
     with the mutant-hex packed epoch, mean-motion, arc-length blurb and rms).

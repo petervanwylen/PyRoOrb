@@ -32,6 +32,8 @@ PRIVATE = (
     "tests/private/",
     # never-released material, and the deployment
     "lab/", "web_addons.txt", "Procfile", "railway.json", "requirements.txt",
+    # the read/ported/copied log, kept for the record; public modules credit their sources inline
+    "PROVENANCE.md",
 )
 
 _SUFFIXES = (".py", ".js", ".html", ".css")
@@ -45,9 +47,11 @@ _FORBIDDEN = [
     ("private folder", r"\bresearch(?:_scratch)?/|(?<![\w/.-])val(?:_impactors)?/|\bscanners/"),
     ("private doc", r"DESIGN-NOTES|TYPICAL_AGENT|VISION\.md|NAMING\.md|scan-and-fix|"
                     r"STEP-BY-STEP|FITTING\.md|\bspeed\.md|OVERVIEW\.md|ITF-PRIO|IMPACT_RESEARCH|"
-                    r"\bchunks\.md|itf-next-steps|itf-speedup|CLAUDE\.md"),
+                    r"\bchunks\.md|itf-next-steps|itf-speedup|CLAUDE\.md|PROVENANCE\.md"),
+    ("pre-package layout", r"\bmvp\b"),
     ("agent jargon", r"read in this session|auto-memory|\bworktree"),
     ("private module name", r"\b(neocpmon|itfprio|hyperlinc|visweeks|photcal|heliolinc|itfitf)\b"),
+    ("development machine path", r"/home/agent/|pyroorb-data/"),
 ]
 # These name the private modules on purpose: they are the guards that keep them out.
 _NAMES_PRIVATE_ON_PURPOSE = ("tests/test_public_boundary.py",)
@@ -78,6 +82,56 @@ def test_public_code_carries_no_development_record():
                     hits.append(f"{rel}:{n}: {what}: {line.strip()[:120]}")
     assert not hits, ("public-bound code must state the rule and its measured reason, not the "
                       "development record (see the module docstring):\n" + "\n".join(hits))
+
+
+_MD_LINK = re.compile(r"\]\(([^)\s#]+)(?:#[^)]*)?\)")
+
+
+def test_public_docs_link_only_to_public_files():
+    """A relative link in a public Markdown file must resolve to a public file: the private
+    repository's documents are not released, so a link into them is broken for every reader
+    and names what the release leaves out."""
+    out = subprocess.run(["git", "ls-files", "*.md"], cwd=REPO, capture_output=True, text=True)
+    if out.returncode != 0:
+        pytest.skip("not a git checkout")
+    bad = []
+    for rel in out.stdout.split():
+        if rel.startswith(PRIVATE) or not (REPO / rel).is_file():
+            continue
+        text = re.sub(r"<!--.*?-->", "", (REPO / rel).read_text(errors="replace"), flags=re.S)
+        for m in _MD_LINK.finditer(text):
+            target = m.group(1)
+            if re.match(r"[a-z][a-z0-9+.-]*:", target):          # http:, mailto:, ...
+                continue
+            path = ((REPO / rel).parent / target).resolve()
+            try:
+                to = path.relative_to(REPO).as_posix()
+            except ValueError:
+                to = None
+            if to is None or not path.exists() or to.startswith(PRIVATE):
+                bad.append(f"{rel}:{text[:m.start()].count(chr(10)) + 1}: {target}")
+    assert not bad, "public docs link to missing or private files:\n" + "\n".join(bad)
+
+
+_DOC_FORBIDDEN = re.compile(r"\bmvp\b|PROVENANCE\.md", re.IGNORECASE)
+
+
+def test_public_docs_name_no_old_layout_or_private_record():
+    """Public Markdown and pyproject.toml never name the pre-package `mvp/` folder (it is
+    gone: such a line is a stale instruction) nor PROVENANCE.md (kept in the private
+    repository; public modules credit what they port in their own docstrings)."""
+    out = subprocess.run(["git", "ls-files", "*.md", "pyproject.toml"], cwd=REPO,
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        pytest.skip("not a git checkout")
+    bad = []
+    for rel in out.stdout.split():
+        if rel.startswith(PRIVATE) or not (REPO / rel).is_file():
+            continue
+        for n, line in enumerate((REPO / rel).read_text(errors="replace").splitlines(), 1):
+            if _DOC_FORBIDDEN.search(line):
+                bad.append(f"{rel}:{n}: {line.strip()[:120]}")
+    assert not bad, "public docs name the old layout or a private record:\n" + "\n".join(bad)
 
 
 def test_scan_sees_the_public_tree():

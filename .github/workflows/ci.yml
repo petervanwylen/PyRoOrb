@@ -36,6 +36,27 @@ jobs:
           print(f"{len(files)} files, none private")
           EOF
 
+  secrets:
+    # gitleaks over the repository's whole history on every push: a credential committed by
+    # mistake is caught at once, in either repository, long before a release. Pinned version,
+    # checked against its published SHA-256; findings are printed with the secret redacted.
+    # A false positive is silenced with a `gitleaks:allow` comment on its line.
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: "8.24.0"
+      GITLEAKS_SHA256: "cb49b7de5ee986510fe8666ca0273a6cc15eb82571f2f14832c9e8920751f3a4"
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: install gitleaks
+        run: |
+          f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$f" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
+          echo "${GITLEAKS_SHA256}  $f" | sha256sum -c -
+          tar xzf "$f" gitleaks
+      - name: scan the history
+        run: ./gitleaks git --no-banner --redact --exit-code 1 .
+
   tests:
     needs: guard
     strategy:
@@ -88,7 +109,12 @@ jobs:
         with: {node-version: "22"}
       - run: npm install --no-save jsdom
       - name: jsdom page tests
-        run: for t in tests/web/*.js; do echo "== $t"; node "$t" || exit 1; done
+        # tests/private/web holds the private modules' page tests; it exists only in the
+        # development repository, and nullglob makes the loop skip it where it is absent.
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for t in tests/web/*.js tests/private/web/*.js; do echo "== $t"; node "$t" || exit 1; done
 
   wheel:
     needs: guard

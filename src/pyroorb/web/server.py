@@ -99,6 +99,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+if __name__ == "__main__":
+    # Run as a program (`python -m pyroorb.web.server`, the dev server's child): load the
+    # `.env` settings file before the engine imports read their settings.
+    from pyroorb.envfile import load_env_file
+    load_env_file()
 from pyroorb.web import engine_api  # noqa: E402
 from pyroorb.web import loader      # noqa: E402  (paste-an-obs-blob loader)
 from pyroorb.web import exporters   # noqa: E402  (pseudo-MPEC + ephemeris text)

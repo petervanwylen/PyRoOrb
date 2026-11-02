@@ -27,7 +27,8 @@ PyRoOrb builds and keeps current inside it.
 | **Read-only search role** | `pub`, password in `SBN_PUB_PASSWORD` — reads `obs_sbn`, `mpc_orbits`, `current_identifications`, `numbered_identifications`, `primary_objects` |
 | **Index role** | `itf`, password in `ITF_DB_PASSWORD` — owns the `itf` schema the maintenance jobs write |
 
-Set them in the environment, or in a `.env` file at the root of your checkout:
+Set them in the environment, or in the `.env` settings file (see
+[INSTALL.md](INSTALL.md#settings-one-env-file) for where it may live):
 
 ```bash
 SBN_DB_HOST=your-sbn-replica.example.org

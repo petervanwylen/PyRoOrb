@@ -26,7 +26,7 @@ back to sbpy — this module can only ever AVOID a sbpy call, never answer wrong
 PROVENANCE — this is our own implementation; sbpy's ``names.py`` (BSD-3) ``to_packed`` /
 ``from_packed`` were read as the reference for the obj_num folding in the extended scheme
 and the comet-form provisional packing (``pack_comet``).  Logic ported, no source lines
-copied.  See PROVENANCE.md.  Validated byte-for-byte (both directions) against sbpy across
+copied.  Validated byte-for-byte (both directions) against sbpy across
 the full MPCORB catalogue (1,548,690 designations, 0 mismatches): run ``python packing.py``
 (cross-checks against sbpy when it is installed, else round-trips against itself).
 """

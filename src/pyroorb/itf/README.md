@@ -504,22 +504,18 @@ one) and `coherent_offset_misfit` cannot (the trend is zero-mean).
 # control re-levels the running search through the same poll (&level=).
 
 # main CLI
-fit_object.py "2017 CL37" --itf-search [--itf-candidate-source scan] [--itf-rank-mode legacy]
-                          [--itf-max-uncert ARCSEC] [--itf-jitter] [--itf-submit]
-                          [--itf-trace]     # or PYROORB_VERBOSE=1
-                          [--itf-trace-level 0-4]   # verbosity, default 2; 0 = no trace
+pyroorb "2017 CL37" --itf-search [--itf-candidate-source scan] [--itf-rank-mode legacy]
+                    [--itf-max-uncert ARCSEC] [--itf-jitter] [--itf-submit]
+                    [--itf-trace]     # or PYROORB_VERBOSE=1
+                    [--itf-trace-level 0-4]   # verbosity, default 2; 0 = no trace
 
-# module CLI (run FROM mvp/); the live trace prints by default
+# module CLI (from anywhere); the live trace prints by default
 # (--quiet or --trace-level 0 to silence, --trace-level 1-4 for verbosity)
 python -m pyroorb.itf search "2017 CL37"
 python -m pyroorb.itf.batch --list objects.txt             # many objects: CSV + one JSON
 python -m pyroorb.itf recovery-suite --n-objects 10 --seed 42 [--live]      # recovery test suite
 python -m pyroorb.itf maintain refresh|reconcile|sweep|backfill|status
-
-# ...or the same commands FROM THE REPO ROOT / anywhere (`python -m pyroorb.itf` resolves
-# the package only from mvp/, which is what makes "No module named itf" the classic
-# first error here):
-python itf_cli.py search "2017 CL37"              # repo-root launcher
+pyroorb-itf search "2017 CL37"                  # the installed command, same CLI
 ```
 
 ## Reading the trace
@@ -755,9 +751,8 @@ long reconcile/sweep just defers the next refresh), gated by the
 `ITF_MAINTAIN_TURNED_ON` env var (**off** by default) with per-job last-run in
 `itf.itf_maintain_runs`; on Railway it runs as a daemon thread in the web
 service (`python -m pyroorb.itf.maintain scheduler` / `tick` run it standalone).  Check
-health with `python -m pyroorb.itf.maintain events`.  **Full maintenance reference:
-[`itf_maint.md`](itf_maint.md)** (jobs, scheduler, gating, the state/event
-tables, monitoring, resilience); deployment in `docs/DEPLOY_RAILWAY.md`.  Server
+health with `python -m pyroorb.itf.maintain events`.  **Setting up and maintaining
+the index on your own SBN database: [`docs/ITF_SETUP.md`](../../../docs/ITF_SETUP.md).**  Server
 etiquette: never seq-scan `obs_sbn` (~538 M rows), batch writes, throttle bulk
 reads.
 
@@ -818,7 +813,7 @@ drops what Python keeps: offline by transliterating the SQL into Python (runs in
 REAL SQL to the server via `unnest(...)` — read-only, no table touched:
 
 ```bash
-python tests/itf_sql_fuzz.py 4000     # from mvp/; live check skipped w/o DB
+python tests/itf_sql_fuzz.py 4000     # from the repo root; live check skipped w/o DB
 ```
 
 ### The harness is also the ML training-data factory
@@ -860,7 +855,8 @@ Four rules the collection holds to, each of which cost something to learn:
 
 ## Setup
 
-* Server and credentials in the repo-root gitignored `.env` (or exported):
+* Server and credentials in the gitignored `.env` settings file (`pyroorb/envfile.py`;
+  or exported):
   `SBN_DB_HOST=...` (your SBN database server -- there is no built-in host; unset,
   every connection fails with a message naming it), `SBN_PUB_PASSWORD=...`
   (read-only search) and `ITF_DB_PASSWORD=...` (index owner).  See `dbio.py`.
@@ -881,7 +877,7 @@ Four rules the collection holds to, each of which cost something to learn:
 Design/provenance: ported from the proven `ift outline/itflib` pipeline
 (gitignored; the v23 notebook logic validated by real MPC submissions), with
 find_orb's `make_linkage_json` (elem_out.cpp) consulted for the submission
-document's edge rules. See PROVENANCE.md.
+document's edge rules.
 
 
 ## RMS currency (per-axis, everywhere a person reads)

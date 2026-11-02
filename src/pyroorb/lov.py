@@ -1,7 +1,7 @@
 """Line-of-Variations (LOV) orbit uncertainty.
 
-Logic ported from find_orb (GPL-2.0; logic openly ported, no source copied; see
-PROVENANCE.md): `improve_along_lov` (orb_fun2.cpp:694) steps the orbit along the
+Logic ported from find_orb (GPL-2.0; logic openly ported, no source copied):
+`improve_along_lov` (orb_fun2.cpp:694) steps the orbit along the
 least-constrained direction of the covariance (the LOV) and re-corrects, generating
 statistical clones that span the dominant uncertainty -- the input find_orb propagates
 into close-approach tables and impact probability.

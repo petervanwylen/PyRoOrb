@@ -10,7 +10,7 @@ engine modules, …) go live without a manual restart. Static assets
     .venv/bin/python -m pyroorb.web.devserver --port 9000
 
 Ctrl-C stops it. If an edit has a syntax error the child will exit; fix the file
-and the next save restarts it automatically. `the download cache` (API caches written
+and the next save restarts it automatically. ``data`` folders (API caches written
 during fits), ``__pycache__`` and ``tests`` are ignored so normal fitting does
 NOT trigger a reload.
 """

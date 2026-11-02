@@ -87,6 +87,21 @@ def test_polish_helps_hv119():
         f"rms {g.rms_residual():.3f}->{a.rms_residual():.3f}")
 
 
+def test_polish_kept_when_gravity_amputates_apparitions():
+    """(613383) = 2022 KX28: gravity rejects the whole 2006/2010/2011 apparitions and fits
+    the rest at ~0.16", where the perturbers change nothing. The +16ast fit holds every obs
+    and gravity cannot (tens of arcsec on that set), so the keep-gate -- judged on the
+    asteroid fit's obs set too -- must keep the perturbers. Skips without the kernel."""
+    if not _have_kernel():
+        pytest.skip("no sb441-n16 kernel")
+    g = _fit("2022 KX28")
+    a = fo.refine_asteroids(g)
+    assert a.asteroids is True, "the perturbers should be kept for 2022 KX28"
+    assert a.n_observations() >= g.n_observations() + 30, (
+        f"the early apparitions should be held: obs {g.n_observations()}->{a.n_observations()}")
+    assert a.rms_residual() < 0.5
+
+
 def test_force_bypasses_gate():
     """force=True applies the perturbers even to a gated-out object (CLI --asteroids)."""
     if not _have_kernel():

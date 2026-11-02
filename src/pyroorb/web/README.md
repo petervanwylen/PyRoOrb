@@ -1,6 +1,6 @@
 # PyRoOrb web UI — Phase 0 (read-only viewer)
 
-The first runnable slice of [`WEB_UI_PLAN.md`](../../WEB_UI_PLAN.md): fetch/fit an
+The first runnable slice of the web UI: fetch/fit an
 object and **see** it — elements, residual table, a live 3D orbit, and the O−C
 residual plot. No editing yet (that's Phase 1).
 
@@ -16,8 +16,8 @@ residual plot. No editing yet (that's Phase 1).
 `--port N` / `--host H` to change the bind.
 
 **`devserver.py`** runs `server.py` as a child and restarts it whenever any
-`.py` under `mvp/` changes, so backend edits go live without a manual restart
-(static html/css/js never needed one — just refresh). the download cache (fit caches),
+`.py` under `src/pyroorb/` changes, so backend edits go live without a manual restart
+(static html/css/js never needed one — just refresh). `data` folders,
 `__pycache__` and `tests` are ignored, so normal fitting doesn't trigger a
 reload; a syntax error just stops the child until the next save fixes it.
 
@@ -46,8 +46,8 @@ An SSH tunnel also works where available: `ssh -L 8000:localhost:8000 <vm>`,
 then `http://localhost:8000`. **Zero dependencies** — pure Python
 stdlib backend + vanilla-JS front end, so it runs offline with no `pip install`
 and no Node build step. It fits **cache-first**: any object with a
-`the download cache/ades_<desig>.json` file fits with no network (5000+ are already
-cached); uncached objects need network and will error cleanly if offline.
+`ades_<desig>.json` file in the cache directory fits with no network (while it is
+fresh); uncached objects need network and will error cleanly if offline.
 
 For a **combined linkage**, enter comma-separated designations
 (e.g. `2008 TE4, 2008 UF`).

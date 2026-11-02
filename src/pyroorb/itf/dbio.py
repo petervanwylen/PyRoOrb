@@ -7,8 +7,8 @@ Two roles on the shared SBN PostgreSQL server (see ``ItfConfig`` for host/db):
   index lives there); used by all index-maintenance jobs.
 
 Passwords are never stored in the repo: they come from the environment
-(``SBN_PUB_PASSWORD`` / ``ITF_DB_PASSWORD``) or a gitignored ``.env`` at the
-repo root.  The server is shared and load-sensitive -- callers must batch
+(``SBN_PUB_PASSWORD`` / ``ITF_DB_PASSWORD``) or the gitignored ``.env`` settings file
+(``pyroorb.envfile``).  The server is shared and load-sensitive -- callers must batch
 writes (`execute_values`) and never seq-scan ``obs_sbn`` (~538M rows).
 
 Sandboxed environments often have NO direct TCP route -- all egress rides an
@@ -24,32 +24,14 @@ takes effect immediately).
 import os
 import socket
 import threading
-from pathlib import Path
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def load_dotenv():
-    """Populate ``os.environ`` from a gitignored ``.env`` (repo root, then cwd
-    walking up).  Only sets keys not already present, so a real exported
-    variable always wins.  Values may be quoted."""
-    candidates = [_REPO_ROOT / ".env"]
-    here = Path.cwd().resolve()
-    for _ in range(6):
-        candidates.append(here / ".env")
-        if here.parent == here:
-            break
-        here = here.parent
-    for path in candidates:
-        if not path.is_file():
-            continue
-        for line in path.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, val = line.partition("=")
-            os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
-        return
+    """Populate ``os.environ`` from the one ``.env`` settings file (``pyroorb.envfile``).
+    Only sets keys not already present, so a real exported variable always wins. Commands
+    have already loaded it at start-up; this covers library callers reaching the database."""
+    from pyroorb.envfile import load_env_file
+    load_env_file()
 
 
 _TRUTHY = {"1", "true", "t", "yes", "y", "on"}

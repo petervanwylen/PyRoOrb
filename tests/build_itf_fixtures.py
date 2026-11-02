@@ -1,7 +1,7 @@
 """Build the ITF recovery fixtures (frozen published astrometry + the offline
 recovery target) for the objects whose ITF fixes we validated.
 
-Run from ``mvp/`` with the project venv; needs the MPC network to fetch each
+Run from the repository root with the project venv; needs the MPC network to fetch each
 object ONCE.  Re-running refreshes the frozen astrometry and re-derives the
 target.  The distractor side is NOT frozen -- it comes from the live ITF DB at
 test time (see test_itf_recovery.py).

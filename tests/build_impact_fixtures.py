@@ -1,6 +1,6 @@
 """Build STATIC astrometry fixtures for the impact-location regression test.
 
-Run ONCE (needs network + the the download cache cache) to snapshot the ESA "past impactor"
+Run ONCE (needs network + the fetch cache) to snapshot the ESA "past impactor"
 oracles into tests/impact_fixtures/*.json. Each fixture holds the parsed obs +
 meta (what fit_orbit consumes) and the measured-impact ORACLE the test asserts
 against. Kept SEPARATE from the main regression fixtures so test_impact runs as its

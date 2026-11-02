@@ -19,14 +19,14 @@ by probability of belonging to the seed object (see `../training.py`).
   `default_second_model_path`) — the pair is the product. The live gap that
   blocked every v3 candidate (better on all offline measures, loses BE559/GL24
   live) was a control-flow defect — one greedy take foreclosing a round — and
-  was resolved by barren-take backtracking + the woven second-opinion trial source
-  (`../ladder-backtracking.md`), NOT by a model change. Decision benchmark
+  was resolved by barren-take backtracking + the woven second-opinion trial source,
+  NOT by a model change. Decision benchmark
   (2026-08-07, all 24 live fixtures × {v2, v3e, v3e+v2, v2+v3e}, prod flags):
   v3e+v2 24/24, median wall 24 s (v2: 24/24, 29 s; loses WY29 153→63 s,
   NW264 89→34 s, SF15, GL24, KX6 to the pair); v3e ALONE 22/24 (misses BE559
   AND GL24 — never deploy a single ranker without the second-opinion trial source);
   v2+v3e no gain. Known cost: 2021 SA70 ~+55% under the pair (consistent on
-  re-runs), accepted. Raw runs: `/home/agent/pyroorb-data/kcluster_bench.jsonl`.
+  re-runs), accepted. Raw runs kept outside git.
 - `itf_match_v2.json` (+ `.meta.json`) — the **deployed SECOND-OPINION**
   ranker (primary 2026-07-20 → 2026-08-07). 40 objects /
   39,988 rows / 976 positives, collected 2026-07-20 (`itf_train_v2.csv.gz.part-*`,
@@ -36,8 +36,8 @@ by probability of belonging to the seed object (see `../training.py`).
   fixtures (see "the live gap" below and git history around 15baeb2).
 - **v3b (2026-08-05)** — the current candidate, NOT yet deployed. Trained under
   the owner's two-sided acceptance framework (below). Datasets and artifact live
-  outside git (`the download cache/itf_train_v3b.csv`, `itf_holdout_v3b.csv`; safe copies
-  + model on the LOCAL fs at `/home/agent/pyroorb-data/` — the repo mount tears
+  outside git (`itf_train_v3b.csv`, `itf_holdout_v3b.csv`; safe copies
+  + model on a local, non-mounted disk — the repo mount tears
   large writes, see "filesystem" below).
 
 ## The two-sided acceptance framework (owner, 2026-08-05)
@@ -178,7 +178,7 @@ positives survived); a "cleanup" rewrite corrupted the copy. Mitigations, all
 in `training.py`: batched-fsync `write_rows`, and a stdlib-csv pre-scan in
 `read_dataset` that hands pandas the exact torn-row indices (field count,
 label sanity, NUL bytes — `on_bad_lines` alone misses NaN-padded short rows).
-Write large artifacts to the LOCAL fs (`/home/agent/pyroorb-data/`).
+Write large artifacts to a local, non-mounted disk.
 
 ## Repro
 

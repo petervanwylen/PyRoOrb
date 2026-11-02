@@ -15,7 +15,7 @@ adds only the two pieces the heliocentric pipeline lacks:
      converged heliocentric state onto the planet, compute classical elements with the
      planet's GM, and report a satellite class instead of a nonsense heliocentric one.
 
-find_orb is the reference (logic openly ported, no source copied -- see PROVENANCE.md):
+find_orb is the reference (logic openly ported, no source copied):
 its ``forced_central_body`` path is exactly this "told-the-center" mode, central-body
 reporting is done at OUTPUT over an unchanged heliocentric integration (``find_central_object``,
 elem_out.cpp), and a hyperbolic planetocentric solution reverts to "fly-by, not a satellite"

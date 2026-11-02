@@ -17,8 +17,8 @@ If you do send code:
 - a new behaviour comes with a test, and every object you fix is added to the regression
   fixtures (`tests/build_fixtures.py`);
 - comments state the rule and its measured reason (`tests/test_public_code_hygiene.py`);
-- anything read or ported from another code is recorded in `PROVENANCE.md`; PyRoOrb ports
-  find_orb's logic, never its source lines.
+- anything read or ported from another code is credited in the module's docstring (file +
+  function); PyRoOrb ports find_orb's logic, never its source lines.
 
 The engine's rules are in [`AGENTS.md`](AGENTS.md).
 

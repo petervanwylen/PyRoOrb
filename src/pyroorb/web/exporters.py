@@ -5,7 +5,7 @@ Two products, both pure reads of a completed ``FittedOrbit`` (no engine_api edit
 * ``pseudo_mpec(fit)``    -- a find_orb-style **pseudo-MPEC** HTML report: astrometry
   block, orbital-elements block (with 1-sigma uncertainties), observatory roll-up,
   and a 3-column residuals block. Layout ported (not copied) from find_orb's
-  ``make_pseudo_mpec`` in ``ephem0.cpp`` (see PROVENANCE).
+  ``make_pseudo_mpec`` in ``ephem0.cpp``.
 * ``ephemeris_text(fit, obscodes, ...)`` -- the find_orb-style fixed-width ephemeris
   table, wrapping ``ephemeris.compute_ephemeris`` + ``ephemeris.format_table``.
 

@@ -73,7 +73,7 @@ DEFAULT_MAG_SIGMA = 0.5
 # break R->o and I->z, harmlessly -- ATLAS o is a wide filter effectively bluer
 # than its nominal centre, and asteroid reflectance flattens past ~900 nm.)
 # No MPC announcement declares the service authoritative; this is an inference
-# from internal consistency, and it is recorded as such in PROVENANCE.md.
+# from internal consistency.
 #
 # KEYED BY THE FULL ADES BAND, deliberately. 'Lg' is looked up as 'Lg' -- the
 # collapse to a single character is NOT applied on the way in. Today the MPC

@@ -85,7 +85,7 @@ def test_a_local_failure_is_not_blamed_on_the_mpc(monkeypatch):
     perfectly. Committing the very category error the message exists to prevent.
     """
     def local_boom(d, cache=None, timeout=60):
-        raise FileNotFoundError("[Errno 2] No such file or directory: '/app/the download cache/x'")
+        raise FileNotFoundError("[Errno 2] No such file or directory: '/app/cache/x'")
     monkeypatch.setattr(mpc_orbit, "fetch_published_elements", local_boom)
     out = engine_api.published_orbit("433")
     assert out["ok"] is False

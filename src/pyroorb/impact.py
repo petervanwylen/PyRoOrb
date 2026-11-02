@@ -7,8 +7,8 @@ against the ESA "past impactors" set (2008 TC3, 2018 LA, 2023 CX1, 2024 BX1, ...
 
 Method (ported in logic from the OrbFit/NEODyS impact-corridor algorithm of
 Dimare, Del Vigna, Bracali Ciocci & Bernardi 2020, "Use of the Semilinear Method
-to predict the Impact Corridor on Ground", arXiv:2007.05407; see
-PROVENANCE.md). Their impact map F^h = Sigma^h o Phi o Psi is:
+to predict the Impact Corridor on Ground", arXiv:2007.05407).
+Their impact map F^h = Sigma^h o Phi o Psi is:
 
     Psi    -- find the time t* at which the geodetic altitude reaches h, by a
               root find on  zeta(p(t)) - h = 0  during the close approach;

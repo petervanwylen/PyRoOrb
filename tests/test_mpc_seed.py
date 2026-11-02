@@ -6,8 +6,7 @@ same heliocentric-equatorial state, so a converged orbit stands in for it perfec
 
     python -m pytest tests/test_mpc_seed.py  # or under pytest
 
-The live API + real published-orbit conversion are validated separately (see PROVENANCE
-/ the dev notes); those can't live in the offline suite without making it network- and
+The live API + real published-orbit conversion are validated separately; those can't live in the offline suite without making it network- and
 time-dependent, which is exactly what keeping the seed OUT of fit_orbit avoids.
 """
 import os

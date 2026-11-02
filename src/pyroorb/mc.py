@@ -1,7 +1,7 @@
 """Monte Carlo orbit uncertainty.
 
-Logic ported from find_orb (GPL-2.0; logic openly ported, no source copied; see
-PROVENANCE.md): `generate_mc_variant_from_covariance` (orb_fun2.cpp) draws each clone
+Logic ported from find_orb (GPL-2.0; logic openly ported, no source copied):
+`generate_mc_variant_from_covariance` (orb_fun2.cpp) draws each clone
 by sampling the state covariance; `add_monte_orbit` / `compute_monte_sigmas` /
 `dump_monte_data_to_file` (monte0.cpp) accumulate the element spread into per-element
 sigmas and the MPC uncertainty parameter U.

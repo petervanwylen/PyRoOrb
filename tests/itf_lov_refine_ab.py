@@ -17,7 +17,7 @@ whether it pays off or not, so the fixtures that already link on an early
 variant are the ones that can LOSE -- which is why every fixture runs, not just
 the severe ones.
 
-    cd mvp && ../.venv/bin/python tests/itf_lov_refine_ab.py [FIXTURE ...]
+    python tests/itf_lov_refine_ab.py [FIXTURE ...]      # from the repository root
 
 Env: REPEATS (default 1).
 """

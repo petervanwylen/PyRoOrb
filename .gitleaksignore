@@ -1,0 +1,5 @@
+# gitleaks: findings already reviewed as false positives, by fingerprint
+# (commit:file:rule:line). Each is the localStorage key name in web/static/d2note.js,
+# committed before that line carried its gitleaks:allow comment.
+4bd2f9d229a14e9c97defdc5517688e4d68fe6f2:src/pyroorb/web/static/d2note.js:generic-api-key:22
+b1753be940f4b91355e5d551ffdf8bf8a6c5747e:mvp/web/static/d2note.js:generic-api-key:22

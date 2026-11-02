@@ -1,7 +1,7 @@
 """Progressive arc extension with automatic outlier rejection.
 
 ⚠️ PROVENANCE: This was originally a close port of Bill Gray's find_orb arc-extension +
-blunder-rejection logic, read from the find_orb source and credited in PROVENANCE.md:
+blunder-rejection logic, read from the find_orb source and credited here:
   - extend_orbit_solution()       (find_orb/orb_func.cpp:4618)
   - attempt_extensions()          (find_orb/orb_func.cpp:4793)
   - auto_reject_obs()             (find_orb/orb_func.cpp:4716)

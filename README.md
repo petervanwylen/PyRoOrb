@@ -161,7 +161,7 @@ deliberate: **REBOUND** grabs the rebound, **ASSIST** makes the pass, and
 
 - **[REBOUND](https://github.com/hannorein/rebound)** — N-body integrator.
 - **[ASSIST](https://github.com/matthewholman/assist)** — ephemeris-quality forces (DE440, GR).
-- **[find_orb](https://github.com/Bill-Gray/find_orb)** (Bill Gray) — our reference oracle. Algorithms studied and **ported in pure Python; no source lines copied** (see [`PROVENANCE.md`](PROVENANCE.md)).
+- **[find_orb](https://github.com/Bill-Gray/find_orb)** (Bill Gray) — our reference oracle. Algorithms studied and **ported in pure Python; no source lines copied**.
 - **EFCC18** — star-catalog astrometric debiasing.
 - **[Minor Planet Center](https://minorplanetcenter.net/)** — observations & observatory codes.
 - **astropy · numpy · scipy** — the scientific bedrock.
@@ -169,8 +169,7 @@ deliberate: **REBOUND** grabs the rebound, **ASSIST** makes the pass, and
 ## License & citing
 
 **GPL-3.0** (required by REBOUND/ASSIST). PyRoOrb ports find_orb's *logic*
-(GPL-2.0) without copying its source — provenance tracked honestly in
-[`PROVENANCE.md`](PROVENANCE.md).
+(GPL-2.0) without copying its source; each ported routine is credited in its module.
 
 Alpha — the API may shift before 1.0. If it helps your work, please cite PyRoOrb along
 with REBOUND, ASSIST, and find_orb. Questions and bug reports: GitHub issues

@@ -4,8 +4,8 @@ A keyhole is a tiny region on the b-plane of a close ("deflecting") encounter su
 asteroid passing through it is deflected onto a RESONANT RETURN -- a second, possibly
 impacting, encounter an integer number of years later (the textbook case is Apophis: the
 2029 encounter has a small keyhole leading to a 2036 return). The mechanism (Valsecchi,
-Milani, Gronchi & Chesley 2003, A&A 408, 1179; logic openly ported, no source copied --
-see PROVENANCE.md):
+Milani, Gronchi & Chesley 2003, A&A 408, 1179; logic openly ported, no source
+copied):
 
   * the deflecting encounter rotates the geocentric velocity, changing the heliocentric
     semimajor axis a' (hence the orbital period);

@@ -108,12 +108,17 @@ def load(paths, truth_sources=("exitf",), log=print, usecols=None):
     return df
 
 
-NEVER_TRAIN = "/home/agent/pyroorb-data/v4/NEVER_TRAIN.txt"
+#: The eval-wall list (one designation per line), named by ``PYROORB_NEVER_TRAIN``.
+NEVER_TRAIN_ENV = "PYROORB_NEVER_TRAIN"
 
 
-def never_train(path=NEVER_TRAIN):
+def never_train(path=None):
     """Designations that must never be trained on (see :func:`load`).
-    Missing file = refuse: an absent wall is not an open one."""
+    Missing file = refuse: an absent wall is not an open one. So is an unnamed one."""
+    path = path or os.environ.get(NEVER_TRAIN_ENV)
+    if not path:
+        raise RuntimeError(f"no eval wall: set {NEVER_TRAIN_ENV} to the list of designations "
+                           "that must never be trained on")
     with open(path) as fh:
         return {l.strip() for l in fh if l.strip()}
 
