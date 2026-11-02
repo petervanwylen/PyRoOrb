@@ -3,29 +3,36 @@
 PyRoOrb runs on Linux and macOS with Python 3.11–3.14. **Windows is not yet supported;
 support is coming in late 2026.** Pick one route.
 
-## pip or uv (the main route)
+## The install script (recommended)
 
 ```bash
-pip install -U "rebound<5" numpy setuptools wheel
-pip install --no-build-isolation assist
+curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash
+# or, inside a clone:  ./install.sh
+```
+
+It checks for a C compiler (on macOS it starts the Command Line Tools installer and waits; on
+Linux it prints the package-manager command, or runs it with `--yes`), installs
+[uv](https://docs.astral.sh/uv/) when it is missing, creates `.venv` with a uv-managed
+Python 3.12, installs PyRoOrb (with the ITF extra; on macOS that needs Homebrew's `libomp`,
+which the script installs, or leaves the extra out when there is no Homebrew), and downloads
+the reference tables. Options: `--dir DIR` (where to clone; default `~/PyRoOrb`),
+`--extras itf,dev`, `--asteroids` (adds the 616 MB asteroid ephemeris), `--no-data`, `--yes`.
+
+## By hand: uv (the default) or pip
+
+```bash
+uv venv && uv pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+```
+
+uv installs Python itself if you have none. With pip, in an environment of your own:
+
+```bash
 pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 ```
 
-or, with [uv](https://docs.astral.sh/uv/), which also installs Python itself if you have
-none:
-
-```bash
-uv venv && uv pip install -U "rebound<5" numpy setuptools wheel
-uv pip install --no-build-isolation-package assist \
-    "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
-```
-
 **A C compiler is needed** for now: ASSIST, the force model PyRoOrb integrates with, has no
-pre-built wheels on PyPI, so the install compiles it -- and its build reads REBOUND's
-headers from the installed `rebound` package -- REBOUND 4, which ASSIST 1.2 requires -- which is
-why REBOUND goes in first and ASSIST
-is built without build isolation (in an isolated build it fails with *"rebound.h" not
-found*).
+pre-built wheels on PyPI, so the install compiles it (about half a minute), against REBOUND 4
+(ASSIST 1.2 requires `rebound<5`, and PyRoOrb pins the same).
 
 - **macOS** — the Xcode command-line tools: `xcode-select --install`.
 - **Linux** — your distribution's `gcc` (e.g. `sudo apt install build-essential`).
@@ -47,7 +54,7 @@ pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 The ITF search reads an SBN database and ranks candidates with a trained model:
 
 ```bash
-pip install "pyroorb[itf] @ git+https://github.com/petervanwylen/PyRoOrb"
+uv pip install "pyroorb[itf] @ git+https://github.com/petervanwylen/PyRoOrb"   # or pip install ...
 ```
 
 On macOS the ranker's xgboost also needs the OpenMP runtime: `brew install libomp`.
@@ -111,11 +118,11 @@ print(pyroorb.export(fit, "mpcorb"))
 
 ```bash
 git clone https://github.com/petervanwylen/PyRoOrb && cd PyRoOrb
-python -m venv .venv && . .venv/bin/activate      # or: uv venv
-pip install -e ".[dev]"
+./install.sh --extras itf,dev --asteroids         # or: uv venv && uv pip install -e ".[itf,dev]"
+source .venv/bin/activate
 pytest -m "not slow"                              # the fast tests
 pytest -n 4                                       # everything, offline (needs the asteroid
-                                                  # kernel: pyroorb-fetch-data --asteroids)
+                                                  # ephemeris: pyroorb-fetch-data --asteroids)
 python -m pyroorb.web.devserver                   # web UI that restarts on code edits
 ```
 

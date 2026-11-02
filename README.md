@@ -60,17 +60,29 @@ sky-plane error ellipse.
 
 PyRoOrb 0.9 is installed from GitHub; the PyPI release (1.0.0) follows the shake-out.
 
+**The easy way** (macOS and Linux) — one script does everything: checks for a C compiler
+(and starts Apple's installer if it is missing), installs [uv](https://docs.astral.sh/uv/)
+if needed, creates an environment with its own Python, installs PyRoOrb and downloads the
+reference tables:
+
 ```bash
-pip install -U "rebound<5" numpy setuptools wheel && pip install --no-build-isolation assist
-pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash
+```
+
+It clones into `~/PyRoOrb` (or run `./install.sh` inside a clone you already have). Then
+`cd ~/PyRoOrb && source .venv/bin/activate` and `pyroorb-web` opens the web UI.
+
+**By hand, with uv** (recommended) or pip:
+
+```bash
+uv venv && uv pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 pyroorb-fetch-data          # once: DE440 (~102 MB) + the debias tables (~10 MB)
 ```
 
 Python 3.11–3.14 on Linux or macOS. **Windows is not yet supported; support is coming in late
-2026.** One dependency, ASSIST, is compiled during the
-install (against the installed REBOUND, hence the first line), so a C compiler is needed:
-Xcode command-line tools on macOS, `gcc` on Linux. Without a compiler, install `assist` and
-`rebound` from conda-forge first. Details: **[`docs/INSTALL.md`](docs/INSTALL.md)**.
+2026.** One dependency, ASSIST, is compiled during the install, so a C compiler is needed:
+Xcode command-line tools on macOS, `gcc` on Linux. Details, pip and conda:
+**[`docs/INSTALL.md`](docs/INSTALL.md)**.
 
 ## Quickstart
 

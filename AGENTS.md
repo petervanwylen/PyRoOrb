@@ -32,7 +32,7 @@ than guess, and credit what was read or ported in the module's docstring (file +
 
 ## Testing
 
-From the repo root (`pip install -e ".[dev]"`): `pytest -m "not slow"` (the fast loop),
+From the repo root (`./install.sh --extras itf,dev`, or `uv pip install -e ".[itf,dev]"`): `pytest -m "not slow"` (the fast loop),
 `pytest -n 4` (everything offline: the root `conftest.py` blocks the network and uses an empty
 cache; the goldens need the asteroid kernel, `pyroorb-fetch-data --asteroids`), `--live` (network / SBN database), `--benchmark`. `tests/test_regression.py` pins each
 fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects with
