@@ -73,23 +73,31 @@ fi
 if [ -n "$HERE" ]; then RERUN_YES="./install.sh --yes"
 else RERUN_YES="curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash -s -- --yes"; fi
 
-# The Linux package-manager command that installs the named packages (apt names; dnf,
-# pacman and zypper get their own names for a compiler). Empty when none is found.
-linux_install_cmd() {   # $1 = apt package, $2 = the package name elsewhere
-  if   command -v apt-get >/dev/null; then echo "sudo apt-get install -y $1"
-  elif command -v dnf     >/dev/null; then echo "sudo dnf install -y $2"
-  elif command -v pacman  >/dev/null; then echo "sudo pacman -S --noconfirm $2"
-  elif command -v zypper  >/dev/null; then echo "sudo zypper install -y $2"
+# The Linux package-manager command that installs the named packages, or empty when no
+# known package manager is found. apt first refreshes its package lists: a fresh machine
+# or image can have none, and the install then fails with "Unable to locate package".
+# Root (a server, a container) needs no sudo.
+linux_install_cmd() {   # $1 = apt packages, $2 = the package names elsewhere
+  local s="sudo "; [ "$(id -u)" = 0 ] && s=""
+  if   command -v apt-get >/dev/null; then echo "${s}apt-get update && ${s}apt-get install -y $1"
+  elif command -v dnf     >/dev/null; then echo "${s}dnf install -y $2"
+  elif command -v pacman  >/dev/null; then echo "${s}pacman -Sy --noconfirm $2"
+  elif command -v zypper  >/dev/null; then echo "${s}zypper install -y $2"
   fi
 }
-# Install a missing Linux prerequisite: run the command with --yes, else print it and stop.
-need_linux_pkg() {      # $1 = what, $2 = apt package, $3 = the package name elsewhere
+# Install the missing Linux prerequisites in ONE command (one password prompt): run it with
+# --yes, else print it and stop.
+need_linux_pkgs() {     # $1 = what (for messages), $2 = apt packages, $3 = names elsewhere
   local cmd; cmd="$(linux_install_cmd "$2" "$3")"
-  [ -n "$cmd" ] || die "$1 is not installed; install it with your package manager and run this again"
+  [ -n "$cmd" ] || die "$1 not installed; install with your package manager:  $3   then run this again"
   if [ "$YES" = 1 ]; then
-    say "Installing $1: $cmd"; $cmd
+    if [ "$(id -u)" != 0 ] && ! command -v sudo >/dev/null; then
+      die "$1 not installed, and sudo is not available. As root, run:  ${cmd//sudo /}"
+    fi
+    say "Installing what is missing: $cmd"
+    bash -c "$cmd" || die "the package install failed (see above)"
   else
-    die "$1 is not installed. Install it with:
+    die "$1 not installed. Install with:
     $cmd
 then run this again (or let the script do it, asking for your password:  $RERUN_YES)"
   fi
@@ -111,8 +119,22 @@ if [ "$OS" = Darwin ]; then
     xcode-select -p >/dev/null 2>&1 || die "the Command Line Tools are not installed yet; run this again when they are"
   fi
 else
+  # Everything missing, gathered into one install: a compiler always; git when PyRoOrb
+  # must be downloaded; curl when uv must be installed.
+  what=(); apt=(); other=()
   if ! command -v cc >/dev/null && ! command -v gcc >/dev/null; then
-    need_linux_pkg "a C compiler" build-essential gcc
+    what+=("a C compiler"); apt+=(build-essential); other+=(gcc)
+  fi
+  if ! { [ -n "$HERE" ] && is_checkout "$HERE"; } && ! is_checkout "$PWD" && ! command -v git >/dev/null; then
+    what+=(git); apt+=(git); other+=(git)
+  fi
+  if ! command -v uv >/dev/null && ! command -v curl >/dev/null; then
+    what+=(curl); apt+=(curl ca-certificates); other+=(curl)
+  fi
+  if [ ${#what[@]} -gt 0 ]; then
+    w="$(IFS=,; echo "${what[*]}")"; w="${w//,/, }"
+    if [ ${#what[@]} -eq 1 ]; then w="$w is"; else w="$w are"; fi
+    need_linux_pkgs "$w" "${apt[*]}" "${other[*]}"
   fi
 fi
 
@@ -124,7 +146,7 @@ elif is_checkout "$PWD"; then
 else
   if ! command -v git >/dev/null; then
     [ "$OS" = Darwin ] && die "git is needed to download PyRoOrb; it comes with Apple's Command Line Tools:  xcode-select --install"
-    need_linux_pkg "git" git git
+    die "git is needed to download PyRoOrb; install it with your package manager"
   fi
   if is_checkout "$DIR"; then
     say "Updating the PyRoOrb checkout in $DIR"
@@ -141,11 +163,9 @@ say "Installing PyRoOrb from $ROOT"
 # --- 2. uv ---------------------------------------------------------------------------------
 if ! command -v uv >/dev/null; then
   say "Installing uv"
-  if ! command -v curl >/dev/null; then
-    [ "$OS" = Darwin ] && die "curl is needed to install uv (https://docs.astral.sh/uv/)"
-    need_linux_pkg "curl" curl curl
-  fi
-  curl -LsSf https://astral.sh/uv/install.sh | sh
+  command -v curl >/dev/null || die "curl is needed to install uv (https://docs.astral.sh/uv/)"
+  curl -LsSf https://astral.sh/uv/install.sh | sh \
+    || die "could not download or run uv's installer from astral.sh; check your internet connection (or a firewall/proxy), or install uv yourself (https://docs.astral.sh/uv/) and run this again"
   export PATH="$HOME/.local/bin:$PATH"
   command -v uv >/dev/null || die "uv was installed but is not on PATH; open a new terminal and run this again"
 fi

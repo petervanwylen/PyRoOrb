@@ -76,7 +76,7 @@ It clones into `~/PyRoOrb` (or run `./install.sh` inside a clone you already hav
 It needs `curl`, `git` and a C compiler. On **macOS** Apple's Command Line Tools provide
 the compiler and git (the script starts their installer if needed; `curl` is built in). On
 **Linux** the script prints the install command for anything missing, e.g.
-`sudo apt install build-essential git curl` on Ubuntu/Debian; to let it run that for you,
+`sudo apt update && sudo apt install build-essential git curl` on Ubuntu/Debian; to let it run that for you,
 pass `--yes` like this: `curl -LsSf … | bash -s -- --yes`. Expect about 400 MB on disk: the
 environment (~250 MB) plus ~150 MB of reference tables in the cache. The ITF search, which
 needs your own SBN database, is left out; `--extras itf` adds it (~500 MB more).

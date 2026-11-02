@@ -21,7 +21,7 @@ Through `curl`, options go after `bash -s --`:
 `curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash -s -- --yes`.
 
 It needs `curl`, `git` and a C compiler: on macOS the Command Line Tools bring git and the
-compiler; on Ubuntu/Debian `sudo apt install build-essential git curl` (the script prints
+compiler; on Ubuntu/Debian `sudo apt update && sudo apt install build-essential git curl` (the script prints
 the right command for apt, dnf, pacman and zypper, or runs it with `--yes`). The script uses
 its own Python 3.12, whatever Python your system has. The environment takes about 250 MB
 and the reference tables about 150 MB more; the ITF extra adds about 500 MB (mostly
@@ -59,7 +59,7 @@ pre-built wheels on PyPI, so the install compiles it (about half a minute), agai
 (ASSIST 1.2 requires `rebound<5`, and PyRoOrb pins the same).
 
 - **macOS** — the Xcode command-line tools: `xcode-select --install`.
-- **Linux** — your distribution's `gcc` (e.g. `sudo apt install build-essential`).
+- **Linux** — your distribution's `gcc` (e.g. `sudo apt update && sudo apt install build-essential`).
 
 ## conda-forge (Linux and macOS, no compiler)
 
