@@ -23,7 +23,8 @@ pytest --benchmark           # ALSO run the heavy speed-only regression fixtures
 pytest tests/test_nongrav.py -k yarkovsky -x    # ordinary pytest selection
 ```
 
-Install it with the declared dev extra: `uv pip install -e ".[dev]"` (pytest + xdist).
+Install everything the suite needs with `./install.sh --extras itf,dev --asteroids` from the
+repository root (or by hand: `uv pip install -e ".[itf,dev]"`, which brings pytest + xdist).
 
 Two markers, declared in `pyproject.toml` under `--strict-markers` (so a typo fails
 rather than silently selecting nothing):

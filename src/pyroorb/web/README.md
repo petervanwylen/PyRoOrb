@@ -6,6 +6,9 @@ residual plot. No editing yet (that's Phase 1).
 
 ## Run it
 
+First install PyRoOrb into `.venv`: `./install.sh` from the repository root
+(see [`docs/INSTALL.md`](../../../docs/INSTALL.md)).
+
 ```bash
 .venv/bin/python -m pyroorb.web.devserver     # auto-reloading dev runner (recommended)
 # or, no auto-reload:

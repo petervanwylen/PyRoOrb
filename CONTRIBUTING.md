@@ -12,6 +12,7 @@ work from going unmerged.
 
 If you do send code:
 
+- set up with `./install.sh --extras itf,dev --asteroids` (see [`docs/INSTALL.md`](docs/INSTALL.md));
 - `pytest -m "not slow"` and `pytest -n 4` pass (the default run is offline);
   `tests/test_regression.py` must not move a fit;
 - a new behaviour comes with a test, and every object you fix is added to the regression
