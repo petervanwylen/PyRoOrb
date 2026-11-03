@@ -14,13 +14,16 @@
   <a href="#install">Install</a> ·
   <a href="#web-ui-quickstart">Web UI Quickstart</a> ·
   <a href="#python-quickstart">Python Quickstart</a> ·
-  <a href="notebooks/README.md">Examples</a> ·
+  <a href="https://github.com/petervanwylen/PyRoOrb/blob/main/notebooks/README.md">Examples</a> ·
   <a href="#the-web-ui">Web UI</a> ·
   <a href="#how-it-works">How it works</a> ·
-  <a href="docs/INSTALL.md">Install guide</a>
+  <a href="https://pyroorb.readthedocs.io/en/latest/">API docs</a> ·
+  <a href="https://github.com/petervanwylen/PyRoOrb/blob/main/docs/INSTALL.md">Install guide</a>
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/pyroorb/"><img src="https://img.shields.io/pypi/v/pyroorb" alt="PyPI"></a>
+  <a href="https://pyroorb.readthedocs.io/en/latest/"><img src="https://readthedocs.org/projects/pyroorb/badge/?version=latest" alt="Documentation"></a>
   <img src="https://img.shields.io/badge/python-3.11%E2%80%933.14-blue" alt="Python 3.11–3.14">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License: GPL-3.0">
   <img src="https://github.com/petervanwylen/PyRoOrb/actions/workflows/ci.yml/badge.svg" alt="CI">
@@ -93,6 +96,25 @@ source .venv/bin/activate   # in every new terminal, before the pyroorb commands
 pyroorb-fetch-data          # once: DE440 (~102 MB) + the debias tables (~10 MB)
 ```
 
+**From PyPI, for your own scripts and notebooks.** PyRoOrb is on [PyPI](https://pypi.org/project/pyroorb/),
+so inside any Python environment you already use (a project venv, a Jupyter kernel) it is one command:
+
+```bash
+pip install pyroorb          # or: uv pip install pyroorb
+pyroorb-fetch-data           # once: DE440 (~102 MB) + the debias tables (~10 MB)
+```
+
+```python
+import pyroorb
+fit = pyroorb.fit_orbit(pyroorb.fetch_observations("2023 QJ3"), designation="2023 QJ3")
+```
+
+This is the lightest route for using PyRoOrb as a library; for the local web UI or the command
+line, prefer the installer or Docker above, which set up the environment and tables for you.
+The same C-compiler requirement applies (ASSIST has no PyPI wheels; see below). The ITF search
+extras are optional: `pip install "pyroorb[itf]"`. The full function and method reference is
+on Read the Docs: **[pyroorb.readthedocs.io](https://pyroorb.readthedocs.io/en/latest/)**.
+
 Python 3.11–3.14 on Linux or macOS; Python 3.11–3.12 on 64-bit Windows, where the installer is
 `install.ps1` ([Windows](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/INSTALL.md#windows)). One dependency, ASSIST, is compiled during
 the install, so a C compiler is needed: Xcode command-line tools on macOS, `gcc` on Linux, the
@@ -161,7 +183,7 @@ When the observations do not determine an orbit (a single short tracklet, say),
 `fit_orbit` still returns the nominal solution, warns, and sets `fit.is_determined` to
 `False`; `fit.determinacy()` says what is known.
 
-**API reference:** [`docs/api.rst`](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/api.rst) lists the supported functions and
+**API reference: [pyroorb.readthedocs.io](https://pyroorb.readthedocs.io/en/latest/).** Its source, [`docs/api.rst`](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/api.rst) lists the supported functions and
 `FittedOrbit` methods, with stable and provisional tiers; [`docs/conventions.rst`](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/conventions.rst)
 states the units, frames and time scales (the orbit's epoch is TDB, input times are UTC).
 Build it as HTML with `pip install -e ".[docs]"` and `sphinx-build -b html docs docs/_build/html`.
