@@ -76,8 +76,10 @@ reference tables:
 curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash
 ```
 
-It clones into `~/PyRoOrb` (or run `./install.sh` inside a clone you already have). Then
-`cd ~/PyRoOrb && source .venv/bin/activate` and `pyroorb-web` opens the web UI.
+It clones into `~/PyRoOrb` (or run `./install.sh` inside a clone you already have). Then open
+a new terminal: `pyroorb-web` opens the web UI, from any folder. (`source ~/PyRoOrb/.venv/bin/activate`
+is needed only to use PyRoOrb from your own Python scripts or notebooks.) To remove it:
+`~/PyRoOrb/install.sh --uninstall`.
 
 It needs `curl`, `git` and a C compiler. On **macOS** Apple's Command Line Tools provide
 the compiler and git (the script starts their installer if needed; `curl` is built in). On
@@ -111,7 +113,10 @@ fit = pyroorb.fit_orbit(pyroorb.fetch_observations("2023 QJ3"), designation="202
 
 This is the lightest route for using PyRoOrb as a library; for the local web UI or the command
 line, prefer the installer or Docker above, which set up the environment and tables for you.
-The same C-compiler requirement applies (ASSIST has no PyPI wheels; see below). The ITF search
+The same C-compiler requirement applies (ASSIST has no PyPI wheels; see below). On Windows,
+install ASSIST from its Windows fork first, or `pip install pyroorb` fails building the PyPI
+ASSIST: the three commands are in
+[Windows, by hand](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/INSTALL.md#windows). The ITF search
 extras are optional: `pip install "pyroorb[itf]"`. The full function and method reference is
 on Read the Docs: **[pyroorb.readthedocs.io](https://pyroorb.readthedocs.io/en/latest/)**.
 

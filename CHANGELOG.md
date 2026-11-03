@@ -3,6 +3,21 @@
 PyRoOrb follows semantic versioning from 1.0.0; until then the 0.9.x releases may still
 change the Python API. 0.9.1 is the first release on PyPI.
 
+## Unreleased
+
+- The install scripts put the PyRoOrb commands on PATH: `pyroorb`, `pyroorb-web`,
+  `pyroorb-itf` and `pyroorb-fetch-data` run from any folder in a new terminal, with no
+  `activate` step (that is now needed only to use PyRoOrb from your own Python). They are
+  linked (copied, on Windows) into `~/.local/bin`, the folder uv installs itself into; on
+  Windows the script adds that folder to the user PATH when it is missing.
+- `install.sh --uninstall` and `install.ps1 -Uninstall` remove what the script made: those
+  commands (and the PATH entry it added), `.venv`, the PyRoOrb folder when the script
+  downloaded it and it holds no files of yours, and the reference tables and caches
+  (`--keep-data` / `-KeepData` keeps them). uv, Python, the compiler and git stay.
+- docs/INSTALL.md: an Uninstall section for every install route; the Windows pip route now
+  installs PyRoOrb from PyPI, after the ASSIST fork (a bare `pip install pyroorb` fails there,
+  building the PyPI ASSIST).
+
 ## 0.9.1 - 2026-11-03
 
 - Windows: PyRoOrb runs natively on 64-bit Windows with Python 3.11-3.12 (REBOUND 4 has

@@ -17,10 +17,17 @@
 #   5. only with --extras itf (the ITF search, which needs your own SBN database): on macOS its
 #      ranker's xgboost needs the OpenMP runtime, installed with Homebrew (brew install libomp);
 #   6. downloads the reference tables (DE440, the debias tables; --asteroids adds the 616 MB
-#      asteroid ephemeris). --no-data skips this.
+#      asteroid ephemeris). --no-data skips this;
+#   7. puts the PyRoOrb commands on PATH: links them into ~/.local/bin, where uv installs itself.
+#
+# --uninstall undoes what this script made: the command links in ~/.local/bin, .venv, the
+# downloaded PyRoOrb folder when this script cloned it and it holds no files of yours, and the
+# reference tables and caches (--keep-data keeps those). It never removes uv, Python, the
+# compiler or git.
 #
 # Options: --dir DIR  --extras LIST (default: none; e.g. itf, notebooks, or itf,dev)  --asteroids
-#          --no-data  --yes (run system package installs without asking)  -h|--help
+#          --no-data  --yes (run system package installs, or the uninstall, without asking)
+#          --uninstall  --keep-data  -h|--help
 #          Through curl, options go after "bash -s --":  curl -LsSf …/install.sh | bash -s -- --yes
 set -euo pipefail
 
@@ -36,6 +43,12 @@ EXTRAS=""
 ASTEROIDS=0
 DATA=1
 YES=0
+UNINSTALL=0
+KEEP_DATA=0
+CLONED=0
+# The commands put on PATH (pyproject.toml [project.scripts]) and where their links go.
+COMMANDS="pyroorb pyroorb-web pyroorb-itf pyroorb-fetch-data"
+BIN="$HOME/.local/bin"
 
 say()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33mWARNING: %s\033[0m\n' "$*" >&2; }
@@ -50,9 +63,11 @@ while [ $# -gt 0 ]; do
     --asteroids) ASTEROIDS=1; shift ;;
     --no-data) DATA=0; shift ;;
     --yes|-y) YES=1; shift ;;
+    --uninstall) UNINSTALL=1; shift ;;
+    --keep-data) KEEP_DATA=1; shift ;;
     -h|--help)
-      if [ -f "${BASH_SOURCE[0]:-}" ]; then sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-      else echo "options: --dir DIR --extras LIST --asteroids --no-data --yes  (see install.sh in the repository)"; fi
+      if [ -f "${BASH_SOURCE[0]:-}" ]; then awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
+      else echo "options: --dir DIR --extras LIST --asteroids --no-data --yes --uninstall --keep-data  (see install.sh in the repository)"; fi
       exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
   esac
@@ -71,6 +86,82 @@ if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
   HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
 # How to re-run with --yes: piped through curl, flags go after "bash -s --".
+# What this script did that --uninstall must undo, kept in .venv: "cloned" when it downloaded
+# the PyRoOrb folder. A later run from inside the folder (the update route) keeps the mark.
+has_mark() { [ -f "$1/.venv/pyroorb-install" ] && grep -qx "$2" "$1/.venv/pyroorb-install"; }
+
+# --- --uninstall -----------------------------------------------------------------------------
+uninstall() {
+  local root venv c link links="" whole=0 why="" own="" cache state fitcache caches="" ans
+  if [ -n "$HERE" ] && is_checkout "$HERE"; then root="$HERE"
+  elif is_checkout "$PWD"; then root="$PWD"
+  elif is_checkout "$DIR"; then root="$(cd "$DIR" && pwd)"
+  else die "no PyRoOrb install found in $DIR (use --dir to name its folder)"; fi
+  venv="$root/.venv"
+  for c in $COMMANDS; do      # only links into THIS .venv; another install's stay
+    link="$BIN/$c"
+    if [ -L "$link" ] && [ "$(readlink "$link")" = "$venv/bin/$c" ]; then links="$links${links:+
+}$link"; fi
+  done
+  # The whole folder goes only when this script downloaded it and nothing in it is yours:
+  # git lists changed, new and ignored files, all but the environment and build leftovers.
+  if ! has_mark "$root" cloned; then why="this script did not download it"
+  elif own="$(git -C "$root" status --porcelain --ignored 2>/dev/null)"; then
+    own="$(printf '%s\n' "$own" | sed 's/^...//' \
+           | grep -Ev '(^|/)(\.venv|__pycache__|\.pytest_cache|[^/]*\.egg-info)/$' | grep . || true)"
+    if [ -z "$own" ]; then whole=1; else why="it holds files of your own"; fi
+  else why="git could not check it for files of your own"; fi
+  if [ "$OS" = Darwin ]; then
+    cache="$HOME/Library/Caches/pyroorb"; state="$HOME/Library/Application Support/pyroorb"
+  else
+    cache="${XDG_CACHE_HOME:-$HOME/.cache}/pyroorb"; state="${XDG_DATA_HOME:-$HOME/.local/share}/pyroorb"
+  fi
+  fitcache="${TMPDIR:-/tmp}"; fitcache="${fitcache%/}/pyroorb-fitcache"
+  if [ "$KEEP_DATA" = 0 ]; then
+    [ -d "$cache" ] && caches="$cache"
+    [ -d "$fitcache" ] && caches="$caches${caches:+
+}$fitcache"
+  fi
+
+  say "Uninstalling PyRoOrb from $root"
+  echo "This removes:"
+  if [ -n "$links" ]; then printf '%s
+' "$links" | sed 's/^/  /'; fi
+  if [ "$whole" = 1 ]; then echo "  $root (the PyRoOrb folder this script downloaded)"
+  elif [ -d "$venv" ]; then echo "  $venv"; fi
+  if [ -n "$caches" ]; then
+    printf '%s\n' "$caches" | while IFS= read -r c; do
+      echo "  $c ($(du -sm "$c" 2>/dev/null | cut -f1) MB of downloaded tables and caches)"
+    done
+  fi
+  if [ "$whole" = 0 ]; then
+    echo "It keeps $root ($why)${own:+:}"
+    if [ -n "$own" ]; then printf '%s\n' "$own" | head -10 | sed 's/^/    /'; fi
+  fi
+  if [ -n "${PYROORB_CACHE_DIR:-}" ]; then
+    echo "It keeps PYROORB_CACHE_DIR ($PYROORB_CACHE_DIR); delete it yourself if you no longer need it."
+  fi
+  if [ -d "$state" ]; then
+    echo "It keeps $state (PyRoOrb's saved state); look inside, and delete it yourself if you no longer need it."
+  fi
+  echo "It keeps uv, Python, the compiler and git, which other software can use."
+  if [ "$YES" != 1 ]; then
+    # Piped through curl, standard input is the script itself: ask on the terminal.
+    printf 'Remove these? [y/N] '
+    ans=""; read -r ans < /dev/tty 2>/dev/null || true
+    case "$ans" in y|Y|yes|YES) ;; *) echo "Nothing removed."; return 0 ;; esac
+  fi
+
+  if [ -n "$links" ]; then printf '%s
+' "$links" | while IFS= read -r link; do rm -f "$link"; done; fi
+  rmdir "$BIN" 2>/dev/null || true              # only when empty
+  case "$PWD/" in "$root"/*) cd "$HOME" ;; esac
+  if [ "$whole" = 1 ]; then rm -rf "$root"; else rm -rf "$venv"; fi
+  if [ -n "$caches" ]; then printf '%s\n' "$caches" | while IFS= read -r c; do rm -rf "$c"; done; fi
+  say "PyRoOrb is uninstalled."
+}
+if [ "$UNINSTALL" = 1 ]; then uninstall; exit 0; fi
+
 if [ -n "$HERE" ]; then RERUN_YES="./install.sh --yes"
 else RERUN_YES="curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash -s -- --yes"; fi
 
@@ -157,8 +248,10 @@ else
     git clone --depth 1 "$REPO_URL" "$DIR"
   fi
   ROOT="$DIR"
+  CLONED=1
 fi
 cd "$ROOT"
+ROOT="$(pwd)"     # a relative --dir, made absolute: the command links name it
 say "Installing PyRoOrb from $ROOT"
 
 # --- 2. uv ---------------------------------------------------------------------------------
@@ -218,12 +311,52 @@ if [[ ",$EXTRAS," == *",itf,"* ]] && ! .venv/bin/python -c "import xgboost" >/de
   fi
 fi
 
+if [ "$CLONED" = 1 ] && ! has_mark "$ROOT" cloned; then echo cloned >> .venv/pyroorb-install; fi
+
 # --- 6. reference tables -------------------------------------------------------------------
 if [ "$DATA" = 1 ]; then
   say "Downloading the reference tables"
   if [ "$ASTEROIDS" = 1 ]; then .venv/bin/pyroorb-fetch-data --asteroids; else .venv/bin/pyroorb-fetch-data; fi
 fi
 
+# --- 7. the commands on PATH ----------------------------------------------------------------
+mkdir -p "$BIN"
+LINKED=0
+for c in $COMMANDS; do
+  [ -x ".venv/bin/$c" ] || continue
+  # Replace an earlier PyRoOrb install's link; leave anything else of that name alone.
+  if [ -e "$BIN/$c" ] || [ -L "$BIN/$c" ]; then
+    case "$(readlink "$BIN/$c" 2>/dev/null || true)" in
+      */.venv/bin/"$c") ;;
+      *) warn "$BIN/$c already exists and is not a PyRoOrb link from this script; left in place"; continue ;;
+    esac
+  fi
+  ln -sfn "$ROOT/.venv/bin/$c" "$BIN/$c"
+  LINKED=1
+done
+case ":$PATH:" in *":$BIN:"*) ON_PATH=1 ;; *) ON_PATH=0 ;; esac
+case "${SHELL##*/}" in zsh) RC="~/.zshrc" ;; *) RC="~/.bashrc" ;; esac
+
+if [ "$LINKED" = 1 ] && [ "$ON_PATH" = 1 ]; then
+cat <<EOF
+
+PyRoOrb is installed in $ROOT
+
+Open a new terminal; then, from any folder:
+  pyroorb "2023 QJ3"          # fit an object from the command line
+  pyroorb-web                 # the web UI at http://localhost:8000
+
+Only for your own Python scripts and notebooks, switch to PyRoOrb's Python first:
+  source "$ROOT/.venv/bin/activate"
+
+To update later:  cd "$ROOT" && git pull && ./install.sh   (re-running picks up new dependencies)
+To uninstall:     "$ROOT/install.sh" --uninstall
+Settings (data folders, credentials) can live in one .env file; see docs/INSTALL.md.
+EOF
+else
+if [ "$LINKED" = 1 ]; then
+  warn "$BIN is not on your PATH, so the pyroorb commands there are not found by name. To fix that for good:  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $RC  and open a new terminal."
+fi
 cat <<EOF
 
 PyRoOrb is installed in $ROOT/.venv
@@ -234,8 +367,10 @@ PyRoOrb is installed in $ROOT/.venv
   pyroorb-web                 # the web UI at http://localhost:8000
 
 To update later:  cd "$ROOT" && git pull && ./install.sh   (re-running picks up new dependencies)
+To uninstall:     "$ROOT/install.sh" --uninstall
 Settings (data folders, credentials) can live in one .env file; see docs/INSTALL.md.
 EOF
+fi
 }
 
 main "$@"

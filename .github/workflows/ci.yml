@@ -124,8 +124,9 @@ jobs:
     # install.sh, the README's recommended install, run end to end on fresh runners: it installs
     # uv itself, makes .venv with a uv-managed Python, compiles ASSIST in one uv command. Then
     # the web UI must start. The default install has no ITF extra (no xgboost, no libomp); a
-    # second run adds it, which on macOS installs Homebrew's libomp for the ITF ranker.
-    # Windows runs install.ps1, its PowerShell counterpart, the same way.
+    # second run adds it, which on macOS installs Homebrew's libomp for the ITF ranker. Last, the
+    # uninstall: in a checkout it did not download it removes .venv and the commands it put on
+    # PATH, and keeps the checkout. Windows runs install.ps1, its PowerShell counterpart, the same way.
     needs: guard
     if: github.repository == 'petervanwylen/PyRoOrb'
     strategy:
@@ -145,6 +146,7 @@ jobs:
           .venv/bin/python -c "import pyroorb, assist, rebound; print('rebound', rebound.__version__)"
           if .venv/bin/python -c "import xgboost" 2>/dev/null; then echo "the default install pulled in xgboost"; exit 1; fi
           .venv/bin/pyroorb --help | head -1
+          "$HOME/.local/bin/pyroorb" --help | head -1      # the command the script put on PATH
           .venv/bin/pyroorb-web --port 8765 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8765/healthz && exit 0; sleep 2; done
           echo "the web UI did not answer /healthz"; exit 1
@@ -154,6 +156,12 @@ jobs:
       - name: the ITF ranker loads
         if: runner.os != 'Windows'
         run: .venv/bin/python -c "import xgboost; print('xgboost', xgboost.__version__)"
+      - name: ./install.sh --uninstall
+        if: runner.os != 'Windows'
+        run: |
+          ./install.sh --uninstall --yes
+          test ! -e .venv && test -f install.sh
+          for c in pyroorb pyroorb-web pyroorb-itf pyroorb-fetch-data; do test ! -e "$HOME/.local/bin/$c"; done
       - name: install.ps1
         if: runner.os == 'Windows'
         shell: pwsh
@@ -165,6 +173,7 @@ jobs:
           .venv/Scripts/python -c "import pyroorb, assist, rebound; print('rebound', rebound.__version__)"
           if .venv/Scripts/python -c "import xgboost" 2>/dev/null; then echo "the default install pulled in xgboost"; exit 1; fi
           .venv/Scripts/pyroorb --help | head -1
+          ~/.local/bin/pyroorb.exe --help | head -1      # the command the script put on PATH
           .venv/Scripts/pyroorb-web --port 8765 &
           ok=1
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8765/healthz && { ok=0; break; }; sleep 2; done
@@ -178,6 +187,16 @@ jobs:
       - name: the ITF ranker loads (Windows)
         if: runner.os == 'Windows'
         run: .venv/Scripts/python -c "import xgboost; print('xgboost', xgboost.__version__)"
+      - name: install.ps1 -Uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./install.ps1 -Uninstall -Yes
+          if (Test-Path .venv) { throw ".venv is still there" }
+          if (-not (Test-Path install.ps1)) { throw "the checkout was removed" }
+          foreach ($c in "pyroorb", "pyroorb-web", "pyroorb-itf", "pyroorb-fetch-data") {
+            if (Test-Path "$HOME\.local\bin\$c.exe") { throw "$c.exe is still in ~\.local\bin" }
+          }
 
   web-pages:
     needs: guard

@@ -15,7 +15,9 @@ curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.
 It checks for a C compiler (on macOS it starts the Command Line Tools installer and waits; on
 Linux it prints the package-manager command, or runs it with `--yes`), installs
 [uv](https://docs.astral.sh/uv/) when it is missing, creates `.venv` with a uv-managed
-Python 3.12, installs PyRoOrb, and downloads the reference tables. Options: `--dir DIR`
+Python 3.12, installs PyRoOrb, downloads the reference tables, and links the PyRoOrb
+commands into `~/.local/bin` (the folder uv installs itself into) so they run from any folder.
+Options: `--dir DIR`
 (where to clone; default `~/PyRoOrb`), `--extras itf` (the ITF search, see below; on macOS
 the script also installs Homebrew's `libomp` for it), `--extras notebooks` (what the
 [example notebooks](../notebooks/README.md) need, see below), several at once such as
@@ -31,8 +33,15 @@ its own Python 3.12, whatever Python your system has. The environment takes abou
 and the reference tables about 150 MB more; the ITF extra adds about 500 MB (mostly
 xgboost).
 
+**Then open a new terminal** and run `pyroorb-web` (the web UI) or `pyroorb "2023 QJ3"` from
+any folder. You only need `source ~/PyRoOrb/.venv/bin/activate` to use PyRoOrb from your own
+Python scripts or notebooks: it switches that terminal to PyRoOrb's Python, so `python` and
+`import pyroorb` find it. If `~/.local/bin` is not on your PATH (uv's installer normally puts it
+there), the script says so and prints the line to add.
+
 **To update** an install made by the script: `cd ~/PyRoOrb && git pull && ./install.sh`
-(the install is editable; re-running it picks up new dependencies).
+(the install is editable; re-running it picks up new dependencies). **To remove it:**
+`~/PyRoOrb/install.sh --uninstall` ([Uninstall](#uninstall)).
 
 ## By hand: uv (the default) or pip
 
@@ -83,11 +92,17 @@ irm https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.ps1 | i
 
 It does what `install.sh` does: checks for the Visual Studio Build Tools (the C compiler) and git
 and prints the `winget` command that installs them (or runs it with `-Yes`), installs uv,
-creates `.venv` with a uv-managed Python 3.12, installs REBOUND, ASSIST and PyRoOrb, and
-downloads the reference tables. The options are the same, PowerShell-style: `-Dir`, `-Extras
-itf,dev`, `-Asteroids`, `-NoData`, `-Yes`. Through `irm`, options need the script block form:
+creates `.venv` with a uv-managed Python 3.12, installs REBOUND, ASSIST and PyRoOrb,
+downloads the reference tables, and copies the PyRoOrb commands into `~\.local\bin`, adding
+that folder to your user PATH if it is not there yet. The options are the same,
+PowerShell-style: `-Dir`, `-Extras itf,dev`, `-Asteroids`, `-NoData`, `-Yes`, `-Uninstall`,
+`-KeepData`. Through `irm`, options need the script block form:
 `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.ps1))) -Yes`.
-Then `.venv\Scripts\activate` in each new terminal.
+
+Then open a new terminal and run `pyroorb-web` or `pyroorb "2023 QJ3"` from any folder. Only
+to use PyRoOrb from your own Python scripts or notebooks, switch the terminal to PyRoOrb's
+Python with `& ~\PyRoOrb\.venv\Scripts\Activate.ps1` (if PowerShell refuses to run it, allow
+local scripts once with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`).
 
 **By hand with pip.** Install the Build Tools once (no need for a Developer Command Prompt
 afterwards; the build finds the compiler itself):
@@ -103,12 +118,17 @@ py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install "rebound>=4.4.11,<5" numpy setuptools wheel
 pip install --no-build-isolation "assist @ git+https://github.com/petervanwylen/assist-win-support@20d12ef89b3c97e09dfb70f11d59c0d840b52eee"
-pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+pip install pyroorb
 pyroorb-fetch-data
 ```
 
 REBOUND goes first and ASSIST is built without isolation so it compiles against exactly the
-REBOUND it will run with. The reference tables live under `%LOCALAPPDATA%\pyroorb\Cache`.
+REBOUND it will run with. The order matters: a bare `pip install pyroorb` with no ASSIST yet
+builds the ASSIST release from PyPI, which stops with `cl : Command line error D8021`. Once
+the fork is installed, pip keeps it, since it already satisfies PyRoOrb's ASSIST requirement.
+For the latest unreleased code, the last line becomes
+`pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"`. The reference
+tables live under `%LOCALAPPDATA%\pyroorb\Cache`.
 
 What differs from Linux and macOS: the web UI's `/memory` page reports no process figures
 (they come from `/proc`), and the ITF collection harness bounds each object with a timer
@@ -122,7 +142,7 @@ Apple silicon). Install those two from conda-forge, then PyRoOrb with pip:
 ```bash
 conda create -n pyroorb -c conda-forge python=3.12 assist rebound
 conda activate pyroorb
-pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+pip install pyroorb
 ```
 
 
@@ -213,7 +233,7 @@ pyroorb-fetch-data --asteroids     # + the 16-asteroid perturber kernel (~616 MB
 ```
 
 They go to your per-user cache directory (`~/.cache/pyroorb` on Linux,
-`~/Library/Caches/pyroorb` on macOS).
+`~/Library/Caches/pyroorb` on macOS, `%LOCALAPPDATA%\pyroorb\Cache` on Windows).
 `PYROORB_CACHE_DIR` moves the whole cache; `PYROORB_EPHEM_DIR` and `PYROORB_DEBIAS_DIR` move
 the two tables. Downloaded observations are cached for a few hours only, and the cache is held
 under 2 GB (`PYROORB_CACHE_MAX_MB`).
@@ -254,6 +274,52 @@ print(fit.is_determined, fit.rms_residual(), fit.elements())
 eph = pyroorb.ephemeris(fit, "2026-11-01", "2026-12-01", step=1.0, site="568")
 print(pyroorb.export(fit, "mpcorb"))
 ```
+
+## Uninstall
+
+**An install made by the install script** removes itself:
+
+```bash
+~/PyRoOrb/install.sh --uninstall
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File $HOME\PyRoOrb\install.ps1 -Uninstall
+```
+
+It lists what it will remove and asks first (`--yes` / `-Yes` skips the question), and it
+removes only what the script made:
+
+- the PyRoOrb commands in `~/.local/bin`, and on Windows that folder's PATH entry when the
+  script added it and nothing else is left in the folder;
+- the PyRoOrb folder (`~/PyRoOrb`, or your `--dir`) when the script downloaded it and it holds
+  no files of yours; otherwise only its `.venv`, and it says what it kept and why. A clone of
+  your own, where you ran `./install.sh`, keeps everything but `.venv`;
+- the reference tables and caches; `--keep-data` / `-KeepData` keeps them, for a reinstall
+  without downloading them again.
+
+It leaves uv, Python, the C compiler and git alone, since other software can use them, and
+does not uninstall packages from any environment it did not create.
+
+**Any other install** is undone by deleting what you created, plus the data folders below:
+
+- **PyPI or pip into an environment of your own:** `pip uninstall pyroorb`. That leaves its
+  dependencies (ASSIST, REBOUND, numpy, ...) in place, in case something else uses them; if you
+  made the environment just for PyRoOrb, delete it instead.
+- **conda:** `conda env remove -n pyroorb` (the environment the conda route made).
+- **Docker:** `docker rm -f pyroorb && docker volume rm pyroorb-data`, then
+  `docker rmi ghcr.io/petervanwylen/pyroorb`.
+
+| Data folder | Linux | macOS | Windows |
+|---|---|---|---|
+| Reference tables and download cache (150 MB to 2 GB) | `~/.cache/pyroorb` | `~/Library/Caches/pyroorb` | `%LOCALAPPDATA%\pyroorb` |
+| Web UI fit cache (up to 256 MB) | `/tmp/pyroorb-fitcache` | `$TMPDIR/pyroorb-fitcache` | `%TEMP%\pyroorb-fitcache` |
+| Saved state | `~/.local/share/pyroorb` | `~/Library/Application Support/pyroorb` | `%APPDATA%\pyroorb` |
+
+The first two are caches: deleting them loses nothing that cannot be downloaded or computed
+again (`PYROORB_CACHE_DIR` and `PYROORB_FIT_CACHE_DIR` move them). The saved-state folder is
+the one place PyRoOrb keeps anything meant to last (`LOCAL_PERSISTENT_FOLDER` moves it); the
+uninstall never deletes it, so look inside and delete it yourself if you no longer need it.
 
 ## From a source checkout (development)
 
