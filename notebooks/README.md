@@ -20,8 +20,8 @@ modules to go further; those cells are marked *internal API, may change* (a test
 | [01 Asteroid close approach](01_asteroid_close_approach.ipynb) | (4) Vesta and (197) Arete meet every ~18 years: when and how close is the 2030 pass, and can you see Vesta's 2012 tug in Arete's residuals? |
 | [02 Apophis 2029 flyby](02_apophis_2029_flyby.ipynb) | How close will Apophis come on 13 April 2029, how sure are we, and what does Earth do to its orbit? |
 | [03 Short-arc NEO](03_short_arc_neo.ipynb) | Replaying the discovery of 2024 MK: what do one, two, three nights tell you, and when is its 29 June close approach known? |
-| [04 Yarkovsky on a near-Earth asteroid](04_yarkovsky_nea.ipynb) | Bennu: the fit finds the thermal (Yarkovsky) push unaided; how does its orbital drift compare with OSIRIS-REx? |
-| [05 Comet outgassing](05_comet_nongrav_encke.ipynb) | 2P/Encke: how outgassing forces show up in a comet's orbit, and its A1/A2 against JPL |
+| [04 Apophis remeasured](04_apophis_remeasured_2004.ipynb) | The five March 2004 Spacewatch positions, original and remeasured: about one arcsecond that moved the 2029 flyby by tens of thousands of km |
+| [05 Comet outgassing](05_comet_nongrav_tempel2.ipynb) | 10P/Tempel 2: the fit finds the outgassing push on its own, its A1/A2 against JPL, and how far a gravity-only orbit drifts in one return |
 | [06 Interstellar objects](06_interstellar_unbound.ipynb) | Are 'Oumuamua, Borisov and 3I/ATLAS really unbound, and how does a near-parabolic comet (C/1980 E1) compare? |
 | [07 Radar's leverage](07_radar_leverage.ipynb) | 2017 BQ6: how much do five Goldstone radar measurements shrink a one-apparition orbit's uncertainty? |
 | [08 Photometry](08_photometry_h_phase.ipynb) | (1036) Ganymed: absolute magnitude, the phase curve and station offsets from 11,000 archived magnitudes |
@@ -30,13 +30,12 @@ modules to go further; those cells are marked *internal API, may change* (a test
 | [11 Young asteroid pairs](11_young_asteroid_pairs.ipynb) | (458271) 2010 UM26 + 2010 RN221 split in 2003, 2019 PR2 + 2019 QR6 ~300 years ago: can clone clouds integrated backwards reproduce the published ages? |
 | [12 A brush with Ceres](12_ceres_encounter_perturbers.ipynb) | (613383) 2022 KX28 flew through Ceres' Hill sphere in 2013: why a planets-only orbit discards three apparitions, and how the asteroid perturbers are switched on automatically |
 | [13 Debias tables](13_debias_tables.ipynb) | Do the EFCC18 star-catalogue corrections help? They remove the old catalogues' 0.3" systematics; on four well-observed NEAs the prediction test is a wash |
-| [14 Apophis remeasured](14_apophis_remeasured_2004.ipynb) | The five March 2004 Spacewatch positions, original and remeasured: about one arcsecond that moved the 2029 flyby by tens of thousands of km |
 
 ## Running them
 
 The notebooks need a few packages the engine does not: matplotlib, pandas and JupyterLab.
 The `notebooks` extra installs them. With the install script, which also downloads the reference
-tables (`--asteroids` adds the 16-asteroid perturber kernel, ~600 MB, used by 01, 02, 04, 11, 12 and 14):
+tables (`--asteroids` adds the 16-asteroid perturber kernel, ~600 MB, used by 01, 02, 04, 11 and 12):
 
 ```bash
 ./install.sh --extras notebooks --asteroids

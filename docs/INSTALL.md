@@ -117,7 +117,7 @@ docker compose pull && docker compose up -d       # update
 The server is plain HTTP; on a network beyond your own, put it behind a reverse proxy that
 adds HTTPS (Caddy, nginx, Traefik). It limits each client's rate on the costly routes by
 itself. Images are tagged `latest` (the newest from `main`), `X.Y.Z` (each release) and
-`sha-…` (each commit). To build it yourself from a clone: `docker build -t pyroorb .`
+`sha-…` (each commit). To build it yourself from a clone: `docker build -f docker/Dockerfile -t pyroorb .`
 
 The image is the web UI only: the Python API, the notebooks and the command-line tools need
 a normal install (above).
@@ -133,7 +133,7 @@ uv pip install -e ".[notebooks]"         # or by hand, inside a clone (or pip in
 ```
 
 The notebooks themselves come with the clone, not with the installed package; open them with
-`jupyter lab notebooks/` from the clone. Notebooks 01, 02, 04, 11, 12 and 14 also use the asteroid
+`jupyter lab notebooks/` from the clone. Notebooks 01, 02, 04, 11 and 12 also use the asteroid
 ephemeris: add `--asteroids` to the script, or run `pyroorb-fetch-data --asteroids`.
 
 ## The ITF search extra

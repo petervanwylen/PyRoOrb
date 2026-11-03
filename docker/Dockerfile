@@ -6,6 +6,14 @@
 # The reference tables (DE440, the debias tables; with PYROORB_ASTEROIDS=1 also the 616 MB
 # asteroid ephemeris) download into the /data volume on the first start and are reused by every
 # later start and every newer image. See docs/INSTALL.md ("Docker").
+#
+# Build from the repository root (the context is the root):
+#   docker build -f docker/Dockerfile -t pyroorb .
+# Its ignore file is docker/Dockerfile.dockerignore (BuildKit reads it next to the Dockerfile).
+# Neither file sits at the root, on purpose: Railway builds a root Dockerfile in preference to
+# railway.json's NIXPACKS builder, and a root .dockerignore filters the files Nixpacks
+# generates (.nixpacks/) out of its build context. The deployment needs the Nixpacks install
+# (requirements.txt: .[itf] + the deployment extras), which this image does not carry.
 
 # --- build: compile ASSIST (it has no pre-built wheels) and PyRoOrb into wheels -------------
 # The full python image already carries gcc and the C headers; only the wheels leave this stage.

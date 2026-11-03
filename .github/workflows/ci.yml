@@ -189,7 +189,7 @@ jobs:
           pyroorb --help && pyroorb-itf --help && pyroorb-fetch-data --help
 
   docker:
-    # The web UI image (Dockerfile): every push and pull request builds it, starts it and
+    # The web UI image (docker/Dockerfile): every push and pull request builds it, starts it and
     # waits for /healthz; a push to main (or a v* tag) also publishes it for amd64 + arm64 as
     # ghcr.io/petervanwylen/pyroorb (:latest from main, :X.Y.Z from a tag, :sha-... always).
     needs: guard
@@ -204,7 +204,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: build the image (this runner's architecture)
         uses: docker/build-push-action@v6
-        with: {context: ., load: true, tags: "pyroorb:ci"}
+        with: {context: ., file: docker/Dockerfile, load: true, tags: "pyroorb:ci"}
       - name: the image serves the web UI
         run: |
           docker run -d --name web -p 8000:8000 -e PYROORB_FETCH_DATA=0 pyroorb:ci
@@ -232,6 +232,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DOCKERFILE = (ROOT / "Dockerfile").read_text()
+DOCKERFILE = (ROOT / "docker" / "Dockerfile").read_text()
 
 
 def test_it_runs_as_an_unprivileged_user():
@@ -29,9 +29,9 @@ def test_the_final_image_carries_no_compiler():
 
 
 def test_the_build_context_cannot_carry_secrets_or_data():
-    """.dockerignore excludes everything, then lets in only what the build needs: .env, the
+    """docker/Dockerfile.dockerignore excludes everything, then lets in only what the build needs: .env, the
     ephemerides and local state can never reach an image."""
-    lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text().splitlines()
+    lines = [ln.strip() for ln in (ROOT / "docker" / "Dockerfile.dockerignore").read_text().splitlines()
              if ln.strip() and not ln.startswith("#")]
     assert lines[0] == "*"
     allowed = {ln[1:].rstrip("/") for ln in lines if ln.startswith("!")}

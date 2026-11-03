@@ -155,7 +155,8 @@ def test_fit_options_reach_the_engine_unchanged(monkeypatch):
 
 def test_a_forced_model_is_the_notebooks_pipeline(monkeypatch):
     """nongrav="<model>" = gravity fit -> refine_nongrav(model, kept regardless) -> the radar
-    re-joined: what notebooks 05 and 06 did by hand (bit-identical on Bennu to 2012)."""
+    re-joined: what the Bennu and Encke notebooks did by hand before `nongrav=` existed
+    (bit-identical on Bennu to 2012)."""
     from pyroorb import fit_object, radar
     seen = []
 
