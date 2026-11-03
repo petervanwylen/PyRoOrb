@@ -166,8 +166,11 @@ jobs:
           if .venv/Scripts/python -c "import xgboost" 2>/dev/null; then echo "the default install pulled in xgboost"; exit 1; fi
           .venv/Scripts/pyroorb --help | head -1
           .venv/Scripts/pyroorb-web --port 8765 &
-          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8765/healthz && exit 0; sleep 2; done
-          echo "the web UI did not answer /healthz"; exit 1
+          ok=1
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8765/healthz && { ok=0; break; }; sleep 2; done
+          # Stop it: Windows will not replace a running .exe, so the re-install below would fail.
+          taskkill //F //T //IM pyroorb-web.exe || true
+          [ $ok = 0 ] || { echo "the web UI did not answer /healthz"; exit 1; }
       - name: install.ps1 -Extras itf (re-run adds the ITF extra)
         if: runner.os == 'Windows'
         shell: pwsh

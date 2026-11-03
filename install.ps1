@@ -154,6 +154,14 @@ if (-not (Test-Path $Py)) {
 # must be the SAME release: REBOUND first (an existing one is kept), then ASSIST built, and the
 # rest resolved, against exactly that version. ASSIST's uv cache entry is dropped first so a
 # wheel built against another REBOUND is never reused (install.sh does the same).
+# Windows will not replace a running .exe: a re-install while pyroorb-web (or any other PyRoOrb
+# command from this .venv) runs fails half-way, so say so before touching anything.
+$scripts = Join-Path $Root ".venv\Scripts"
+$busy = Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($scripts, [StringComparison]::OrdinalIgnoreCase) }
+if ($busy) {
+    Die "PyRoOrb is running from this .venv ($(($busy | ForEach-Object { $_.Name } | Sort-Object -Unique) -join ', ')); close it, then run this again"
+}
 Run uv pip install --python $Py "rebound>=4.4.11,<5"
 $ReboundVersion = & $Py -c "import rebound; print(rebound.__version__)"
 if ($LASTEXITCODE -ne 0) { Die "REBOUND did not install; please open an issue with this output" }
