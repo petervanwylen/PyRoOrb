@@ -52,7 +52,7 @@ def _fit(path):
     (`find_impact`, `impact_probability`, `impact_footprint`) read the orbit and
     do not mutate it."""
     if path not in _FITS:
-        fx = json.load(open(path))
+        fx = json.load(open(path, encoding="utf-8"))
         _FITS[path] = (fx, fo.fit_orbit(fx["obs"], _obscodes(), desig=fx["desig"],
                                         meta=fx["meta"]))
     return _FITS[path]
@@ -94,17 +94,17 @@ def _check(path):
 
 def _paths():
     return sorted(p for p in glob.glob(os.path.join(IMPACT_FIX, "*.json"))
-                  if json.load(open(p)).get("oracle", {}).get("kind") not in ("ip", "ip_decline"))
+                  if json.load(open(p, encoding="utf-8")).get("oracle", {}).get("kind") not in ("ip", "ip_decline"))
 
 
 def _ip_oracle_paths():
     return sorted(p for p in glob.glob(os.path.join(IMPACT_FIX, "*.json"))
-                  if json.load(open(p)).get("oracle", {}).get("kind") == "ip")
+                  if json.load(open(p, encoding="utf-8")).get("oracle", {}).get("kind") == "ip")
 
 
 def _ip_decline_paths():
     return sorted(p for p in glob.glob(os.path.join(IMPACT_FIX, "*.json"))
-                  if json.load(open(p)).get("oracle", {}).get("kind") == "ip_decline")
+                  if json.load(open(p, encoding="utf-8")).get("oracle", {}).get("kind") == "ip_decline")
 
 
 def test_impact_locations():

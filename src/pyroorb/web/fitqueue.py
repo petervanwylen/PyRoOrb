@@ -172,7 +172,7 @@ def _compute_rev():
         return subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=os.path.dirname(os.path.abspath(__file__)),
-            capture_output=True, text=True, timeout=5).stdout.strip() or "?"
+            capture_output=True, text=True, encoding="utf-8", timeout=5).stdout.strip() or "?"
     except Exception:
         return "?"
 

@@ -256,7 +256,7 @@ def _proc_status():
             "VmData": "data_mb", "Threads": "threads"}
     out = {}
     try:
-        with open("/proc/self/status") as fh:
+        with open("/proc/self/status", encoding="utf-8") as fh:
             for line in fh:
                 key, _, rest = line.partition(":")
                 if key in want:
@@ -419,7 +419,7 @@ def _smaps_by_file(limit_lines=400000):
     cur = None
     at_zero = False
     try:
-        with open("/proc/self/smaps") as fh:
+        with open("/proc/self/smaps", encoding="utf-8") as fh:
             for i, line in enumerate(fh):
                 if i > limit_lines:                 # a runaway map is not a reason to hang
                     break

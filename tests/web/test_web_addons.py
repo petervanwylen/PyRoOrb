@@ -17,9 +17,9 @@ from pyroorb.web import server  # noqa: E402
 def _fake(tmp_path, visible=True):
     static = tmp_path / "static"
     static.mkdir()
-    (static / "fake.html").write_text("<p>fake page</p>")
-    (static / "fake.js").write_text("window.FAKE = 1;")
-    (static / "fake.css").write_text(".fake{}")
+    (static / "fake.html").write_text("<p>fake page</p>", encoding="utf-8")
+    (static / "fake.js").write_text("window.FAKE = 1;", encoding="utf-8")
+    (static / "fake.css").write_text(".fake{}", encoding="utf-8")
     calls = []
 
     def prefixed(ctx, handler, method, path, qs):
@@ -121,11 +121,11 @@ def test_a_hidden_link_and_no_add_ons_leave_no_trace(tmp_path):
 def test_discovery_reads_the_registry_file_and_skips_a_broken_entry(tmp_path, monkeypatch):
     mod = tmp_path / "fake_addon_mod.py"
     mod.write_text("from pyroorb.web.addons import WebAddon\nADDON = WebAddon(name='from-file')\n"
-                   "NOT_AN_ADDON = 3\n")
+                   "NOT_AN_ADDON = 3\n", encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
     reg = tmp_path / "web_addons.txt"
     reg.write_text("# comment\nfake_addon_mod:ADDON\nfake_addon_mod:NOT_AN_ADDON\n"
-                   "no_such_module:ADDON\nfake_addon_mod:ADDON  # duplicate\n")
+                   "no_such_module:ADDON\nfake_addon_mod:ADDON  # duplicate\n", encoding="utf-8")
     monkeypatch.setenv(addons.FILE_ENV, str(reg))
     log = []
     found = addons.discover(log=log.append)

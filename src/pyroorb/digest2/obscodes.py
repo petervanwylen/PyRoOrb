@@ -91,7 +91,7 @@ def parse_obscodes_text(text: str) -> Dict[int, Site]:
 
 
 def load_obscodes(path: os.PathLike | str) -> Dict[int, Site]:
-    text = Path(path).read_text(errors="replace")
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
     sites = parse_obscodes_text(text)
     if not sites:
         raise ObscodeError(f"no observatory codes could be parsed from {path}")

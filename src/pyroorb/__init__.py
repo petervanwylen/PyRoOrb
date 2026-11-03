@@ -838,6 +838,8 @@ def _cli():
     """Console entry point (`pyroorb ...`) — the fit_object CLI; reads sys.argv."""
     from pyroorb.envfile import load_env_file
     load_env_file()
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
     from pyroorb import cli
     cli.main()
 
@@ -847,6 +849,8 @@ def _web():
     Honours $PORT / $HOST (set by Railway and friends)."""
     from pyroorb.envfile import load_env_file
     load_env_file()
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
     from pyroorb.web import server
     server.main()
 
@@ -856,6 +860,8 @@ def _itf():
     (also `python -m pyroorb.itf`)."""
     from pyroorb.envfile import load_env_file
     load_env_file()
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
     from pyroorb.itf.__main__ import main
     return main()
 
@@ -865,6 +871,8 @@ def _fetch_data():
     tables a fit needs (DE440, the debias tables; optionally the asteroid ephemeris)."""
     from pyroorb.envfile import load_env_file
     load_env_file()
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
     from pyroorb.fetch_data import main
     return main()
 

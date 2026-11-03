@@ -91,9 +91,9 @@ def write_fixture(path, payload, _tries=5):
     blob = json.dumps(payload)
     tmp = path + ".tmp"
     for attempt in range(_tries):
-        with open(tmp, "w") as fp:
+        with open(tmp, "w", encoding="utf-8") as fp:
             fp.write(blob); fp.flush(); os.fsync(fp.fileno())
-        with open(tmp) as fp:                   # verify the TMP before it clobbers path
+        with open(tmp, encoding="utf-8") as fp:                   # verify the TMP before it clobbers path
             try:
                 json.load(fp)
             except json.JSONDecodeError:
@@ -105,7 +105,7 @@ def write_fixture(path, payload, _tries=5):
 
 
 def load_fixture(path):
-    with open(path) as fp:
+    with open(path, encoding="utf-8") as fp:
         return json.load(fp)
 
 

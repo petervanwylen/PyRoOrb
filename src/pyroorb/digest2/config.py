@@ -157,6 +157,6 @@ def _apply_obserr(rest: str, whole_line: str, site_table: SiteTable, cfg: Config
 
 def load_config_file(path, site_table: SiteTable) -> Config:
     cfg = Config()
-    text = Path(path).read_text()
+    text = Path(path).read_text(encoding="utf-8")
     apply_config_lines(cfg, text.splitlines(), site_table)
     return cfg

@@ -104,7 +104,7 @@ def _fetch_radar_dump(cache_dir=None):
         cache = Path(cache_dir) / "radar_astrometry.json"
     if _cache_fresh(cache):
         try:
-            return json.loads(cache.read_text())
+            return json.loads(cache.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
             cache.unlink()
     try:
@@ -114,7 +114,7 @@ def _fetch_radar_dump(cache_dir=None):
         # offline: fall back to a stale cache if one exists, else no radar
         if cache is not None and cache.exists():
             try:
-                return json.loads(cache.read_text())
+                return json.loads(cache.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, ValueError):
                 return None
         return None

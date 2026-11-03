@@ -87,7 +87,7 @@ def write_fixture(path, payload):
 
 
 def load_fixture(path):
-    with open(path) as fp:
+    with open(path, encoding="utf-8") as fp:
         return json.load(fp)
 
 

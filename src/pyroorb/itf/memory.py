@@ -41,7 +41,7 @@ def _read_int(path):
     """First whitespace-separated token of ``path`` as an int, or None -- for
     the unreadable file, the missing one, and cgroup v2's literal "max"."""
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             return int(fh.read().split()[0])
     except (OSError, ValueError, IndexError):
         return None
@@ -50,7 +50,7 @@ def _read_int(path):
 def _stat_field(path, key):
     """``key``'s value from a cgroup ``memory.stat``-style file, or None."""
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             for line in fh:
                 parts = line.split()
                 if len(parts) >= 2 and parts[0] == key:
@@ -63,7 +63,7 @@ def _stat_field(path, key):
 def meminfo_available_mb(root="/"):
     """Host ``MemAvailable`` in MB, or None where /proc/meminfo is absent."""
     try:
-        with open(os.path.join(root, "proc/meminfo")) as fh:
+        with open(os.path.join(root, "proc/meminfo"), encoding="utf-8") as fh:
             for line in fh:
                 if line.startswith("MemAvailable:"):
                     return int(line.split()[1]) // 1024
@@ -80,7 +80,7 @@ def _own_cgroup_paths(root, controller):
     levels down, so checking only the root reads as unlimited."""
     rel = None
     try:
-        with open(os.path.join(root, "proc/self/cgroup")) as fh:
+        with open(os.path.join(root, "proc/self/cgroup"), encoding="utf-8") as fh:
             for line in fh:
                 hier, _, rest = line.strip().partition(":")
                 ctrls, _, path = rest.partition(":")

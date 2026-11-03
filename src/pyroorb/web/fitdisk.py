@@ -71,6 +71,18 @@ _DIR = None
 _DISABLED_REASON = None
 
 
+def _inside(path, root):
+    """True when the resolved ``path`` is ``root`` or below it. Compared as resolved,
+    case-normalised paths rather than by a "/" prefix: on Windows the separator is "\\"
+    and "/data" resolves to "C:\\data", so a prefix test let a persistent root through."""
+    p = os.path.normcase(os.path.realpath(path))
+    r = os.path.normcase(os.path.realpath(root))
+    try:
+        return os.path.commonpath([p, r]) == r
+    except ValueError:                     # different drives: never inside
+        return False
+
+
 def _resolve_dir():
     """The cache directory, created on first use, or None when unusable.
 
@@ -92,7 +104,7 @@ def _resolve_dir():
     except Exception:
         pass
     for root in roots:
-        if real == root or real.startswith(root.rstrip("/") + "/"):
+        if _inside(real, root):
             _DISABLED_REASON = (
                 f"refusing to cache in {real}: {root} is a persistent volume and "
                 f"this cache is meant to be discarded on restart")
@@ -100,7 +112,7 @@ def _resolve_dir():
     try:
         os.makedirs(real, exist_ok=True)
         probe = os.path.join(real, ".writable")
-        with open(probe, "w") as fh:
+        with open(probe, "w", encoding="utf-8") as fh:
             fh.write("1")
         os.unlink(probe)
     except OSError as ex:

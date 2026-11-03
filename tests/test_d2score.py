@@ -39,7 +39,7 @@ def test_input_order_does_not_matter():
 
 def _c46():
     path = os.path.join(os.path.dirname(__file__), "range_fixtures", "C46MAH1.json")
-    return json.load(open(path))["obs"]
+    return json.load(open(path, encoding="utf-8"))["obs"]
 
 
 def test_both_flavours_come_back():

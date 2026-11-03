@@ -28,7 +28,7 @@ def test_parse_skips_comments_and_unquotes():
 
 
 def test_a_real_variable_wins_over_the_file(isolated, monkeypatch):
-    (isolated / ".env").write_text("PYROORB_T_ONE=file\nPYROORB_T_TWO=file\n")
+    (isolated / ".env").write_text("PYROORB_T_ONE=file\nPYROORB_T_TWO=file\n", encoding="utf-8")
     monkeypatch.setenv("PYROORB_T_ONE", "real")
     monkeypatch.delenv("PYROORB_T_TWO", raising=False)
     assert envfile.load_env_file(cwd=isolated) == isolated / ".env"
@@ -37,7 +37,7 @@ def test_a_real_variable_wins_over_the_file(isolated, monkeypatch):
 
 
 def test_found_in_a_folder_above_the_one_the_command_runs_from(isolated, monkeypatch):
-    (isolated / ".env").write_text("PYROORB_T_UP=yes\n")
+    (isolated / ".env").write_text("PYROORB_T_UP=yes\n", encoding="utf-8")
     deep = isolated / "a" / "b"
     deep.mkdir(parents=True)
     monkeypatch.delenv("PYROORB_T_UP", raising=False)
@@ -46,9 +46,9 @@ def test_found_in_a_folder_above_the_one_the_command_runs_from(isolated, monkeyp
 
 
 def test_an_explicit_file_comes_first(isolated, monkeypatch):
-    (isolated / ".env").write_text("PYROORB_T_WHICH=nearby\n")
+    (isolated / ".env").write_text("PYROORB_T_WHICH=nearby\n", encoding="utf-8")
     other = isolated / "elsewhere.env"
-    other.write_text("PYROORB_T_WHICH=explicit\n")
+    other.write_text("PYROORB_T_WHICH=explicit\n", encoding="utf-8")
     monkeypatch.setenv(envfile.ENV_FILE_VAR, str(other))
     monkeypatch.delenv("PYROORB_T_WHICH", raising=False)
     assert envfile.load_env_file(cwd=isolated) == other
@@ -61,7 +61,7 @@ def test_a_command_reads_the_data_folder_from_the_file(tmp_path):
     ephem.mkdir()
     (ephem / "linux_p1550p2650.440").write_bytes(b"")   # present -> nothing is downloaded
     env_file = tmp_path / "settings.env"
-    env_file.write_text(f"PYROORB_EPHEM_DIR={ephem}\n")
+    env_file.write_text(f"PYROORB_EPHEM_DIR={ephem}\n", encoding="utf-8")
     env = {k: v for k, v in os.environ.items()
            if k not in ("PYROORB_EPHEM_DIR", envfile.ENV_FILE_VAR)}
     env[envfile.ENV_FILE_VAR] = str(env_file)
@@ -88,7 +88,7 @@ def _loads_env(node):
 @pytest.mark.parametrize("rel", ["web/server.py", "fetch_data.py", "itf/__main__.py",
                                  "fit_object.py"])
 def test_every_runnable_module_loads_the_file_before_the_engine(rel):
-    tree = ast.parse((SRC / rel).read_text())
+    tree = ast.parse((SRC / rel).read_text(encoding="utf-8"))
     guard = next((n for n in tree.body if isinstance(n, ast.If) and _loads_env(n)), None)
     assert guard is not None, f"{rel} never loads the .env settings file when run"
     first = _first_engine_import(tree)
@@ -97,7 +97,7 @@ def test_every_runnable_module_loads_the_file_before_the_engine(rel):
 
 @pytest.mark.parametrize("name", ["_cli", "_web", "_itf", "_fetch_data"])
 def test_every_console_command_loads_the_file_first(name):
-    tree = ast.parse((SRC / "__init__.py").read_text())
+    tree = ast.parse((SRC / "__init__.py").read_text(encoding="utf-8"))
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
     body = [n for n in fn.body if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))]
     calls = [i for i, n in enumerate(body) if _loads_env(n)]

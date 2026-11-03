@@ -51,5 +51,5 @@ def test_host_from_environment_reaches_the_connection(env_only):
 
 
 def test_no_server_address_in_the_config_source():
-    src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "pyroorb" / "itf" / "config.py").read_text()
+    src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "pyroorb" / "itf" / "config.py").read_text(encoding="utf-8")
     assert not re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", src)

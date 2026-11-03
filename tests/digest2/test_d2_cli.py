@@ -75,7 +75,7 @@ def test_stdin_input(capsys, monkeypatch):
     import sys
     from io import StringIO
     monkeypatch.chdir(FIXTURES)
-    text = (FIXTURES / "sample.obs").read_text()
+    text = (FIXTURES / "sample.obs").read_text(encoding="utf-8")
     monkeypatch.setattr(sys, "stdin", StringIO(text))
     rc = main(["-c", "repeatable.config", "-"])
     assert rc == 0
@@ -104,7 +104,7 @@ def test_bad_limit_spec_errors_cleanly(capsys, monkeypatch):
 def test_invalid_line_produces_skip_message(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(FIXTURES)
     bad_file = tmp_path / "bad.obs"
-    bad_file.write_text("not a valid mpc80 line\nalso not valid\n")
+    bad_file.write_text("not a valid mpc80 line\nalso not valid\n", encoding="utf-8")
     rc = main(["-c", str(FIXTURES / "repeatable.config"), str(bad_file)])
     assert rc == 0
     out = capsys.readouterr().out

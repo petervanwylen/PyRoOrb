@@ -225,7 +225,7 @@ def test_force_backend_hands_back_an_excluding_backend_in_context(monkeypatch, t
     with fa.perturbers_off_for("1 Ceres"):
         backend, tag = _force_backend()            # gravity default
     assert _self_excluded(backend) and tag == "ASSIST(DE440+GR)"
-    kern = tmp_path / "sb441-n16.bsp"; kern.write_text("x")
+    kern = tmp_path / "sb441-n16.bsp"; kern.write_text("x", encoding="utf-8")
     monkeypatch.setattr(fa, "ASTEROIDS_PATH", str(kern))
     monkeypatch.setattr(fa, "_masked_ephem", lambda n: object())
     backend, tag = _force_backend()

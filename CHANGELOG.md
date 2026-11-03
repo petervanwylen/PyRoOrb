@@ -5,6 +5,19 @@ PyRoOrb follows semantic versioning from 1.0.0, the first release on PyPI; until
 
 ## Unreleased
 
+- Windows: PyRoOrb runs natively on 64-bit Windows with Python 3.11-3.12 (REBOUND 4 has
+  Windows wheels up to 3.12), installed by `install.ps1`, the PowerShell counterpart of
+  `install.sh` (docs/INSTALL.md#windows). Until an ASSIST release on PyPI builds on Windows,
+  ASSIST comes from a fork with native Windows support, pinned to a commit. CI runs the offline
+  suite and the installer on Windows.
+- Fixed: text files were read and written in the locale's encoding, which is cp1252 on Windows,
+  so a cached MPC answer, an ADES file or the web UI's page with a non-ASCII character could not
+  be read there; every text file is now UTF-8. The commands' output is UTF-8 too: on Windows a
+  `pyroorb` run with its output in a pipe or a file (a batch child, a log) raised
+  UnicodeEncodeError on the first sigma sign, after the fit had finished.
+- Fixed: the web fit cache's refusal to live on a persistent volume compared paths by a "/"
+  prefix, which never matches a Windows path.
+
 - Fixed: planetocentric elements and sigmas (`osculating_elements(center=...)`, the satellite
   detection and report) took the planet from astropy's built-in ephemeris, ~80,000 km from
   DE440 at Jupiter; they now use DE440, the ephemeris the fit integrates in (the built-in one

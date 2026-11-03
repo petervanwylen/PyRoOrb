@@ -24,7 +24,7 @@ _FX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "itf_negative", "
 def df9():
     from pyroorb.itf.obsreg import AdesRegistry
     from _itf_fixtures import load_obs
-    with open(_FX) as fh:
+    with open(_FX, encoding="utf-8") as fh:
         fx = json.load(fh)
     oc = load_obscodes()
     reg = AdesRegistry()

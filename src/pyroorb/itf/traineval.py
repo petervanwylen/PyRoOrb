@@ -156,7 +156,7 @@ def score_with(df, model_path):
     import xgboost as xgb
     bst = xgb.Booster()
     bst.load_model(model_path)
-    with open(model_path + ".meta.json") as fh:
+    with open(model_path + ".meta.json", encoding="utf-8") as fh:
         meta = json.load(fh)
     from .training import fill_categorical
     x = df.copy()

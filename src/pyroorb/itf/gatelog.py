@@ -95,7 +95,7 @@ def record(kind, **fields):
             # study that dies mid-object must keep everything it had (the
             # torn-append hazard that bit the training harness is a
             # large-record problem -- the reader still skips bad lines)
-            with open(path, "a") as fh:
+            with open(path, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
                 fh.flush()
     except Exception:
@@ -111,7 +111,7 @@ def _jsonable(obj):
 def read(path):
     """Every well-formed row of a feed, skipping any torn tail."""
     out = []
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line:

@@ -67,7 +67,7 @@ def _get_orb_raw(desig, cache=None, timeout=60):
 
     if cache and Path(cache).exists():
         try:
-            return json.loads(Path(cache).read_text())
+            return json.loads(Path(cache).read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
             Path(cache).unlink()                 # corrupt/truncated cache -> re-fetch
     body = json.dumps({"desig": str(desig)}).encode()

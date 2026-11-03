@@ -17,6 +17,8 @@ if __name__ == "__main__":
     # Run as a program (`python -m pyroorb.itf`): load the `.env` settings file first.
     from pyroorb.envfile import load_env_file
     load_env_file()
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
 
 from .config import PREFER_CHOICES  # noqa: E402
 from .verdict import SearchVerdict  # noqa: E402

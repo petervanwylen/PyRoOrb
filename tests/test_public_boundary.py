@@ -84,7 +84,7 @@ def _couplings():
         path = REPO / rel
         if not path.is_file():
             continue
-        tree = ast.parse(path.read_text(), filename=rel)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel)
         for line, name in _imported_names(rel, tree):
             root = _private_root(name)
             if root:

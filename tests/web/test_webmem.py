@@ -442,7 +442,7 @@ def test_shared_library_segments_are_not_reported_as_duplicates():
 # ---------------------------------------------------------------------------
 def _rss_mb():
     try:
-        with open("/proc/self/status") as fh:
+        with open("/proc/self/status", encoding="utf-8") as fh:
             for line in fh:
                 if line.startswith("VmRSS:"):
                     return int(line.split()[1]) / 1024.0

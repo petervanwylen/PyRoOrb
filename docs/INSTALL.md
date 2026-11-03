@@ -1,7 +1,7 @@
 # Installing PyRoOrb
 
-PyRoOrb runs on Linux and macOS with Python 3.11–3.14. **Windows is not yet supported;
-support is coming in late 2026.** Pick one route. Only want the web UI? Use
+PyRoOrb runs on Linux and macOS with Python 3.11–3.14, and natively on 64-bit Windows with
+Python 3.11–3.12 ([Windows](#windows) has its own installer). Pick one route. Only want the web UI? Use
 [pyroorb.net](https://www.pyroorb.net), or run it yourself without Python through
 [Docker](#docker-the-web-ui-without-python).
 
@@ -64,6 +64,55 @@ pre-built wheels on PyPI, so the install compiles it (about half a minute), agai
 
 - **macOS** — the Xcode command-line tools: `xcode-select --install`.
 - **Linux** — your distribution's `gcc` (e.g. `sudo apt update && sudo apt install build-essential`).
+
+## Windows
+
+PyRoOrb runs natively on 64-bit Windows (no WSL, no Docker). Two of its dependencies set the
+terms. REBOUND 4 publishes Windows wheels for CPython 3.10–3.12 only, so the Python is 3.11 or
+3.12. ASSIST is compiled during the install with the MSVC compiler, and the ASSIST release on
+PyPI does not build on Windows yet: until one does, ASSIST comes from
+[a fork with native Windows support](https://github.com/petervanwylen/assist-win-support/tree/windows-native-support),
+pinned to a commit in `install.ps1`.
+
+**The install script.** In PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.ps1 | iex
+# or, inside a clone:  powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+It does what `install.sh` does: checks for the Visual Studio Build Tools (the C compiler) and git
+and prints the `winget` command that installs them (or runs it with `-Yes`), installs uv,
+creates `.venv` with a uv-managed Python 3.12, installs REBOUND, ASSIST and PyRoOrb, and
+downloads the reference tables. The options are the same, PowerShell-style: `-Dir`, `-Extras
+itf,dev`, `-Asteroids`, `-NoData`, `-Yes`. Through `irm`, options need the script block form:
+`& ([scriptblock]::Create((irm https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.ps1))) -Yes`.
+Then `.venv\Scripts\activate` in each new terminal.
+
+**By hand with pip.** Install the Build Tools once (no need for a Developer Command Prompt
+afterwards; the build finds the compiler itself):
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+then, with a Python 3.12 (or 3.11):
+
+```powershell
+py -3.12 -m venv .venv
+.venv\Scripts\activate
+pip install "rebound>=4.4.11,<5" numpy setuptools wheel
+pip install --no-build-isolation "assist @ git+https://github.com/petervanwylen/assist-win-support@20d12ef89b3c97e09dfb70f11d59c0d840b52eee"
+pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+pyroorb-fetch-data
+```
+
+REBOUND goes first and ASSIST is built without isolation so it compiles against exactly the
+REBOUND it will run with. The reference tables live under `%LOCALAPPDATA%\pyroorb\Cache`.
+
+What differs from Linux and macOS: the web UI's `/memory` page reports no process figures
+(they come from `/proc`), and the ITF collection harness bounds each object with a timer
+thread instead of `SIGALRM`. Fits, ephemerides and every product are the same.
 
 ## conda-forge (Linux and macOS, no compiler)
 

@@ -149,11 +149,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not Path(config_path_opt).is_file():
                 print(f"Open {config_path_opt} failed.", file=sys.stderr)
                 return 1
-            apply_config_lines(cfg, Path(config_path_opt).read_text().splitlines(), site_table)
+            apply_config_lines(cfg, Path(config_path_opt).read_text(encoding="utf-8").splitlines(),
+                               site_table)
         else:
             default_cfg = Path("digest2.config")
             if default_cfg.is_file():
-                apply_config_lines(cfg, default_cfg.read_text().splitlines(), site_table)
+                apply_config_lines(cfg, default_cfg.read_text(encoding="utf-8").splitlines(),
+                                   site_table)
         if limit_spec is not None:
             cfg.limit_class, cfg.limit_raw, cfg.limit_value = limit_spec
             cfg.validate_limit()
@@ -197,7 +199,7 @@ def _process_file(fn: str, engine: Digest2Engine, cfg: Config, out: TextIO,
         _process_mpc80_lines(sys.stdin, engine, cfg, out, n_jobs)
     else:
         try:
-            with open(fn, "r") as f:
+            with open(fn, "r", encoding="utf-8") as f:
                 _process_mpc80_lines(f, engine, cfg, out, n_jobs)
         except OSError:
             print(f"Open {fn} failed.", file=sys.stderr)
@@ -290,4 +292,6 @@ def _print_version(args) -> None:
 
 
 if __name__ == "__main__":
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
     sys.exit(main())

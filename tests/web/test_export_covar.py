@@ -97,7 +97,7 @@ def test_the_menu_offers_it_and_suppression_hides_it():
     menu entry is unreachable, and a menu entry outside ORBIT_EXPORTS would stay
     clickable on an orbit the server then refuses."""
     static = os.path.join(os.path.dirname(__import__("pyroorb.web", fromlist=["_"]).__file__), "static")
-    assert 'data-export="covar"' in open(os.path.join(static, "index.html")).read()
-    assert "covar:" in open(os.path.join(static, "app.js")).read()
-    js = open(os.path.join(static, "orbitsuppress.js")).read()
+    assert 'data-export="covar"' in open(os.path.join(static, "index.html"), encoding="utf-8").read()
+    assert "covar:" in open(os.path.join(static, "app.js"), encoding="utf-8").read()
+    js = open(os.path.join(static, "orbitsuppress.js"), encoding="utf-8").read()
     assert '"state", "covar"' in js

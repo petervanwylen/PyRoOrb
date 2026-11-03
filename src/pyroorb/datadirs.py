@@ -168,7 +168,7 @@ def write_cache(path, data):
         if isinstance(data, bytes):
             p.write_bytes(data)
         else:
-            p.write_text(data)
+            p.write_text(data, encoding="utf-8")
     except OSError:
         return False
     note_cache_write()

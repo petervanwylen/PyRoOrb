@@ -4,6 +4,7 @@ Every engine module lives under ``pyroorb``. If anything put a package directory
 ``sys.path``, the same file could load a second time under its bare name
 (``fit_object`` beside ``pyroorb.fit_object``): two copies of every module-level table,
 cache and lock, which diverge silently. These checks keep that from coming back."""
+import os
 import pathlib
 import subprocess
 import sys
@@ -16,12 +17,23 @@ _BARE = sorted({p.stem for p in PKG.glob("*.py") if p.stem != "__init__"}
                | {"itf", "web", "pydigest2", "digest2"})
 
 
+def _bare_env():
+    """A near-empty child environment: only the package on PYTHONPATH. Windows also keeps
+    SYSTEMROOT, without which a child Python cannot seed its random generator or load the
+    system DLLs numpy imports, and USERPROFILE, its only source of the home directory
+    (astropy looks it up at import; POSIX finds it in the password database)."""
+    env = {"PYTHONPATH": str(PKG.parent), "PATH": "/usr/bin:/bin"}
+    for key in ("SYSTEMROOT", "USERPROFILE"):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+    return env
+
+
 def test_importing_the_package_loads_no_engine_module_under_a_bare_name():
     code = ("import sys, pyroorb, pyroorb.fit_object, pyroorb.web.server, pyroorb.itf.search, "
             "pyroorb.digest2; print('\\n'.join(sorted(sys.modules)))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                         check=True, env={"PYTHONPATH": str(PKG.parent),
-                                          "PATH": "/usr/bin:/bin"}).stdout.split()
+                         check=True, env=_bare_env()).stdout.split()
     leaked = sorted(set(out) & set(_BARE))
     assert not leaked, f"engine modules imported under bare names: {leaked}"
 
@@ -41,8 +53,7 @@ def test_import_pyroorb_is_light():
     """`import pyroorb` must not load the engine: a caller sets its environment first."""
     code = "import sys, pyroorb; print(int('pyroorb.fit_object' in sys.modules))"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                         check=True, env={"PYTHONPATH": str(PKG.parent),
-                                          "PATH": "/usr/bin:/bin"}).stdout.strip()
+                         check=True, env=_bare_env()).stdout.strip()
     assert out == "0"
 
 

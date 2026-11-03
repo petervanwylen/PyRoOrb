@@ -224,7 +224,7 @@ def test_a_narrow_valley_is_found_and_the_fit_is_inside_it():
     the delivered orbit as a known solution, so its minimum can never be worse than the fit's."""
     import json, os
     import numpy as np
-    d = json.load(open(os.path.join(os.path.dirname(__file__), "range_fixtures", "C46MAH1.json")))
+    d = json.load(open(os.path.join(os.path.dirname(__file__), "range_fixtures", "C46MAH1.json"), encoding="utf-8"))
     fit = fo.fit_orbit(d["obs"], obs_sources.load_obscodes(), desig="C46MAH1", meta=d["meta"])
     v = fit.range_verdict()
     assert v["determined"], v["reason"]

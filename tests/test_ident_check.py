@@ -897,7 +897,7 @@ def test_ades_disc_flag_renders_col13_asterisk():
 def test_read_pairs_tab_and_comma():
     import tempfile
     p = os.path.join(tempfile.gettempdir(), "_identcheck_pairs_test.txt")
-    with open(p, "w") as f:
+    with open(p, "w", encoding="utf-8") as f:
         f.write("# comment\n2021 GD209\t2026 DB29\n2002 QT68, 2026 EO60\n\n")
     pairs = cli._read_pairs(p)
     assert pairs == [("2021 GD209", "2026 DB29"), ("2002 QT68", "2026 EO60")], pairs

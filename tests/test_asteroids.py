@@ -29,7 +29,7 @@ def _frozen(desig):
     stem = desig.replace(" ", "_")
     path = os.path.join(_OBS_FIXTURES, f"{stem}.json")
     if os.path.isfile(path):
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             d = json.load(fh)
         return d["obs"], d["meta"]
     return fixture_obs(stem)

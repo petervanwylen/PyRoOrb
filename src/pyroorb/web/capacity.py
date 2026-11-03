@@ -133,16 +133,16 @@ def cpu_quota():
     it is read here, once, for both callers.
     """
     try:                                     # cgroup v2: "<quota> <period>" or "max <period>"
-        with open("/sys/fs/cgroup/cpu.max") as fh:
+        with open("/sys/fs/cgroup/cpu.max", encoding="utf-8") as fh:
             quota, period = fh.read().split()[:2]
         if quota != "max":
             return max(1, int(float(quota) / float(period)))
     except (OSError, ValueError, IndexError):
         pass
     try:                                     # cgroup v1
-        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as fh:
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us", encoding="utf-8") as fh:
             quota = int(fh.read().strip())
-        with open("/sys/fs/cgroup/cpu/cpu.cfs_period_us") as fh:
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_period_us", encoding="utf-8") as fh:
             period = int(fh.read().strip())
         if quota > 0 and period > 0:
             return max(1, int(quota / period))
