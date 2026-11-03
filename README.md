@@ -3,7 +3,7 @@
 <h1 align="center">🛰️ PyRoOrb</h1>
 
 <p align="center">
-  <strong>Raw astrometry in. A robust orbit out. In pure Python — and you can watch it happen.</strong>
+  <strong>Raw astrometry in. A robust orbit out. All in Python.</strong>
 </p>
 
 <p align="center">
@@ -34,21 +34,20 @@ high-quality orbit — with realistic uncertainties, identifications, and ITF se
 
 🪐 **See it.** The **web UI** renders the orbit in 3-D, plots O−C residuals,
 lets you toggle observations and re-fit live, and *replays how the orbit was fit* —
-a working tool that's also the clearest way to learn orbit determination.
+a working tool that's also the clearest way to learn orbit determination. Use PyRoOrb for teaching and explaining and developing your own spatial intuition.
 
 🛡️ **Trust it.** It links apparitions across many revolutions, rejects contaminants
-instead of good data, recovers from a poisoned seed, and **tells you when the
-residuals say something's wrong** rather than hiding it.
+instead of good data, recovers from a problematic data even during ITF search, and **tells you** when the
+residuals say something might be wrong (or interesting!) **rather than hiding it**.
 
 🐍 **Use it anywhere.** Linux and macOS (Windows support is coming in late 2026); a small
 Python API drops into your
 pipeline, with covariance + Monte-Carlo uncertainties and ephemerides that carry a
 sky-plane error ellipse.
 
-> There are excellent orbit codes already — find_orb (C/C++) and OrbFit (Fortran)
-> are the gold standards, and PyRoOrb stands openly on their shoulders. What it
-> adds is a different *shape*: pure-Python and cross-platform, library-first,
-> visual, and robust by default.
+There are excellent orbit codes already — find_orb (C/C++) and OrbFit (Fortran)
+are some of the most widely used and trusted. What PyRoOrb
+adds is a pure-Python, cross-platform, library-first, solution that is robust by default.
 
 ## Install
 
@@ -219,5 +218,4 @@ deliberate: **REBOUND** grabs the rebound, **ASSIST** makes the pass, and
 
 **GPL-3.0** (required by REBOUND/ASSIST).
 
-Alpha — the API may shift before 1.0. If it helps your work, please cite PyRoOrb. Questions and bug reports: GitHub issues
-(see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+The API may shift before 1.0, but only slightly. If it helps your work, please cite PyRoOrb. Questions and bug reports: open a GitHub issue.
