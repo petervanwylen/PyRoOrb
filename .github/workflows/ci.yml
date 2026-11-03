@@ -191,9 +191,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $here = $PWD.Path
           ./install.ps1 -Uninstall -Yes
-          if (Test-Path .venv) { throw ".venv is still there" }
-          if (-not (Test-Path install.ps1)) { throw "the checkout was removed" }
+          if ($PWD.Path -ne $here) { throw "the uninstall moved this shell to $($PWD.Path)" }
+          if (Test-Path "$env:GITHUB_WORKSPACE\.venv") { throw ".venv is still there" }
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE\install.ps1")) { throw "the checkout was removed" }
           foreach ($c in "pyroorb", "pyroorb-web", "pyroorb-itf", "pyroorb-fetch-data") {
             if (Test-Path "$HOME\.local\bin\$c.exe") { throw "$c.exe is still in ~\.local\bin" }
           }

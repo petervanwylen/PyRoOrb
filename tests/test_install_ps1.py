@@ -159,3 +159,17 @@ def test_uninstall_started_inside_the_folder_still_removes_it(tmp_path):
     out = _uninstall(root, env, "-Yes", cwd=root)
     assert out.returncode == 0, out.stdout + out.stderr
     assert not root.exists()
+
+
+@windows_only
+def test_uninstall_run_in_your_own_session_leaves_your_location_alone(tmp_path):
+    """Run as ./install.ps1, the script shares the user's PowerShell location: removing only
+    .venv must not move the user out of their clone (the old code went to $HOME)."""
+    root, _links, _cache, _state, env = _install(tmp_path, cloned=False)
+    shell = shutil.which("powershell") or shutil.which("pwsh")
+    cmd = f"Set-Location '{root}'; & '{root / 'install.ps1'}' -Uninstall -Yes | Out-Null; (Get-Location).Path"
+    out = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                          "-Command", cmd], env=env, capture_output=True, text=True,
+                         stdin=subprocess.DEVNULL)
+    assert out.stdout.strip().splitlines()[-1] == str(root), out.stdout + out.stderr
+    assert not (root / ".venv").exists()

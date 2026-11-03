@@ -181,11 +181,15 @@ if ($Uninstall) {
         Set-UserPath ($kept -join ";")
         Remove-Item $Bin -ErrorAction SilentlyContinue     # only when empty
     }
-    # Windows will not delete the folder a process is in: step out of it first, PowerShell's
-    # location and the process's own working folder both (Set-Location moves only the first).
-    if ($PWD.Path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)) { Set-Location $HOME }
-    [Environment]::CurrentDirectory = $HOME
+    # Windows will not delete the folder a process is in: step out of the one being deleted,
+    # PowerShell's location and the process's own working folder both (Set-Location moves only
+    # the first). Only out of that folder: run as ./install.ps1 the location is the user's own.
     $gone = if ($whole) { $Root } else { $venv }
+    function Test-Inside($path, $folder) {
+        ($path.TrimEnd("\") + "\").StartsWith($folder.TrimEnd("\") + "\", [StringComparison]::OrdinalIgnoreCase)
+    }
+    if (Test-Inside $PWD.Path $gone) { Set-Location $HOME }
+    if (Test-Inside ([Environment]::CurrentDirectory) $gone) { [Environment]::CurrentDirectory = $HOME }
     $emptyLeft = $false
     if (Test-Path $gone) {
         try { Remove-Item $gone -Recurse -Force }
