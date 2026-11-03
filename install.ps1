@@ -389,7 +389,7 @@ Settings (data folders, credentials) can live in one .env file; see docs/INSTALL
 PyRoOrb is installed in $Root\.venv
 
   cd "$Root"
-  .venv\Scriptsctivate
+  .venv\Scripts\activate
   pyroorb "2023 QJ3"          # fit an object from the command line
   pyroorb-web                 # the web UI at http://localhost:8000
 

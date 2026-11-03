@@ -28,6 +28,15 @@ def test_install_ps1_ci_and_the_guide_pin_the_same_assist():
         assert _pins(other) == script, f"{other.name} pins {_pins(other)}, install.ps1 {script}"
 
 
+def test_install_ps1_has_no_control_characters():
+    """A stray escape turned `Scripts\\activate` into a BEL byte in the message shown to a user;
+    only tab belongs in a script besides its line breaks."""
+    bad = [(n, hex(ord(c)))
+           for n, line in enumerate(SCRIPT.read_text(encoding="utf-8").splitlines(), 1)
+           for c in line if ord(c) < 32 and c != "\t"]
+    assert not bad, f"control characters in install.ps1 (line, code): {bad}"
+
+
 def test_install_ps1_builds_assist_against_the_rebound_it_runs_with():
     text = SCRIPT.read_text(encoding="utf-8")
     assert "--build-constraint" in text and "rebound>=4.4.11,<5" in text
