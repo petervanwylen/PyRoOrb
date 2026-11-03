@@ -178,19 +178,27 @@ def _deadline_by_sigint(seconds):
     whose handler runs on the main thread between bytecodes, as the alarm's does, and also
     wakes a ``time.sleep``. The handler raises :class:`SearchDeadline` only once the timer
     has rung; a real Ctrl-C before then keeps its own meaning. The lock orders the timer
-    against the exit, so a SIGINT is never raised after the previous handler is back."""
+    against the exit, so a SIGINT is never raised after the previous handler is back.
+
+    The signal is aimed at the main thread: ``raise_signal`` delivers to the CALLING thread,
+    which on Windows still wakes the main thread's sleep (Python's SIGINT event), but on POSIX
+    leaves it asleep until the sleep ends (measured: a 0.3 s deadline fired after 5 s)."""
     import signal
     import threading
 
     lock = threading.Lock()
     state = {"rang": False, "done": False}
+    main = threading.main_thread().ident
 
     def _ring():
         with lock:
             if state["done"]:
                 return
             state["rang"] = True
-            signal.raise_signal(signal.SIGINT)
+            if hasattr(signal, "pthread_kill"):
+                signal.pthread_kill(main, signal.SIGINT)
+            else:
+                signal.raise_signal(signal.SIGINT)
 
     def _fire(signum, frame):
         if state["rang"]:

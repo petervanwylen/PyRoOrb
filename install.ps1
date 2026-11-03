@@ -122,10 +122,11 @@ Say "Installing PyRoOrb from $Root"
 # --- 2. uv ---------------------------------------------------------------------------------
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     Say "Installing uv"
-    try {
-        Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-    } catch {
-        Die "could not download or run uv's installer from astral.sh; check your internet connection (or a firewall/proxy), or install uv yourself (https://docs.astral.sh/uv/) and run this again"
+    # uv's own documented command, in a process of its own: run inside this script it inherits
+    # $ErrorActionPreference = "Stop", which turns the installer's non-fatal errors into fatal ones.
+    & powershell -NoProfile -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+    if ($LASTEXITCODE -ne 0) {
+        Die "could not download or run uv's installer from astral.sh (see above); check your internet connection (or a firewall/proxy), or install uv yourself (https://docs.astral.sh/uv/) and run this again"
     }
     $env:Path = (Join-Path $HOME ".local\bin") + ";" + $env:Path
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { Die "uv was installed but is not on PATH; open a new terminal and run this again" }

@@ -4,11 +4,15 @@ answering) is CI's install-script job on fresh Linux and macOS runners."""
 import pathlib
 import shutil
 import subprocess
+import sys
 
 import pytest
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "install.sh"
-pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+# Not on Windows: install.ps1 is the installer there (tests/test_install_ps1.py), and the "bash"
+# a Windows runner finds first is WSL's launcher, which with no distribution installed runs nothing.
+pytestmark = pytest.mark.skipif(shutil.which("bash") is None or sys.platform == "win32",
+                                reason="needs bash, on macOS or Linux")
 
 
 def test_the_script_parses():
