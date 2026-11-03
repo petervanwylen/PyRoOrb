@@ -26,10 +26,10 @@ modules to go further; those cells are marked *internal API, may change* (a test
 | [07 Radar's leverage](07_radar_leverage.ipynb) | 2017 BQ6: how much do five Goldstone radar measurements shrink a one-apparition orbit's uncertainty? |
 | [08 Photometry](08_photometry_h_phase.ipynb) | (1036) Ganymed: absolute magnitude, the phase curve and station offsets from 11,000 archived magnitudes |
 | [09 Planetary satellite](09_planetary_satellite.ipynb) | Ersa (a Jovian moon) vs (11351) Leucus (a Trojan): which one orbits the planet? |
-| [10 One night, which orbit?](10_population_prior_short_arc.ipynb) | A population prior for a single tracklet's distance: where it helps (the main belt) and where it misleads (NEOs), measured on 24 tracklets against JPL |
+| [10 One night, which orbit?](10_population_prior_short_arc.ipynb) | A population prior for a single tracklet's distance: where it helps (the main belt) and where it misleads (NEOs), measured on 26 tracklets against JPL |
 | [11 Young asteroid pairs](11_young_asteroid_pairs.ipynb) | (458271) 2010 UM26 + 2010 RN221 split in 2003, 2019 PR2 + 2019 QR6 ~300 years ago: can clone clouds integrated backwards reproduce the published ages? |
 | [12 A brush with Ceres](12_ceres_encounter_perturbers.ipynb) | (613383) 2022 KX28 flew through Ceres' Hill sphere in 2013: why a planets-only orbit discards three apparitions, and how the asteroid perturbers are switched on automatically |
-| [13 Debias tables](13_debias_tables.ipynb) | Do the EFCC18 star-catalogue corrections help? They remove the old catalogues' 0.3" systematics; on four well-observed NEAs the prediction test is a wash |
+| [13 Debias tables](13_debias_tables.ipynb) | Do the EFCC18 star-catalogue corrections help? They remove the old catalogues' 0.3" systematics in declination; the RA means and the prediction test on four well-observed NEAs, and why they don't show a gain |
 
 ## Running them
 
@@ -57,7 +57,8 @@ Already installed? Re-run the script with `--extras notebooks`, or run
 [`docs/INSTALL.md`](../docs/INSTALL.md#the-notebooks-extra).
 
 The notebooks need network access: observations come from the Minor Planet Center, and the
-comparisons query JPL's public APIs (SBDB, close-approach data, Horizons). Each one runs in a
-few minutes on a laptop. The committed copies include their outputs, so you can read them
+comparisons query JPL's public APIs (SBDB, close-approach data, Horizons). Most run in a few
+minutes (up to about ten) on a laptop; 13 fits sixteen orbits to multi-thousand-observation arcs
+and takes half an hour or more (37 minutes on the machine that last ran it). The committed copies include their outputs, so you can read them
 without running anything. Re-running them later uses newer observations, so the numbers can
 shift a little.

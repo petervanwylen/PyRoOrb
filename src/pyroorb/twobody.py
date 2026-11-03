@@ -326,9 +326,15 @@ def kepler_propagate(state, dt, mu=MU_SUN):
 
 
 def quick_aeq(state):
-    """Osculating (a, e, q) from a heliocentric state vector."""
+    """Osculating (a, e, q) from a heliocentric state vector.
+
+    A trial state from ranging or IOD on a sub-hour arc can carry absurd velocities (a Lambert
+    transfer at a far trial distance); its (a, e, q) then comes out inf/nan, which every caller
+    screens. numpy's "overflow encountered" warning on the way is expected, so it is silenced
+    here instead of reaching users (notebook 10 printed it); the values are the same either way."""
     r, v = state[:3], state[3:]
-    rn = float(np.linalg.norm(r)); v2 = float(np.dot(v, v))
-    a = 1.0 / (2.0/rn - v2/MU_SUN)
-    e = float(np.linalg.norm(np.cross(v, np.cross(r, v))/MU_SUN - r/rn))
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        rn = float(np.linalg.norm(r)); v2 = float(np.dot(v, v))
+        a = 1.0 / (2.0/rn - v2/MU_SUN)
+        e = float(np.linalg.norm(np.cross(v, np.cross(r, v))/MU_SUN - r/rn))
     return a, e, a*(1 - e)
