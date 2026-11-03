@@ -80,9 +80,18 @@ def planet_gm(name):
 
 def planet_helio_state(name, jd_tdb):
     """Heliocentric-EQUATORIAL (ICRS) state [x,y,z,vx,vy,vz] (au, au/day) of the planet's
-    system barycentre at ``jd_tdb`` -- in the SAME frame the fit's heliocentric state lives in
-    (observer positions and forward_model.build_base_sim use the same get_body_barycentric_posvel)."""
+    system barycentre at ``jd_tdb``, from the DE440 ephemeris the fit integrates in (the same
+    source as the public body_states), so a planetocentric element or distance is measured
+    against the planet the orbit was fitted with. astropy's built-in ephemeris, the previous
+    source, puts Jupiter ~80,000 km from DE440: notebook 09 had to fetch its own Jupiter to get
+    Ersa's elements within 700 km of JPL's. The built-in ephemeris remains the fallback when
+    the planet ephemeris file is absent (the rebound backend, which integrates with it)."""
     key = resolve_planet(name)
+    try:
+        from pyroorb.products import body_states
+        return np.asarray(body_states(key, [float(jd_tdb)])[0], float)
+    except Exception:                                   # no DE440 file: the rebound fallback
+        pass
     t = Time(jd_tdb, format="jd", scale="tdb")
     p, v = get_body_barycentric_posvel(key, t)
     sp, sv = get_body_barycentric_posvel("sun", t)

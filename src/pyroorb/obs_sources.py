@@ -57,6 +57,13 @@ OBS_API = "https://data.minorplanetcenter.net/api/get-obs"
 import pyroorb.forward_model as _reb
 
 
+def _self_excluded(backend):
+    """True for a backend that excludes its object from the asteroid perturber field
+    (force_assist.SelfExcludedForce, at any depth; see forcemodel.excluded_body)."""
+    from pyroorb.forcemodel import excluded_body
+    return excluded_body(backend) is not None
+
+
 def _force_backend(fit=None):
     """Pick the force-model backend. ASSIST (JPL DE440 ephemeris + general
     relativity + separate Earth/Moon, and 16 asteroids if that ephemeris is
@@ -65,27 +72,47 @@ def _force_backend(fit=None):
     arcs (RH69: 284" -> 0.6"); the models agree on short arcs.
 
     `fit` is for the callers that resolve a backend for an ALREADY-FITTED orbit (an
-    ephemeris, an impact scan): when that fit's own backend is gravity-pinned -- the object
-    IS one of the 16 asteroid perturbers, so it may not be integrated in a field containing
-    it -- hand back that backend and keep the product in the force model the orbit was
-    determined in. Whole-fit +16ast mode is a process-wide switch, so without this an
-    ephemeris for (1) Ceres would be computed in exactly the model its own fit had to
-    refuse: degrees off within weeks."""
-    pinned = (getattr(fit, "_ctx", None) or {}).get("backend") if fit is not None else None
-    if getattr(pinned, "_gravity_pinned", False):
-        return pinned, getattr(fit, "force_model", "?")
+    ephemeris, an impact scan, the public products): hand back that fit's OWN backend, which
+    carries the force model the orbit was determined in (forcemodel.PinnedForce: perturbers
+    on or off; force_assist.SelfExcludedForce: one of the 16 kept out of its own field).
+    Whole-fit +16ast mode is a process-wide switch, so re-resolving here would let a later
+    switch change a product -- and for (1) Ceres put it back into a field containing Ceres,
+    degrees off within weeks."""
+    own = (getattr(fit, "_ctx", None) or {}).get("backend") if fit is not None else None
+    if own is not None:
+        return own, getattr(fit, "force_model", "?")
     try:
         import pyroorb.force_assist as _fa
         if Path(_fa.PLANETS_PATH).exists():
             ast_on = bool(_fa.ASTEROIDS_PATH and Path(_fa.ASTEROIDS_PATH).exists())
-            # Whole-fit +16ast mode, but THIS object is one of the 16 (force_assist's
-            # self-perturber context): hand back a backend with the perturbers pinned off, so
-            # the pin travels on the fit's ctx and outlives the context that set it -- an
-            # interactive step, a re-anchor or an ephemeris built later stays in the force
-            # model the orbit was determined in. Nothing to pin when the perturbers are off
-            # anyway (the engine default), so an ordinary fit is untouched.
-            if ast_on and _fa.suppressed_perturber() is not None:
-                return _fa.GravityOnlyForce(_fa), "ASSIST(DE440+GR, +16ast off: self-perturber)"
+            # THIS object is one of the 16 (force_assist's self-perturber context): hand back
+            # a backend that excludes it from the perturber field on every call, so the
+            # exclusion travels on the fit's ctx and outlives the context that set it -- an
+            # interactive step, the +16ast toggle, a re-anchor or an ephemeris built later
+            # stays out of the object's own field. Wrapped whether or not the perturbers are
+            # on now: a later refine_asteroids / toggle may turn them on. The other 15 stay;
+            # if the exclusion can't be built, force_assist keeps all 16 off (the old guard).
+            # An identification fit forces the perturbers on (force_assist.perturbers_on_for):
+            # the forcing wrapper lands in the ctx, so every later step that reuses the fit
+            # stays in the model it was linked in. For one of the 16 it wraps the exclusion.
+            forced = (_fa.forced_perturbers() is not None
+                      and _fa.asteroid_kernel_path() is not None)
+            sp = _fa.suppressed_perturber()
+            if sp is not None:
+                b = _fa.SelfExcludedForce(_fa, sp)
+                if forced:
+                    from pyroorb.fit_object import _AsteroidForce
+                    return _AsteroidForce(b), (
+                        f"ASSIST(DE440+GR+15ast, excl. {sp})" if _fa._use_asteroids(True)
+                        else "ASSIST(DE440+GR, +16ast off: self-perturber)")
+                if not ast_on:
+                    return b, "ASSIST(DE440+GR)"
+                if _fa._use_asteroids(None):
+                    return b, f"ASSIST(DE440+GR+15ast, excl. {sp})"
+                return b, "ASSIST(DE440+GR, +16ast off: self-perturber)"
+            if forced:
+                from pyroorb.fit_object import _AsteroidForce
+                return _AsteroidForce(_fa), "ASSIST(DE440+GR+16ast)"
             tag = "ASSIST(DE440+GR" + ("+16ast)" if ast_on else ")")
             return _fa, tag
     except Exception as ex:

@@ -3146,13 +3146,10 @@ def set_asteroids(sid, on, mask_list=None):
     err_n = _underdetermined(mask.sum())
     if err_n is not None:
         return err_n
-    # Self-perturber guard: if the object IS one of the 16 +16ast perturbers, refuse to turn
-    # the perturbers ON (it can't be perturbed by itself). Re-fit on gravity and flag the
-    # payload so the UI flashes a banner and leaves the toggle on gravity. See refit_force_model.
+    # Self-perturber: if the object IS one of the 16 +16ast perturbers, "on" means the other
+    # 15 (the fit's backend excludes the object itself -- see refit_force_model). If that
+    # exclusion is unavailable the engine stays on gravity; banner it then.
     sp = guards.self_perturber_name(fit=s["grav_pure"])
-    refused = bool(on) and sp is not None     # user asked for +16ast on a perturber object
-    if refused:
-        on = False
     seed = None
     if bool(on):
         # seed the asteroid fit from a good asteroid state (avoids the spurious near-gravity
@@ -3180,8 +3177,8 @@ def set_asteroids(sid, on, mask_list=None):
     if not payload.get("ok", True):
         return payload
     if sp is not None:                       # object IS a +16ast perturber
-        payload["self_perturber"] = sp       # keeps the toggle disabled on re-render
-        if refused:                          # only banner when +16ast was actually requested
+        payload["self_perturber"] = sp       # the toggle's "other 15" label on re-render
+        if bool(on) and not base.asteroids:  # asked for perturbers, engine could not exclude
             payload["banner"] = self_perturber_banner(sp)
     return payload
 
@@ -3324,12 +3321,12 @@ def pluto_banned_payload():
 
 
 def self_perturber_banner(name):
-    """User-facing message for an object that IS one of the 16 +16ast perturbers: it is
-    fit normally (with gravity), but the +16ast force model is unavailable for it because
-    it cannot be perturbed by itself. Surfaced on the fit/toggle payload as a banner."""
-    return (f"({name}) is one of the 16 massive asteroids in the +16ast perturber set, "
-            f"so it can't be perturbed by itself — the +16ast force model is disabled for "
-            f"it. It is fit with gravity (plus the other perturbers) as usual.")
+    """User-facing message for an object that IS one of the 16 +16ast perturbers when the
+    engine could NOT run the other 15 with it excluded (force_assist._masked_ephem failed):
+    it stays on gravity. Normally the toggle simply runs +15ast and no banner is shown."""
+    return (f"({name}) is one of the 16 massive asteroids in the +16ast perturber set and "
+            f"can't be perturbed by itself; excluding it from the perturber field failed on "
+            f"this server, so it stays on gravity.")
 
 
 def run_fit(desig, force=False):
@@ -3493,8 +3490,8 @@ def fit_obs_list(obs, meta, obscodes, force=False, meta_extra=None):
     # never re-fires the banner.
     payload["asteroids_auto"] = bool(getattr(fit, "asteroids", False)
                                      and not getattr(grav, "asteroids", False))
-    # If THIS object is one of the 16 +16ast perturbers, tell the front end so it can
-    # disable the +16ast toggle and explain -- it can't be perturbed by itself.
+    # If THIS object is one of the 16 +16ast perturbers, tell the front end so it can label
+    # the +16ast toggle "the other 15" -- the object is excluded from its own field.
     sp = guards.self_perturber_name(fit=grav)
     if sp is not None:
         payload["self_perturber"] = sp
@@ -3726,24 +3723,6 @@ def fit_job_status(job_id):
     return fitqueue.status(job_id)
 
 
-def _asteroid_evaluator(ev, backend):
-    """A +16-asteroid-bound clone of a gravity evaluator.
-
-    The same construction ``fit_object.refine_asteroids`` uses: everything (obs,
-    sigmas, base sim) is shared and only the force-model callables are re-bound.
-    Reproduced here because a rebuilt evaluator comes back gravity-bound, and a
-    restored session whose template was asteroid-polished must integrate with
-    the perturbers or its next Full step would silently change force model.
-    """
-    ev2 = _copy_mod.copy(ev)
-    ev2._predict = _ft.partial(backend.predict_radec_batch, asteroids=True)
-    ev2._predict_jac = (None if ev._predict_jac is None
-                        else _ft.partial(backend.predict_radec_jac_batch, asteroids=True))
-    ev2._resid_key = ev2._sub_key = None
-    ev2.nongrav = None
-    return ev2
-
-
 def session_from_job(job_id):
     """Clone a PRIVATE interactive session from a finished job's template
     (POST /api/session), so a shared fit can be played with by many people at
@@ -3805,9 +3784,8 @@ def session_from_job(job_id):
         if gfit is pure:
             gfit2 = pure2
         else:                                   # the asteroid-polished baseline
-            ctx_a = dict(ctx)
-            ctx_a["ev"] = _asteroid_evaluator(ctx["ev"], ctx["backend"])
-            ctx_a["meta"] = {**(ctx.get("meta") or {}), "asteroids": True}
+            ev_a, ctx_a = fo.with_force_model(ctx, True, gfit)
+            ev_a.nongrav = None
             gfit2 = _copy_mod.copy(gfit)
             gfit2._ctx = ctx_a
     except Exception as ex:

@@ -27,15 +27,8 @@
 
 ---
 
-**PyRoOrb** turns raw asteroid/comet astrometry (ADES or MPC 80-column) into a
-high-quality orbit — with realistic uncertainties, identifications, and hazard
-products — **entirely in Python, on every OS**. It ports the battle-tested
-algorithms of Bill Gray's **find_orb** onto the **REBOUND** + **ASSIST** dynamics
-stack, and ships with a **browser workbench** for *using* and *learning* orbit
-determination.
-
-> **PyRoOrb** = **Py**thon **Ro**bust **Orb**it. The closing **Orb** salutes
-> **find_orb**, our reference oracle — and, handily, the orb you're solving for.
+**PyRoOrb** (**Py**thon **Ro**bust **Orb**it Determination) turns raw asteroid/comet astrometry (ADES or MPC 80-column) into a
+high-quality orbit — with realistic uncertainties, identifications, and ITF search — **entirely in Python, on every OS** (Windows support coming soon, but possible now with Docker). It ships with a **browser workbench**, but it is equally intended for science in Python notebooks. ITF search is primarily limited to web-based service a pyroorb.net but is possible for the motivated user to run locally with an SBN mirror of their own (please coordinate with the author before doing mass pipeline submissions using it in order to deconflict large number of duplicates arriving at MPC and to discuss submission credit).
 
 ## Why it exists
 
@@ -59,9 +52,19 @@ sky-plane error ellipse.
 
 ## Install
 
-PyRoOrb 0.9 is installed from GitHub; the PyPI release (1.0.0) follows the shake-out.
+**Only want the web UI?** Nothing to install: use **[pyroorb.net](https://www.pyroorb.net)**.
+To run the web UI yourself without installing Python — on your own computer, or as a shared
+server for a lab — use the Docker image:
 
-**The easy way** (macOS and Linux) — one script does everything: checks for a C compiler
+```bash
+docker run -d -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervanwylen/pyroorb
+```
+
+then open http://localhost:8000 (the first start downloads ~110 MB of reference tables into
+the `pyroorb-data` volume). A ready `compose.yaml` for a shared server, updating and the
+options: **[`docs/INSTALL.md`](docs/INSTALL.md#docker-the-web-ui-without-python)**.
+
+**For the Python API, the notebooks and the command line** (macOS and Linux) — one script does everything: checks for a C compiler
 (and starts Apple's installer if it is missing), installs [uv](https://docs.astral.sh/uv/)
 if needed, creates an environment with its own Python, installs PyRoOrb and downloads the
 reference tables:
@@ -106,6 +109,7 @@ pyroorb-web                                     # the web UI -> http://127.0.0.1
 ```python
 import pyroorb
 
+pyroorb.load_settings()                         # your .env settings file, if you keep one
 obs = pyroorb.fetch_observations("2023 QJ3")     # or pyroorb.read_observations("my.psv")
 fit = pyroorb.fit_orbit(obs, designation="2023 QJ3")
 print(fit.is_determined, fit.rms_residual(), fit.n_observations())
@@ -114,19 +118,33 @@ print(fit.moid_earth(), fit.orbit_class(), fit.uncertainty_parameter())
 
 eph = pyroorb.ephemeris(fit, "2026-11-01", "2026-12-01", step=1.0, site="568")
 print(pyroorb.export(fit, "mpcorb"))            # also "sof", "eightline", "covar"
+
+grav = pyroorb.fit_orbit(obs, nongrav="none")   # gravity only, to compare
+d2 = pyroorb.digest2_scores(obs.select(stop=obs[0]["jd_utc"] + 0.5))   # no fit needed
+
+state, cov = pyroorb.propagate(fit, "2030-01-01", covariance=True)
+print(pyroorb.close_approaches(fit, "2026-01-01", "2036-01-01", body="mars", max_distance=0.2))
+clones = pyroorb.sample_orbits(fit, 500)        # or method="lov" / "sr"
+cloud = clones.sky_positions("2027-01-01", site="568")   # non-linear sky uncertainty
 ```
 
 When the observations do not determine an orbit (a single short tracklet, say),
 `fit_orbit` still returns the nominal solution, warns, and sets `fit.is_determined` to
-`False`; `fit.determinacy()` says what is known. The functions above are the supported API;
-everything else is internal and may change before 1.0.
+`False`; `fit.determinacy()` says what is known.
+
+**API reference:** [`docs/api.rst`](docs/api.rst) lists the supported functions and
+`FittedOrbit` methods, with stable and provisional tiers; [`docs/conventions.rst`](docs/conventions.rst)
+states the units, frames and time scales (the orbit's epoch is TDB, input times are UTC).
+Build it as HTML with `pip install -e ".[docs]"` and `sphinx-build -b html docs docs/_build/html`.
+Everything not listed there is internal and may change before 1.0.
 
 ## Example notebooks
 
-**[`notebooks/`](notebooks/README.md)** holds ten short worked examples. Each one fits the raw
+**[`notebooks/`](notebooks/README.md)** holds eleven short worked examples. Each one fits the raw
 observations and checks its answer against JPL. The topics are Apophis's 2029 flyby, Vesta
 passing (197) Arete, a new NEO's first nights, Yarkovsky on Bennu, comet outgassing, the
-interstellar objects, radar, photometry and a Jovian moon.
+interstellar objects, radar, photometry, a Jovian moon, and a population prior for a single
+night's orbit.
 
 ## How it works
 
@@ -192,16 +210,14 @@ deliberate: **REBOUND** grabs the rebound, **ASSIST** makes the pass, and
 
 - **[REBOUND](https://github.com/hannorein/rebound)** — N-body integrator.
 - **[ASSIST](https://github.com/matthewholman/assist)** — ephemeris-quality forces (DE440, GR).
-- **[find_orb](https://github.com/Bill-Gray/find_orb)** (Bill Gray) — our reference oracle. Algorithms studied and **ported in pure Python; no source lines copied**.
+- **[find_orb](https://github.com/Bill-Gray/find_orb)** (Bill Gray) — our reference oracle. Algorithms studied and some are **ported in pure Python; no source lines copied**.
 - **EFCC18** — star-catalog astrometric debiasing.
 - **[Minor Planet Center](https://minorplanetcenter.net/)** — observations & observatory codes.
 - **astropy · numpy · scipy** — the scientific bedrock.
 
 ## License & citing
 
-**GPL-3.0** (required by REBOUND/ASSIST). PyRoOrb ports find_orb's *logic*
-(GPL-2.0) without copying its source; each ported routine is credited in its module.
+**GPL-3.0** (required by REBOUND/ASSIST).
 
-Alpha — the API may shift before 1.0. If it helps your work, please cite PyRoOrb along
-with REBOUND, ASSIST, and find_orb. Questions and bug reports: GitHub issues
+Alpha — the API may shift before 1.0. If it helps your work, please cite PyRoOrb. Questions and bug reports: GitHub issues
 (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).

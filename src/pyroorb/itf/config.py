@@ -1190,6 +1190,24 @@ class ItfConfig:
     # QH108 reads 1.243/dof against its 21-obs seed and 0.699/dof against the
     # 52-obs linkage a resumed search would start from.
     accept_seed_within_dof: float = 1.0
+    # ---- A new opposition the seed cannot vouch for (search._new_opposition_unpredicted)
+    # A single-opposition seed leaves its orbit loose along the line of
+    # variations, so the FIRST tracklet taken in another opposition mostly picks
+    # a point on that line, and a second one there may only agree with the first
+    # -- two detections of one OTHER body. 2022 DF9: a 3-night seed (U 11.4) plus
+    # two 2006 SDSS pairs each moving < 0.5" fit at 0.48" and passed every
+    # per-tracklet clause, yet sit ~121,000" off DF9's real orbit. Such a
+    # linkage is demoted to a reviewable possible when BOTH tests fail:
+    #  * the identification penalty -- the seed's chi2 rise plus the new
+    #    opposition's own chi2 under the joint orbit -- exceeds chi2_6 at this
+    #    confidence (6 = the orbit's parameters; DF9: 23.8, cap 19.75);
+    #  * some new-opposition tracklet, left out of a WARM refit (from the joint
+    #    orbit, never a fresh solution), is predicted at p below this.
+    # Measured on 520 MPC-resolved production new oppositions from
+    # single-opposition seeds: the penalty alone refuses 9 correct links, the
+    # leave-out alone 2; the pair refuses none (DF9: p 0.0033).
+    new_opposition_penalty_conf: float = 0.997
+    new_opposition_leaveout_p: float = 0.01
     # ---- Yarkovsky rescue (search._nongrav_rescue) -------------------------
     # A small NEO drifts: across a decade-plus gap the transverse (Yarkovsky)
     # acceleration exceeds the astrometry's own error, so a gravity-only fit

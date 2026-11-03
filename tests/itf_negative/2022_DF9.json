@@ -1,0 +1,173 @@
+{
+ "designation": "2022 DF9",
+ "note": "A weak 3-night seed (U 11.4) plus two 2006 SDSS 705 pairs that are NOT this object (~121,000 arcsec off its full-arc orbit at 4 arcsec 1-sigma). Each pair moved < 0.5 arcsec, so its rate cannot veto; together they bend the seed's loose orbit into a clean-looking two-night new opposition. Must not be submittable.",
+ "obs80": "     0e3b9d * C2006 08 28.33471 00 56 53.53 -00 25 08.2          24.4  g     705\n     0e3b9d   C2006 08 28.33554 00 56 53.51 -00 25 08.1          23.2 Vg     705\n     0f63ff * C2006 09 27.32287 00 31 41.83 -01 10 33.3          21.8  g     705\n     0f63ff   C2006 09 27.32370 00 31 41.80 -01 10 33.5          21.6 Vg     705\n     K22D09F* C2022 02 27.42079412 29 19.301+09 56 21.44         20.9 wU~5WHCF52\n     K22D09F  C2022 02 27.43156412 29 18.827+09 56 21.13         21.14wU~5WHCF52\n     K22D09F  C2022 02 27.44237812 29 18.346+09 56 20.90         21.37wU~5WHCF52\n     K22D09F  C2022 02 27.45322812 29 17.858+09 56 20.39         21.57wU~5WHCF52\n     K22D09F  C2022 03 01.34109412 27 55.512+09 55 16.43         21.63GV~5aiGG96\n     K22D09F  C2022 03 01.34622012 27 55.188+09 55 15.92               V~5aiGG96\n     K22D09F  C2022 03 01.35136112 27 54.997+09 55 15.96         21.06GV~5aiGG96\n     K22D09F  C2022 03 01.35649212 27 54.770+09 55 16.00               V~5aiGG96\n     K22D09F  C2022 03 06.55213112 23 36.079+09 51 44.50         20.65wU~5WHCF52\n     K22D09F  C2022 03 06.57659012 23 34.692+09 51 43.20         20.87wU~5WHCF52\n     K22D09F  C2022 03 06.58881712 23 34.004+09 51 42.52         21.05wU~5WHCF52\n",
+ "ades": {
+  "     0e3b9d * C2006 08 28.33471 00 56 53.53 -00 25 08.2          24.4  g     705": {
+   "sigma_ra": 1.0,
+   "sigma_dec": 1.0,
+   "uncert_src": "Veres2017",
+   "obs_id": "K1T0NE0000005Uit0100004hE",
+   "trksub": "0e3b9d",
+   "mode": "CCD",
+   "band": "R"
+  },
+  "     0e3b9d   C2006 08 28.33554 00 56 53.51 -00 25 08.1          23.2 Vg     705": {
+   "sigma_ra": 1.0,
+   "sigma_dec": 1.0,
+   "uncert_src": "Veres2017",
+   "obs_id": "K1T0NE0000005Uit0100004hF",
+   "trksub": "0e3b9d",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     0f63ff * C2006 09 27.32287 00 31 41.83 -01 10 33.3          21.8  g     705": {
+   "sigma_ra": 1.0,
+   "sigma_dec": 1.0,
+   "uncert_src": "Veres2017",
+   "obs_id": "K1T0OW0000005Uiu01000059g",
+   "trksub": "0f63ff",
+   "mode": "CCD",
+   "band": "R"
+  },
+  "     0f63ff   C2006 09 27.32370 00 31 41.80 -01 10 33.5          21.6 Vg     705": {
+   "sigma_ra": 1.0,
+   "sigma_dec": 1.0,
+   "uncert_src": "Veres2017",
+   "obs_id": "K1T0OW0000005Uiu01000059h",
+   "trksub": "0f63ff",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K22D09F* C2022 02 27.42079412 29 19.301+09 56 21.44         20.9 wU~5WHCF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.15,
+   "log_snr": 0.89,
+   "obs_id": "LUvCTh8R0000EYvt01000002z",
+   "trksub": "P21rJrO",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K22D09F  C2022 02 27.43156412 29 18.827+09 56 21.13         21.14wU~5WHCF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.19,
+   "log_snr": 0.77,
+   "obs_id": "LUvCTh8R0000EYvt010000030",
+   "trksub": "P21rJrO",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K22D09F  C2022 02 27.44237812 29 18.346+09 56 20.90         21.37wU~5WHCF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.14,
+   "log_snr": 0.92,
+   "obs_id": "LUvCTh8R0000EYvt010000031",
+   "trksub": "P21rJrO",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K22D09F  C2022 02 27.45322812 29 17.858+09 56 20.39         21.57wU~5WHCF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.18,
+   "log_snr": 0.81,
+   "obs_id": "LUvCTh8R0000EYvt010000032",
+   "trksub": "P21rJrO",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K22D09F  C2022 03 01.34109412 27 55.512+09 55 16.43         21.63GV~5aiGG96": {
+   "sigma_ra": 0.265,
+   "sigma_dec": 0.296,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.265,
+   "ades_rms_dec": 0.296,
+   "mag_sigma": 0.321,
+   "log_snr": 0.705,
+   "obs_id": "LV0Cf22j0000EZJ9010000FhA",
+   "trksub": "C7CMW12",
+   "mode": "CCD",
+   "band": "G"
+  },
+  "     K22D09F  C2022 03 01.34622012 27 55.188+09 55 15.92               V~5aiGG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "LV0Cf22j0000EZJ9010000FhB",
+   "trksub": "C7CMW12",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K22D09F  C2022 03 01.35136112 27 54.997+09 55 15.96         21.06GV~5aiGG96": {
+   "sigma_ra": 0.276,
+   "sigma_dec": 0.267,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.276,
+   "ades_rms_dec": 0.267,
+   "mag_sigma": 0.319,
+   "log_snr": 0.704,
+   "obs_id": "LV0Cf22j0000EZJ9010000FhC",
+   "trksub": "C7CMW12",
+   "mode": "CCD",
+   "band": "G"
+  },
+  "     K22D09F  C2022 03 01.35649212 27 54.770+09 55 16.00               V~5aiGG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "LV0Cf22j0000EZJ9010000FhD",
+   "trksub": "C7CMW12",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K22D09F  C2022 03 06.55213112 23 36.079+09 51 44.50         20.65wU~5WHCF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.13,
+   "log_snr": 0.94,
+   "obs_id": "LV5E967R0000EZs001000005F",
+   "trksub": "P21ssnc",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K22D09F  C2022 03 06.57659012 23 34.692+09 51 43.20         20.87wU~5WHCF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.11,
+   "log_snr": 1.04,
+   "obs_id": "LV5E967R0000EZs001000005G",
+   "trksub": "P21ssnc",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K22D09F  C2022 03 06.58881712 23 34.004+09 51 42.52         21.05wU~5WHCF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.11,
+   "log_snr": 1.01,
+   "obs_id": "LV5E967R0000EZs001000005H",
+   "trksub": "P21ssnc",
+   "mode": "CCD",
+   "band": "Pw"
+  }
+ },
+ "n_obs": 15,
+ "seed_obs": 11,
+ "foreign_trksubs": [
+  "0e3b9d",
+  "0f63ff"
+ ],
+ "expect": {
+  "submittable": false
+ }
+}

@@ -1,0 +1,10 @@
+# What the API reference build needs (Read the Docs installs this; locally `pip install -e ".[docs]"`
+# is the same). REBOUND and ASSIST are mocked in conf.py, so nothing here compiles.
+sphinx>=7
+numpydoc>=1.6
+furo
+numpy>=1.24
+scipy>=1.10
+astropy>=6.0
+astropy-iers-data>=0.2026.6.8
+requests>=2.28

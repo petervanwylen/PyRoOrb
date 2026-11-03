@@ -19,7 +19,7 @@
 #   6. downloads the reference tables (DE440, the debias tables; --asteroids adds the 616 MB
 #      asteroid ephemeris). --no-data skips this.
 #
-# Options: --dir DIR  --extras LIST (default: none; e.g. itf, or itf,dev)  --asteroids
+# Options: --dir DIR  --extras LIST (default: none; e.g. itf, notebooks, or itf,dev)  --asteroids
 #          --no-data  --yes (run system package installs without asking)  -h|--help
 #          Through curl, options go after "bash -s --":  curl -LsSf …/install.sh | bash -s -- --yes
 set -euo pipefail
@@ -189,13 +189,24 @@ if [ ! -x .venv/bin/python ]; then
   say "Creating .venv with Python $PYTHON_VERSION"
   uv venv --managed-python --python "$PYTHON_VERSION" .venv
 fi
+# ASSIST is compiled against REBOUND's C headers and runs against REBOUND's library, so the two
+# must be the SAME release: REBOUND is installed first (an existing one is kept), and ASSIST is
+# then built, and the rest resolved, against exactly that version. uv keeps the ASSIST wheel it
+# builds and would reuse it in a later environment whatever REBOUND that has, so ASSIST's cache
+# entry is dropped first (it compiles in a few seconds; an ASSIST already installed here is
+# kept, and already matches).
+uv pip install --python .venv/bin/python 'rebound>=4.4.11,<5'
+REBOUND_VERSION="$(.venv/bin/python -c 'import rebound; print(rebound.__version__)')" \
+  || die "REBOUND did not install; please open an issue with this output"
 CONSTRAINTS="$(mktemp)"
 trap 'rm -f "$CONSTRAINTS"' EXIT
-echo 'rebound>=4.4.11,<5' > "$CONSTRAINTS"
+echo "rebound==$REBOUND_VERSION" > "$CONSTRAINTS"
 TARGET="."
 [ -n "$EXTRAS" ] && TARGET=".[$EXTRAS]"
-say "Installing PyRoOrb ${EXTRAS:+with [$EXTRAS] }(compiles ASSIST; about a minute)"
-uv pip install --python .venv/bin/python --build-constraint "$CONSTRAINTS" -e "$TARGET"
+say "Installing PyRoOrb ${EXTRAS:+with [$EXTRAS] }(compiles ASSIST against REBOUND $REBOUND_VERSION; about a minute)"
+uv cache clean assist
+uv pip install --python .venv/bin/python --constraint "$CONSTRAINTS" \
+  --build-constraint "$CONSTRAINTS" -e "$TARGET"
 .venv/bin/python -c "import pyroorb, rebound, assist" \
   || die "the install finished but PyRoOrb or ASSIST does not import; please open an issue with this output"
 if [[ ",$EXTRAS," == *",itf,"* ]] && ! .venv/bin/python -c "import xgboost" >/dev/null 2>&1; then

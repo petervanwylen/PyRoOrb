@@ -1,0 +1,16 @@
+# PyRoOrb web UI for a shared server or lab:   docker compose up -d
+# Then http://<server>:8000. Update with:      docker compose pull && docker compose up -d
+services:
+  pyroorb:
+    image: ghcr.io/petervanwylen/pyroorb:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - pyroorb-data:/data          # reference tables + caches; survives updates
+    environment:
+      PYROORB_ASTEROIDS: "1"        # full fidelity: also the 616 MB asteroid ephemeris
+      # PYROORB_MEMORY_PASSWORD: "choose-one"   # unlocks the /memory diagnostics page
+    restart: unless-stopped
+
+volumes:
+  pyroorb-data:

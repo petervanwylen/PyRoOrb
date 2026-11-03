@@ -37,6 +37,7 @@ from pyroorb.mpc_orbit import fetch_mpc_orbit        # published-orbit seed for 
 # Leaf modules this engine builds on: observer geometry / backend pick (obs_sources), the
 # fit-refusal guards (guards), and the classical-element math (orbital_elements).
 from pyroorb.obs_sources import observer_positions_batch, _force_backend
+from pyroorb.forcemodel import PinnedForce, pin, is_assist, excluded_body, pinned_asteroids
 from pyroorb.guards import assert_not_pluto, self_perturber_name
 from pyroorb.orbital_elements import (element_vector, state_eq_from_elements, ELEM_NAMES,
                               _ANGLE_IDX, earth_ecliptic_elements, n_oppositions)
@@ -76,13 +77,13 @@ def fit_orbit(obs, obscodes, desig="object", meta=None, verbose=False, force=Fal
     # cannot be bypassed even if an upstream pre-check is missed. See is_pluto().
     assert_not_pluto(desig, meta, obs)
     # SELF-PERTURBER guard: one of the 16 sb441-n16 asteroids cannot be fit in a force field
-    # that contains it (guards.self_perturber_name; force_assist.perturbers_off_for). The
-    # existing refusals only decline to turn +16ast ON, and whole-fit mode
-    # (PYROORB_ASTEROIDS_PATH) turns it on globally underneath them -- so (1) Ceres was being
-    # fit against its own mass, keeping 19 of 7993 observations while the modern arc read
-    # ~1e5 sigma. Re-enter the fit with the perturbers suppressed; the geometry build then
-    # lands a gravity-pinned backend in the ctx, so every later step that reuses the fit keeps
-    # the same force model. Guarded on suppressed_perturber() so the re-entry happens once.
+    # that contains IT (guards.self_perturber_name; force_assist.perturbers_off_for) -- (1)
+    # Ceres fit against its own mass kept 19 of 7993 observations while the modern arc read
+    # ~1e5 sigma. Re-enter the fit with the object EXCLUDED from the perturber field (the
+    # other 15 stay: (4) Vesta is fit with Ceres); the geometry build then lands an excluding
+    # backend (force_assist.SelfExcludedForce) in the ctx, so every later step that reuses the
+    # fit -- the asteroid polish, the web toggle, an ephemeris -- keeps the object out of its
+    # own field. Guarded on suppressed_perturber() so the re-entry happens once.
     _sp = self_perturber_name(desig, meta, obs)
     _fa_sp = None
     if _sp is not None:
@@ -98,8 +99,36 @@ def fit_orbit(obs, obscodes, desig="object", meta=None, verbose=False, force=Fal
         f.self_perturber = _sp
         if verbose:
             print(f"  ({_sp}) is itself one of the 16 sb441-n16 perturbers; "
-                  f"fitted with the asteroid perturbers off (it cannot perturb itself)")
+                  f"excluded from the perturber field (it cannot perturb itself)")
         return f
+    # IDENTIFICATION hypothesis ("is A = B?", >= 2 designations requested -- CLI ident-check, a
+    # web designation list, a multi-designation paste): fit the WHOLE thing with the 16
+    # asteroid perturbers ON, no gate. The gated polish (refine_asteroids) runs after the
+    # gravity linker has already decided which apparitions join, so a main-belt pair whose
+    # arcs only meet under the perturbers is refused apparition by apparition -- a false "no".
+    # So these always run +16ast, never gated. Same re-entry shape as the self-perturber guard
+    # above; inside it (one of the 16 in the request) this means +15ast, the object excluded.
+    if ident_requested(meta):
+        try:
+            import pyroorb.force_assist as _fa_id
+        except Exception:                 # no ASSIST -> rebound, no perturbers to force
+            _fa_id = None
+        if (_fa_id is not None and _fa_id.forced_perturbers() is None
+                and _fa_id.ensure_asteroid_kernel(verbose=verbose) is not None):
+            with _fa_id.perturbers_on_for("ident"):
+                f = fit_orbit(obs, obscodes, desig=desig, meta=meta, verbose=verbose,
+                              force=force, auto_nongrav=auto_nongrav,
+                              _allow_sn_drop=_allow_sn_drop, mpc_seed=mpc_seed, center=center,
+                              auto_center=auto_center)
+                on = _fa_id._use_asteroids(True)  # False only if a self-exclusion can't be built
+            if on:
+                if getattr(f, "_ctx", None) is not None:
+                    f._ctx["meta"] = {**(f._ctx.get("meta") or {}), "asteroids": True}
+                f.asteroids = True
+            if verbose:
+                print("  identification fit: asteroid perturbers "
+                      + ("on" if on else "off (self-perturber exclusion unavailable)"))
+            return f
     # Too few observations to determine anything: 6 orbital parameters need >= 3 obs
     # (2 residuals each), and below that the IOD cascade hands a degenerate geometry to
     # the two-body solvers -- a single pasted obs surfaced as "fit failed:
@@ -1145,9 +1174,17 @@ def _build_orbit(ctx, state, mask, result, history):
                     for k, o in enumerate(obs)]
     phot = photometry.fit_absolute_magnitude(phot_records)
     _stadd("products", _ts)
+    # fit.asteroids is what the ctx backend integrates with, not a separately kept note: a
+    # whole-fit +16ast run says True, a toggle back to gravity says False
+    meta = ctx["meta"]
+    pinned = pinned_asteroids(backend)
+    if pinned is not None and bool((meta or {}).get("asteroids")) != pinned:
+        meta = {k: v for k, v in (meta or {}).items() if k != "asteroids"}
+        if pinned:
+            meta["asteroids"] = True
     fit = FittedOrbit(desig=ctx["desig"], obs=obs, result=result, epoch_tdb=ctx["epoch_tdb"],
                       seed_d=ctx["seed_d"], iod_method=ctx["method"], mask=mask,
-                      resid_all=resid_all, history=history, meta=ctx["meta"],
+                      resid_all=resid_all, history=history, meta=meta,
                       sigma_ra=ctx["sigma_ra"], sigma_dec=ctx["sigma_dec"],
                       force_model=ctx["backend_name"], phot=phot)
     fit._ctx = ctx
@@ -1727,22 +1764,20 @@ def _deliver_nongrav_orbit(ctx, fit, model, result, mask, ng_diag=None,
     # (which shares this ctx's evaluator) is left untouched -- otherwise its residuals
     # would silently change under it. The clone shares the (read-only) obs arrays.
     nong = (list(A_phys), gr)
-    ev2 = _copy.copy(ctx["ev"])
-    ev2.nongrav = nong; ev2._resid_key = None; ev2._sub_key = None
-    ctx2 = dict(ctx)
-    ctx2["ev"] = ev2
-    ctx2["nongrav"] = nong
     if asteroids:
         # The delivered orbit LIVES under the 16-perturber model -- the ctx backend
         # (residual/photometry rebuild, the radar joint, later jackknife/web re-fits) and the
-        # evaluator's own predict (O-C sweeps) both, or the state fitted under perturbers is
-        # judged planets-only and every displayed residual carries the ~0.4" divergence. Same
-        # ev-rebinding pattern refine_asteroids has always used.
-        import functools as _functools
-        import pyroorb.force_assist as _fa
-        ctx2["backend"] = _AsteroidForce(ctx["backend"])
-        ctx2["asteroids"] = True
-        ev2._predict = _functools.partial(_fa.predict_radec_batch, asteroids=True)
+        # evaluator's own predict and Jacobian (O-C sweeps) both, or the state fitted under
+        # perturbers is judged planets-only and every displayed residual carries the ~0.4"
+        # divergence. with_force_model re-binds them through the ctx backend, so for one of
+        # the 16 perturber objects the exclusion survives (a web re-fit, a jackknife).
+        ev2, ctx2 = with_force_model(ctx, True)
+    else:
+        ev2 = _copy.copy(ctx["ev"])
+        ctx2 = dict(ctx)
+        ctx2["ev"] = ev2
+    ev2.nongrav = nong; ev2._resid_key = None; ev2._sub_key = None
+    ctx2["nongrav"] = nong
     # the flag rides the ctx, so a re-delivery (the radar joint, a jackknife refit, a web
     # re-fit) inherits it even when its own `asteroids` arg defaults False -- and the meta
     # records it where as_dict / reports can see which force model the value was made under
@@ -2087,19 +2122,6 @@ def refine_nongrav(fit, model="comet2", max_nfev=200, verbose=False,
     return fit2
 
 
-_AST_AWARE_CALLS = None
-
-
-def _asteroid_aware_calls():
-    """force_assist.ASTEROID_AWARE_CALLS (memoised): the backend calls that take `asteroids=`,
-    shared by the two wrappers that pin it in opposite directions."""
-    global _AST_AWARE_CALLS
-    if _AST_AWARE_CALLS is None:
-        import pyroorb.force_assist as _fa
-        _AST_AWARE_CALLS = _fa.ASTEROID_AWARE_CALLS
-    return _AST_AWARE_CALLS
-
-
 # --- automatic non-gravitational discovery -----------------------------------------------
 # For a converged GRAVITY fit in the regime where a nongrav is detectable -- q < 1.4 au AND
 # multi-apparition (Yarkovsky is a SECULAR along-track drift, so it needs many revolutions
@@ -2111,39 +2133,53 @@ def _asteroid_aware_calls():
 # force-model-deficient junk; the chi2 effect-size bar is what actually resists false
 # positives). ON by default (PYROORB_AUTO_NONGRAV=0 to disable); validated zero-false-positive
 # against JPL across the very-low-q strong-GR control class.
-class _AsteroidForce:
+class _AsteroidForce(PinnedForce):
     """A force backend with the 16-perturber ephemeris FORCED ON for every call that accepts
-    `asteroids=` -- the delivery-time force model for a long-arc, belt-sampling non-gravitational
-    orbit. ONE wrapper object stored in the delivered ctx rather than per-call-site
-    threading, so everything that ctx reaches -- the delivery LM's residuals and rescue profile,
-    the radar joint's states sweep, the residual/photometry rebuild, a later jackknife or web
-    re-fit -- runs under ONE force model and cannot drift planets-only halfway through (which is
-    exactly how 1862 Apollo's radar "fit" a trajectory 20-50 km off: the divergence is ~0.4" to
-    the optical and hundreds of sigma to a delay). Attribute access falls through, so
-    hasattr-style capability checks are unchanged; wrapping a wrapped backend is idempotent."""
-
-    # The asteroids= call list is force_assist's (ASTEROID_AWARE_CALLS) -- ONE list shared with
-    # the opposite-pinning GravityOnlyForce, read lazily because force_assist imports ASSIST at
-    # import time and the engine must import on a rebound-only box.
+    `asteroids=` (forcemodel.PinnedForce pinned True) -- e.g. the delivery-time force model for
+    a long-arc, belt-sampling non-gravitational orbit. ONE wrapper object stored in the
+    delivered ctx rather than per-call-site threading, so everything that ctx reaches -- the
+    delivery LM's residuals and rescue profile, the radar joint's states sweep, the
+    residual/photometry rebuild, a later jackknife or web re-fit -- runs under ONE force model
+    and cannot drift planets-only halfway through (which is exactly how 1862 Apollo's radar
+    "fit" a trajectory 20-50 km off: the divergence is ~0.4" to the optical and hundreds of
+    sigma to a delay). An inner pin is replaced; a SelfExcludedForce inside is kept (+15ast)."""
 
     def __init__(self, backend):
-        # Unwrap another _AsteroidForce (idempotent), but NEVER a gravity-pinned backend: that
-        # pin is the self-perturber guard, and an object in the perturber kernel cannot be put
-        # back into it by a later delivery-time force choice. Wrapping one is harmless -- its
-        # own hard pin wins over the setdefault below -- but unwrapping it would not be.
-        if getattr(backend, "_gravity_pinned", False):
-            self._backend = backend
-        else:
-            self._backend = getattr(backend, "_backend", backend)
+        super().__init__(backend, True)
 
-    def __getattr__(self, name):
-        f = getattr(self._backend, name)
-        if name in _asteroid_aware_calls():
-            def _forced(*a, **k):
-                k.setdefault("asteroids", True)
-                return f(*a, **k)
-            return _forced
-        return f
+
+def with_force_model(ctx, asteroids, fit=None):
+    """`ctx` re-bound to the asteroid perturbers ON or OFF: ``(ev2, ctx2)``.
+
+    The ONE place a fit's force model is swapped (refine_asteroids, refit_force_model, the
+    nongrav delivery, the web's restored sessions). The new ctx backend is pinned
+    (forcemodel.PinnedForce, around any self-exclusion), the evaluator's predict and Jacobian
+    are bound to THAT backend, and the ctx's flag, meta and label say the same thing -- so an
+    orbit built from ctx2 cannot integrate in one field and report another. The evaluator is a
+    shallow copy with its caches cleared; its `nongrav` is left for the caller."""
+    import copy as _copy
+    base = ctx["backend"]
+    # what will actually run: no perturbers off ASSIST, and none for a perturber object whose
+    # exclusion cannot be built here (force_assist then refuses them; say so, don't pretend)
+    asteroids = (bool(asteroids) and is_assist(base)
+                 and (excluded_body(base) is None or _self_excluding(base)))
+    backend = pin(base, asteroids)
+    ev = ctx["ev"]
+    ev2 = _copy.copy(ev)
+    ev2._predict = backend.predict_radec_batch
+    ev2._predict_jac = (None if ev._predict_jac is None
+                        else getattr(backend, "predict_radec_jac_batch", None))
+    ev2._resid_key = ev2._sub_key = None
+    ctx2 = dict(ctx)
+    ctx2["ev"] = ev2
+    ctx2["backend"] = backend
+    ctx2["asteroids"] = asteroids
+    meta = {k: v for k, v in (ctx.get("meta") or {}).items() if k != "asteroids"}
+    if ctx2["asteroids"]:
+        meta["asteroids"] = True
+    ctx2["meta"] = meta
+    ctx2["backend_name"] = _force_model_label(ctx, ctx2["asteroids"], fit)
+    return ev2, ctx2
 
 
 # The 16 asteroid perturbers at NONGRAV DELIVERY, gated. A long arc whose aphelion
@@ -4939,6 +4975,40 @@ def autodetect_center(fit, obs, obscodes, desig="object", meta=None, verbose=Fal
     return sat
 
 
+def _self_excluding(backend):
+    """True when `backend` excludes its object from the asteroid perturber field
+    (force_assist.SelfExcludedForce, directly or under _AsteroidForce) AND that exclusion can
+    actually be built on this box -- otherwise force_assist keeps the perturbers off for the
+    object, and a fit labelled `asteroids` would really be gravity."""
+    name = excluded_body(backend)
+    if name is None:
+        return False
+    try:
+        import pyroorb.force_assist as _fa
+        with _fa.perturbers_off_for(name):
+            return _fa._use_asteroids(True)
+    except Exception:
+        return False
+
+
+def _force_model_label(ctx, asteroids, fit=None):
+    """The `force_model` tag of an orbit rebuilt from `ctx` with the asteroid perturbers on
+    or off. refine_asteroids and refit_force_model swap the evaluator's force model but
+    rebuild the orbit from the ORIGINAL fit context, whose `backend_name` names the model
+    that fit ran in; without this the polished orbit carried `asteroids=True` under an
+    "ASSIST(DE440+GR)" label (2022 KX28, polished from gravity to the 16 perturbers)."""
+    name = ctx.get("backend_name") or "?"
+    if not name.startswith("ASSIST("):
+        return name                             # rebound 8-planet: no perturbers either way
+    if not asteroids:
+        return "ASSIST(DE440+GR)"
+    sp = excluded_body(ctx.get("backend"))
+    if sp is not None:
+        if _self_excluding(ctx.get("backend")):
+            return f"ASSIST(DE440+GR+15ast, excl. {sp})"
+        return "ASSIST(DE440+GR, +16ast off: self-perturber)"
+    return "ASSIST(DE440+GR+16ast)"
+
 def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
     """Polish a converged GRAVITY orbit with the 16 massive-asteroid perturbers.
 
@@ -4957,18 +5027,22 @@ def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
     ctx = getattr(fit, "_ctx", None)
     if ctx is None:
         return fit
+    if getattr(fit, "asteroids", False):     # already fitted WITH the perturbers (an ident fit)
+        return fit
     backend = ctx["backend"]
     if not hasattr(backend, "ensure_asteroid_kernel"):        # rebound 8-planet backend: no-op
         return fit
-    # Self-perturber guard: if the object IS one of the 16 sb441-n16 perturbers, refuse to
-    # turn the perturbers on -- it would be perturbed by itself (the Pluto paradox). Keep the
-    # gravity orbit. `force` (CLI --asteroids / interactive toggle) does NOT override this:
-    # self-perturbation is meaningless regardless of who asked. See self_perturber_name().
+    if pinned_asteroids(backend):           # fitted with the perturbers already (whole-fit run)
+        return fit
+    # Self-perturber guard: if the object IS one of the 16 sb441-n16 perturbers, the polish
+    # runs with it EXCLUDED from the field (+15ast) -- never in a field containing itself.
+    # The fit's ctx backend already excludes it (force_assist.SelfExcludedForce); anything
+    # else (a backend from before the guard ran) is refused rather than trusted.
     sp = self_perturber_name(fit=fit)
-    if sp is not None:
+    if sp is not None and not _self_excluding(backend):
         if verbose:
-            print(f"  asteroid polish: ({sp}) is itself one of the 16 perturbers; "
-                  f"refusing +16ast (it cannot be perturbed by itself); kept gravity orbit")
+            print(f"  asteroid polish: ({sp}) is itself one of the 16 perturbers and this "
+                  f"fit's backend does not exclude it; kept gravity orbit")
         return fit
     if not force:
         if fit.n_oppositions() < ASTEROID_MIN_OPP:
@@ -4981,14 +5055,13 @@ def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
             print("  asteroid polish: no perturber kernel available; kept gravity orbit")
         return fit
 
-    # Asteroid-aware evaluator: a shallow clone of the gravity evaluator with its force-model
-    # callables bound to asteroids=True (everything else -- obs, sigmas, base_sim -- is shared).
+    # Asteroid-aware evaluator: a shallow clone of the gravity evaluator re-bound to the
+    # perturbers (with_force_model; obs, sigmas, base_sim are shared). The keep-gate below
+    # compares it against the fit's own evaluator, which must therefore BE gravity.
     ev = ctx["ev"]
-    ev2 = _copy.copy(ev)
-    ev2._predict = functools.partial(backend.predict_radec_batch, asteroids=True)
-    ev2._predict_jac = (None if ev._predict_jac is None
-                        else functools.partial(backend.predict_radec_jac_batch, asteroids=True))
-    ev2._resid_key = ev2._sub_key = None
+    ev2, ctx2 = with_force_model(ctx, True, fit)
+    if not ctx2["asteroids"]:
+        return fit                  # a perturber object whose exclusion cannot be built here
     ev2.nongrav = None
 
     mask_a = _caller_mask(fit, mask).copy()
@@ -5003,9 +5076,6 @@ def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
     state, mask_a = _ae._final_redeem(ev2, state, mask_a, [], verbose)   # 3σ/0.5" amnesty
     state, result = ev2.fit(state, mask_a, thin=False)        # final covariance fit
 
-    ctx2 = dict(ctx)
-    ctx2["ev"] = ev2
-    ctx2["meta"] = {**(ctx.get("meta") or {}), "asteroids": True}
     fit2 = _build_orbit(ctx2, state, mask_a, result, fit.history)
 
     # "Does it actually help?" -- judged FAIRLY on the SAME obs set (the gravity fit's
@@ -5060,7 +5130,7 @@ def refit_force_model(fit, asteroids, mask=None, seed=None, max_nfev=200):
     PURE force-model swap: NO redemption, NO rejection, the obs set is held exactly as `mask`.
     Unlike refine_asteroids (which redeems/re-rejects to find the asteroid orbit's natural obs
     set), this is the interactive toggle: flip the perturbers and re-solve the SAME obs. `fit`
-    must carry a GRAVITY evaluator (its ctx is used to build either force model); `asteroids`
+    may carry either force model (its ctx is re-bound to the one asked for); `asteroids`
     True builds an asteroid-aware evaluator clone (kernel auto-downloaded; gravity fallback if
     unavailable). `seed` overrides the starting state -- IMPORTANT for an object whose obs set
     only makes sense with the perturbers (e.g. 2009 HV119): the asteroid fit on those obs has a
@@ -5075,26 +5145,21 @@ def refit_force_model(fit, asteroids, mask=None, seed=None, max_nfev=200):
     ev = ctx["ev"]
     mask = _caller_mask(fit, mask)
     seed = np.asarray(fit._state if seed is None else seed, float)
-    # Self-perturber guard (see refine_asteroids): never enable +16ast for an object that
-    # IS one of the 16 perturbers -- it can't be perturbed by itself, so the toggle stays
-    # on the gravity force model no matter what the caller asked for.
+    # Self-perturber guard (see refine_asteroids): an object that IS one of the 16 perturbers
+    # gets the perturbers only with itself excluded (+15ast, the ctx backend's job); a
+    # backend that does not exclude it stays on gravity whatever the caller asked for.
     use_ast = (bool(asteroids) and hasattr(backend, "ensure_asteroid_kernel")
                and backend.ensure_asteroid_kernel() is not None
-               and self_perturber_name(fit=fit) is None)
+               and (self_perturber_name(fit=fit) is None or _self_excluding(backend)))
+    # Both directions re-bind the evaluator (with_force_model): "off" used to reuse the fit's own
+    # evaluator and only relabel it, so a fit made with the perturbers on stayed perturbed under
+    # a gravity label.
+    ev2, ctx2 = with_force_model(ctx, use_ast, fit)
     if use_ast:
-        ev2 = _copy.copy(ev)
-        ev2._predict = functools.partial(backend.predict_radec_batch, asteroids=True)
-        ev2._predict_jac = (None if ev._predict_jac is None
-                            else functools.partial(backend.predict_radec_jac_batch, asteroids=True))
-        ev2._resid_key = ev2._sub_key = None
         ev2.nongrav = None
-        ctx2 = dict(ctx); ctx2["ev"] = ev2
-        ctx2["meta"] = {**(ctx.get("meta") or {}), "asteroids": True}
-        state, result = ev2.fit(seed, mask, thin=False, max_nfev=max_nfev)
-        return _build_orbit(ctx2, state, mask, result, fit.history)
-    ctx2 = dict(ctx)
-    ctx2["meta"] = {k: v for k, v in (ctx.get("meta") or {}).items() if k != "asteroids"}
-    state, result = ev.fit(seed, mask, thin=False, max_nfev=max_nfev)
+    # (An identification fit's ctx carries the forcing _AsteroidForce; re-pinning it False
+    # unwraps it, so its gravity side is really gravity.)
+    state, result = ev2.fit(seed, mask, thin=False, max_nfev=max_nfev)
     return _build_orbit(ctx2, state, mask, result, fit.history)
 
 
@@ -5169,6 +5234,13 @@ def _observer_geometry(obs, obscodes):
         sigma_dec = np.maximum(sigma_dec, floor)
     times_tdb = Time([o["jd_utc"] for o in obs], format="jd", scale="utc").tdb.jd
     backend, backend_name = _force_backend()
+    if is_assist(backend):
+        # The perturber choice is made HERE, once, and pinned on the backend every later step
+        # of this fit reaches (forcemodel.PinnedForce). Left to the process-wide switch, a fit
+        # made inside `with pyroorb.asteroid_perturbers():` re-corrected its LOV or range
+        # profile planets-only once the block had closed.
+        import pyroorb.force_assist as _fa
+        backend = pin(backend, _fa._use_asteroids(None))
     jac_fn = (None if os.environ.get("PYROORB_FINITE_DIFF_JAC")
               else getattr(backend, "predict_radec_jac_batch", None))
     return {"Robs": Robs, "obs_ra": obs_ra, "obs_dec": obs_dec,
@@ -6686,6 +6758,36 @@ def _count_range_modes(values):
 # Fitted-orbit result object with getters mirroring find_orb's elements.json
 # ---------------------------------------------------------------------------
 class FittedOrbit:
+    """A fitted orbit: the solution, its uncertainty, and how the observations fit it.
+
+    Made by :func:`pyroorb.fit_orbit`; not constructed directly. The methods listed in the
+    API reference (``docs/api.rst``) are supported; the rest are internal.
+
+    Attributes
+    ----------
+    designation : str
+        The object's name in the results.
+    epoch_tdb : float
+        The epoch of the elements and state, Julian date, TDB (same as :meth:`epoch_jd`).
+    converged : bool
+        False when the final least-squares correction stopped at its iteration cap.
+    force_model : str
+        The dynamical model the fit used, e.g. ``"ASSIST(DE440+GR)"``.
+    nongrav_model : str or None
+        The non-gravitational model the fit kept -- ``"comet1"`` / ``"comet2"`` /
+        ``"comet3"`` (Marsden A1, A2, A3), ``"yarkovsky"`` (A2, 1/r^2) or ``"srp"`` -- or None
+        for gravity only.
+    nongrav_params : dict
+        The fitted coefficients, ``{"A1": ..., "A2": ...}``, au/day^2.
+    center : str
+        Present only on a planetary satellite: the planet fitted around.
+    radar : dict
+        Present when radar astrometry was given: ``applied`` (whether it joined the fit),
+        ``n``, ``n_used``, ``rows`` (per measurement, its ``z`` = O-C in sigmas and
+        ``included``) and, when it was not applied, a ``note`` saying why.
+        :func:`pyroorb.radar_residuals` gives the full residuals of any orbit.
+    """
+
     def __init__(self, desig, obs, result, epoch_tdb, seed_d, iod_method="?",
                  mask=None, resid_all=None, history=None, meta=None,
                  sigma_ra=None, sigma_dec=None, force_model="?", phot=None):
@@ -6759,7 +6861,8 @@ class FittedOrbit:
         # True when the 16 massive-asteroid perturbers are active (refine_asteroids polish).
         self.asteroids = bool(meta.get("asteroids"))
         # Set (to '1 Ceres', '4 Vesta', ...) when THIS object is one of the 16 perturbers, so
-        # the fit ran with them off -- it cannot be perturbed by itself. See fit_orbit.
+        # the fit ran with itself excluded from the perturber field (any asteroid perturbers
+        # are the other 15) -- it cannot be perturbed by itself. See fit_orbit.
         self.self_perturber = None
         self._elem = element_vector(self._state, epoch_tdb)
         self._state_cov = self._compute_state_cov()
@@ -6900,9 +7003,34 @@ class FittedOrbit:
 
     # --- elements + sigmas ----------------------------------------------
     def elements(self):
+        """The osculating heliocentric elements at the epoch (:meth:`epoch_jd`, TDB).
+
+        Two-body elements of the fitted state about the Sun, in the ecliptic and equinox of
+        J2000 (mean obliquity 23.43928111 deg).
+
+        Returns
+        -------
+        dict
+            ``a`` semi-major axis (au; negative when unbound), ``e``, ``q`` perihelion and
+            ``Q`` aphelion distance (au), ``i``, ``asc_node``, ``arg_per`` and ``M`` (deg; on
+            an unbound orbit ``M`` is the hyperbolic mean anomaly, unwrapped), ``Tp`` time of
+            perihelion (Julian date, TDB), ``n`` mean motion (deg/day), ``P`` period (years).
+            ``Q`` and ``P`` are NaN on an unbound orbit.
+        """
         return dict(zip(ELEM_NAMES, self._elem.tolist()))
 
     def element_sigmas(self):
+        """The 1-sigma uncertainty of each of :meth:`elements`, from the linear covariance.
+
+        The covariance is scaled by the fit's own residuals but never shrunk by them. Where
+        the orbit is poorly constrained the linear sigma can be badly wrong: see
+        :meth:`determinacy`, :meth:`element_ranges` and :meth:`monte_carlo_uncertainty`.
+
+        Returns
+        -------
+        dict
+            The same keys and units as :meth:`elements`.
+        """
         sig = np.sqrt(np.clip(np.diag(self._elem_cov), 0, None))
         return dict(zip(ELEM_NAMES, sig.tolist()))
 
@@ -6927,9 +7055,17 @@ class FittedOrbit:
         """Heliocentric equatorial (au, au/day): (position, velocity)."""
         return self._state[:3].copy(), self._state[3:].copy()
     def state(self):
-        """Heliocentric equatorial state at epoch as a flat copy (au, au/day). Usually a
-        6-vector; a nongrav-augmented fit carries a 7th element. Public accessor so leaf
-        consumers (e.g. the unconstrained-orbit banner) need not reach into `_state`."""
+        """The fitted state at the epoch (:meth:`epoch_jd`, TDB).
+
+        Heliocentric, in the EQUATORIAL frame (ICRF axes) -- not the ecliptic frame of
+        :meth:`elements`. A non-gravitational fit appends its free A coefficients
+        (``fit.nongrav_params`` names them), so take ``state()[:6]`` for the orbit.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``[x, y, z, vx, vy, vz, ...]`` in au and au/day. A copy.
+        """
         return np.asarray(self._state, float).copy()
     def geocentric_range(self):
         """Geocentric distance (au) of the nominal orbit at the FIRST observation epoch, or
@@ -6945,8 +7081,27 @@ class FittedOrbit:
         except Exception:
             return None
     def covariance_matrix(self, frame="elements"):
+        """The linear covariance of the fit.
+
+        Parameters
+        ----------
+        frame : {"elements", "state"}, default "elements"
+            ``"elements"``: 11 x 11, in the order and units of :meth:`elements` (rank 6:
+            ``q``, ``Q``, ``Tp``, ``n`` and ``P`` are functions of the other six).
+            ``"state"``: 6 x 6 over the equatorial state of :meth:`state` (au, au/day),
+            marginalised over any non-gravitational parameters;
+            :meth:`parameter_covariance` keeps them.
+
+        Returns
+        -------
+        numpy.ndarray
+            A copy.
+        """
+        if frame not in ("elements", "state"):
+            raise ValueError(f"frame must be 'elements' or 'state', not {frame!r}")
         return self._elem_cov.copy() if frame == "elements" else self._state_cov.copy()
     def correlation_matrix(self, frame="elements"):
+        """:meth:`covariance_matrix` normalised to unit diagonal (same ``frame`` argument)."""
         C = self.covariance_matrix(frame); d = np.sqrt(np.clip(np.diag(C), 1e-300, None))
         return C / np.outer(d, d)
 
@@ -7206,6 +7361,55 @@ class FittedOrbit:
                 "n_modes": _count_range_modes(geo)}
         return _remember(info)
 
+    def predict_without(self, select, max_nfev=200):
+        """Leave the observations ``select(obs)`` picks out of this fit and test whether the
+        rest PREDICTS them, or whether they were only fitted because the orbit bent to take
+        them.
+
+        Re-converged WARM, from this fit's own state, over the remaining included
+        observations; the left-out ones are then scored against that relaxed orbit:
+        ``r`` their residuals in sigma units (two per observation), ``C`` the relaxed
+        orbit's covariance ``inv(J^T J)``, and ``chi2 = r^T (J_t C J_t^T + I)^-1 r`` on
+        ``2n`` degrees of freedom -- prediction uncertainty plus their own noise. Warm,
+        never a fresh solution: re-running orbit determination on a sparse multi-opposition
+        remainder can settle in another minimum, and then its prediction says nothing about
+        the observations left out.
+
+        Returns ``{"chi2", "dof", "p", "miss"}`` (``miss`` the mean offset, arcsec) or
+        ``{"error": ...}`` when the test cannot be made: no live evaluator, a
+        non-gravitational state, a selection this fit does not wholly include, or too
+        little left. Never raises, and never changes this fit."""
+        from scipy.stats import chi2 as _chi2
+        ctx = getattr(self, "_ctx", None)
+        if ctx is None or ctx.get("ev") is None:
+            return {"error": "the fit carries no evaluator"}
+        state0 = np.asarray(self._state, float)
+        if state0.size != 6:
+            return {"error": "a non-gravitational state"}
+        ev = ctx["ev"]
+        base = np.asarray(self._mask, bool)
+        out = np.array([bool(select(o)) for o in self._obs], bool)
+        if not out.any():
+            return {"error": "no observation selected"}
+        if not base[out].all():
+            return {"error": "the fit does not include every selected observation"}
+        rest = base & ~out
+        if rest.sum() < 4:
+            return {"error": "too little left to fit"}
+        try:
+            x, _res = ev.fit(state0.copy(), rest, max_nfev=max_nfev, thin=False)
+            J = np.asarray(ev.evaluate(x, rest).jac, float)
+            C = np.linalg.pinv(J.T @ J)
+            e = ev.evaluate(x, out)
+            r = np.asarray(e.fun, float)
+            Jo = np.asarray(e.jac, float)
+            q = float(r @ np.linalg.solve(Jo @ C @ Jo.T + np.eye(r.size), r))
+            da, dd = ev.resid_arcsec(x)
+            miss = float(np.hypot(np.mean(np.asarray(da)[out]), np.mean(np.asarray(dd)[out])))
+        except Exception as ex:                          # noqa: BLE001 -- a test, never a crash
+            return {"error": f"{type(ex).__name__}: {ex}"}
+        return {"chi2": q, "dof": int(r.size), "p": float(_chi2.sf(q, r.size)), "miss": miss}
+
     def lov_uncertainty(self, n_steps=21, n_sigma=3.0):
         """Non-linear uncertainty along the Line of Variations: step the orbit through the
         least-constrained direction of its covariance and RE-CORRECT each variant on the LOV
@@ -7264,14 +7468,27 @@ class FittedOrbit:
         return u, sigma, refit_fn
 
     # --- fit quality / metadata (counts reflect INCLUDED obs, like find_orb) ---
-    def epoch_jd(self):                 return self.epoch_tdb
-    def epoch_iso(self):                return Time(self.epoch_tdb, format="jd", scale="tdb").iso
+    def epoch_jd(self):
+        """The epoch of :meth:`elements` and :meth:`state`, as a Julian date in TDB (not UTC;
+        also ``fit.epoch_tdb``)."""
+        return self.epoch_tdb
+    def epoch_iso(self):
+        """:meth:`epoch_jd` as an ISO string, TDB."""
+        return Time(self.epoch_tdb, format="jd", scale="tdb").iso
     def frame(self):                    return "ecliptic J2000 (heliocentric)"
     def _incl_obs(self):                return [o for o, m in zip(self._obs, self._mask) if m]
-    def included_observations(self):    return self._incl_obs()               # public: leaf modules
-    def n_observations(self):           return int(self._mask.sum())          # included
-    def n_total_observations(self):     return len(self._obs)                  # incl. rejected
-    def n_excluded(self):               return int((~self._mask).sum())
+    def included_observations(self):
+        """The observation records the fit kept (the rejected ones are left out)."""
+        return self._incl_obs()               # public: leaf modules
+    def n_observations(self):
+        """How many optical observations the fit kept."""
+        return int(self._mask.sum())          # included
+    def n_total_observations(self):
+        """How many optical observations the fit was given, kept or rejected."""
+        return len(self._obs)                  # incl. rejected
+    def n_excluded(self):
+        """How many optical observations the fit rejected."""
+        return int((~self._mask).sum())
     def n_debiased(self):               return sum(1 for o in self._obs if o.get("debiased"))
     def n_resids(self):                 return 2*int(self._mask.sum())
     def n_free_params(self):
@@ -7291,14 +7508,19 @@ class FittedOrbit:
         divisor to 1 so nothing raises, but the sigmas it then reports are arbitrary, not
         measured. Reported (never refused) so the UI can say so -- see the zero-dof banner."""
         return self.n_resids() - self.n_free_params()
-    def n_oppositions(self):            return n_oppositions([o["jd_utc"] for o in self._incl_obs()])
+    def n_oppositions(self):
+        """How many oppositions (apparitions) the kept observations span (find_orb's rule)."""
+        return n_oppositions([o["jd_utc"] for o in self._incl_obs()])
     def arc_length_days(self):
+        """Days from the first kept observation to the last."""
         # sorted() so the span is correct even if _obs is not chronological (every
         # normal entry path sorts by jd_utc, but a paste "Add to current fit" merges
         # base+added without re-sorting) -- see loader.add_to_fit.
         ti = sorted(o["jd_utc"] for o in self._incl_obs())
         return ti[-1] - ti[0]
-    def observatory_codes(self):        return sorted({o["obscode"] for o in self._incl_obs()})
+    def observatory_codes(self):
+        """The MPC codes of the stations whose observations the fit kept, sorted."""
+        return sorted({o["obscode"] for o in self._incl_obs()})
     def _compute_rational_sigmas(self):
         """Lazily compute the profile-likelihood (Delta-chi2=1) 1-sigma for each fitted nongrav
         coefficient, from this fit's own state / obs / backend (see _profile_nongrav_sigmas). Cached.
@@ -7527,7 +7749,8 @@ class FittedOrbit:
         return list(self._compute_rational_sigmas()[1])
 
     def rms_residual(self):
-        """Unweighted RMS of O-C over included obs, in ARCSEC (for human display)."""
+        """Unweighted RMS of O-C over the kept observations, arcsec, PER AXIS (the find_orb,
+        MPC and JPL convention: the RA cos(dec) and Dec residuals pooled)."""
         if self._resid_all is None:
             return float(np.sqrt(np.mean(self._res.fun**2)))
         r = self._resid_all[self._mask]
@@ -7544,14 +7767,26 @@ class FittedOrbit:
     def is_included(self):              return self._mask.copy()
     # --- photometry ------------------------------------------------------
     def absolute_magnitude(self):
-        """(H, 1σ) in V using the H,G system (G=0.15), find_orb-style band
-        conversion to V. Returns (None, None) if no usable photometry."""
+        """``(H, sigma_H)``: absolute magnitude in V on the H,G system with G fixed at
+        :meth:`slope_parameter`, each band converted to V (find_orb's band table).
+        ``(None, None)`` without usable photometry."""
         return self._phot.get("H"), self._phot.get("sigma_H")
-    def slope_parameter(self):          return photometry.ASTEROID_G
-    def n_magnitudes(self):             return self._phot.get("n_mags", 0)
+    def slope_parameter(self):
+        """The G slope parameter used for :meth:`absolute_magnitude` (fixed, 0.15)."""
+        return photometry.ASTEROID_G
+    def n_magnitudes(self):
+        """How many reported magnitudes went into :meth:`absolute_magnitude`."""
+        return self._phot.get("n_mags", 0)
     def magnitude_residuals(self):
-        """Per-obs photometric residual dMag = obs_mag - computed_mag (mag), with
-        band, phase angle, and inclusion flag. Only obs that carried a magnitude."""
+        """Per-observation photometric residuals, for observations that reported a magnitude.
+
+        Returns
+        -------
+        list of dict
+            ``jd_utc``, ``obscode``, ``obs_mag``, ``band``, ``computed_mag`` (in that band),
+            ``dmag`` = obs_mag - computed_mag, ``phase_deg``, and ``used`` (whether it went
+            into H).
+        """
         out = []
         for o, p in zip(self._obs, self._phot.get("per", [])):
             if o.get("mag") is None:
@@ -7565,7 +7800,8 @@ class FittedOrbit:
     def _ecl_elements(self):
         return dict(zip(ELEM_NAMES, self._elem.tolist()))
     def moid_earth(self):
-        """Minimum orbit intersection distance with Earth (au)."""
+        """Minimum orbit intersection distance with Earth's osculating orbit at the epoch, au
+        (None if it cannot be computed)."""
         if not hasattr(self, "_moid_cache"):
             from pyroorb import hazard
             try:
@@ -7579,18 +7815,49 @@ class FittedOrbit:
         H, _ = self.absolute_magnitude()
         return hazard.classify(self._val("a"), self._val("e"), self._val("i"),
                                H=H, earth_moid=self.moid_earth())
-    def orbit_class(self):              return self.orbit_classification()["class"]
-    def is_pha(self):                   return self.orbit_classification()["pha"]
-    def tisserand_jupiter(self):        return self.orbit_classification()["tisserand_jupiter"]
+    def orbit_class(self):
+        """The dynamical class from a, e and q, as a label: e.g. ``"Apollo (NEO)"``,
+        ``"Mars-crosser"``, ``"main-belt asteroid"``, ``"Jupiter Trojan"``, ``"Centaur"``,
+        ``"hyperbolic/parabolic"``."""
+        return self.orbit_classification()["class"]
+    def is_pha(self):
+        """Potentially hazardous: an NEO (q < 1.3 au) with Earth MOID <= 0.05 au and
+        H <= 22."""
+        return self.orbit_classification()["pha"]
+    def tisserand_jupiter(self):
+        """The Tisserand parameter with respect to Jupiter."""
+        return self.orbit_classification()["tisserand_jupiter"]
     def uncertainty_parameter(self):
-        """MPC uncertainty parameter U (0-9; find_orb's formula)."""
+        """The MPC uncertainty parameter U, 0 (best) to 9, from the a and Tp sigmas
+        (find_orb's formula)."""
         from pyroorb import hazard
         return hazard.uncertainty_parameter(self._val("a"), self._val("e"),
                                             self._sig("a"), self._sig("Tp"))
-    def is_combined(self):              return self.combined
-    def linked_designations(self):      return list(self.designations)
+    def is_combined(self):
+        """Whether the fit joins observations reported under more than one designation."""
+        return self.combined
+    def linked_designations(self):
+        """Every designation the fitted observations were reported under."""
+        return list(self.designations)
     def residuals(self, included_only=False):
-        """Per-obs O-C (arcsec) in the standard sense O-C = Observed - Computed
+        """Per-observation residuals, O-C = observed - computed.
+
+        Parameters
+        ----------
+        included_only : bool, default False
+            Leave out the observations the fit rejected. Otherwise the rows line up one to
+            one with the observations given to :func:`pyroorb.fit_orbit`.
+
+        Returns
+        -------
+        list of dict
+            ``jd_utc``, ``obscode``, ``designation``, ``d_ra_arcsec`` (RA residual times
+            cos(dec)), ``d_dec_arcsec``, ``sigma_ra`` / ``sigma_dec`` (the weights used,
+            arcsec), ``resid_sigmas`` (the residual's size in sigmas), ``included``.
+
+        Notes
+        -----
+        Implementation: per-obs O-C (arcsec) in the standard sense O-C = Observed - Computed
         (matches the photometric dmag = obs_mag - computed_mag and find_orb's sign
         convention). The engine stores residuals internally as Computed - Observed
         (the LM residual vector / _resid_all), so we negate here at the reporting
@@ -7636,14 +7903,28 @@ class FittedOrbit:
                         "included": bool(self._mask[k])})
         return out
     def excluded_observations(self):
+        """The :meth:`residuals` rows of the observations the fit rejected."""
         return [r for r in self.residuals() if not r["included"]]
 
     # --- find_orb elements.json-style dict ------------------------------
     def determinacy(self):
-        """Is this orbit determined by its observations? ``None`` when it is; otherwise the
-        ``constraint.assess`` description of what the arc leaves open (the same verdict the
-        web page's banner shows: headline, detail, the intervals it can still state).
-        Computed once per fitted state and included-observation set."""
+        """Is this orbit determined by its observations?
+
+        Returns
+        -------
+        dict or None
+            None when it is. Otherwise what the arc leaves open -- the verdict the web page's
+            banner shows: ``headline`` and ``detail`` (text), ``ranges`` (``{element: [lo,
+            hi]}``, the 5-95 % intervals the observations still allow, or None),
+            ``bound_fraction``, ``U``, and further keys shaped for that banner (for
+            digest2 scores call :func:`pyroorb.digest2_scores`).
+
+        Notes
+        -----
+        A single tracklet is judged by its range profile (does the astrometry pin the
+        distance at all?), never by U or the number of observations. Computed once per
+        fitted state and included-observation set (``constraint.assess``).
+        """
         key = (np.asarray(self._state, float).tobytes(), np.asarray(self._mask).tobytes())
         cached = getattr(self, "_determinacy_memo", None)
         if cached is None or cached[0] != key:
@@ -7659,6 +7940,9 @@ class FittedOrbit:
         return self.determinacy() is None
 
     def as_dict(self):
+        """A JSON-ready summary of the fit (find_orb ``elements.json``-like): the designation,
+        epoch, elements and sigmas, rms, observation counts, H, MOID, class, U and the
+        non-gravitational solution. Provisional: keys may be added or renamed before 1.0."""
         el, sg = self.elements(), self.element_sigmas()
         d = {
             "object": self.designation, "packed": self.packed_designation,

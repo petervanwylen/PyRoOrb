@@ -2977,6 +2977,73 @@ def _keep(ctx, result, a, x):
     result.diagnostics.extend(x.diagnostics)
 
 
+def _new_opposition_unpredicted(ctx, a):
+    """Why a single-opposition seed's NEW opposition is not vouched for, or None.
+
+    A seed seen in one opposition leaves its orbit loose along the line of
+    variations, so the first tracklet taken in another opposition largely chooses
+    a point on that line; a second one there may agree only with the first -- two
+    detections of one other body. 2022 DF9: a 3-night seed (U 11.4) took two 2006
+    SDSS pairs (each moving under 0.5") at 0.48", every per-tracklet clause passed,
+    and both sit ~121,000" off DF9's real orbit.
+
+    Two questions, and the linkage is unvouched only when BOTH say no:
+
+    * the identification penalty: the seed's chi2 rise under the joint orbit
+      (:class:`SeedPreservation`) plus the new opposition's own chi2 there (kept
+      observations, station-floored sigma, as clause 2 scores them), against chi2_6
+      at ``cfg.new_opposition_penalty_conf`` -- what joining costs, the new
+      opposition's stand-alone chi2 taken as zero;
+    * a warm leave-out (:func:`leaveout.warm_predictive`): some new-opposition
+      tracklet is predicted by the rest at p < ``cfg.new_opposition_leaveout_p``.
+
+    Measured on 520 production new oppositions the MPC has resolved: the penalty
+    alone refuses nine correct linkages, the leave-out alone two; together, none."""
+    from scipy.stats import chi2 as _chi2
+    from pyroorb.obs80 import mpc80_to_radec
+    from .leaveout import warm_predictive
+    cfg = ctx.cfg
+    if ctx.initial_opp_profile.n_oppositions != 1 or ctx.pub.fit is None:
+        return None
+    trial = a.trial
+    lo, hi = ctx.pub.earliest_jd, ctx.pub.latest_jd
+    jd_of = {}
+    for line in a.obs_out.splitlines():
+        if line.strip():
+            try:
+                jd_of[obs_unique_id(line)] = mpc80_to_radec(line)[0]
+            except Exception:                       # noqa: BLE001 -- an unplaceable line
+                continue
+    gap = mpcrules.MPC_OPPOSITION_GAP_DAYS
+    new = []
+    for tag, ids in _linked_tracklets_as_swept(ctx, a.obs_out):
+        jds = [jd_of[i] for i in ids if i in jd_of]
+        if jds and (max(jds) < lo - gap or min(jds) > hi + gap):
+            new.append((tag, ids))
+    if len(new) < 2:
+        return None             # one tracklet there is a lone night: already a possible
+    included, _ = subset_included(trial.fit, set().union(*(ids for _t, ids in new)))
+    penalty = SeedPreservation(ctx, trial, a.dropped).delta
+    for _tag, ids in new:
+        kept = {i for i in ids if i in included}
+        if kept:
+            penalty += subset_chi2(trial.fit, kept, station_floor=True, included_only=True)[0]
+    cap = float(_chi2.ppf(cfg.new_opposition_penalty_conf, _STATE_DOF))
+    if penalty <= cap:
+        return None
+    worst = None
+    for tag, ids in new:
+        t = warm_predictive(trial.fit, set(ids))
+        if "p" in t and (worst is None or t["p"] < worst[1]["p"]):
+            worst = (tag, t)
+    if worst is None or worst[1]["p"] >= cfg.new_opposition_leaveout_p:
+        return None
+    tag, t = worst
+    return (f"the new opposition is not vouched for by the seed: joining costs chi2 "
+            f"{penalty:.1f} vs {cap:.1f} ({_STATE_DOF} dof), and {tag}, left out, is "
+            f"predicted at p {t['p']:.4f} ({t['miss']:.1f}\" off)")
+
+
 def _demote_to_possible(ctx, result, trial, obs_out, vetting, flag, why, head, log):
     """Make the find a reviewable 0.6: keep its fit and astrometry, flag
     ``vetting[flag]``, put ``head`` first among the warnings, log ``log``."""
@@ -2997,7 +3064,7 @@ def _accepted(ctx, result, a, x, tracklets_all):
     """A consistent linkage on a submittable profile: LINKED, unless a rule
     makes it a reviewable 0.6 instead.
 
-    Two rules demote a linkage that cleared every gate.  It keeps its fit,
+    Three rules demote a linkage that cleared every gate.  It keeps its fit,
     astrometry and warnings, is reported on every surface, and is never
     transmitted -- a human with the warnings in front of them decides:
 
@@ -3008,6 +3075,10 @@ def _accepted(ctx, result, a, x, tracklets_all):
        any caution is evidence against that.  Sole exception: a seed
        degradation the seed's own opposition, extended, already carries
        (:func:`_seed_opp_holds`).
+    3. A NEW OPPOSITION A SINGLE-OPPOSITION SEED CANNOT VOUCH FOR
+       (:func:`_new_opposition_unpredicted`): joining costs more than the orbit's
+       own uncertainty allows AND one of its tracklets was not predicted by the
+       rest.
 
     Then the document rules (:func:`_document_arc`)."""
     cfg = ctx.cfg
@@ -3047,6 +3118,22 @@ def _accepted(ctx, result, a, x, tracklets_all):
         _demote_to_possible(ctx, result, trial, a.obs_out, vetting, flag, why,
                             head, f"linkage DEMOTED to possible (status 0.6, "
                                   f"not submittable): {why}")
+        result.warnings.extend(x.held)
+        vetting["warnings"] = list(result.warnings)
+        return result
+    unvouched = _new_opposition_unpredicted(ctx, a)
+    if unvouched:
+        vetting["demoted"] = True
+        _ctx_tracer(ctx).cont(f"new opposition: {unvouched}  DEMOTE")
+        head = ("NOT SUBMITTABLE: the object was seen in one opposition only, and "
+                "the tracklets this linkage adds in another opposition are held by "
+                "the joint fit rather than predicted by the object's own orbit -- "
+                "the signature of a second body's detections. Reported for review, "
+                "never submitted as it stands; confirm with another night.")
+        _demote_to_possible(ctx, result, trial, a.obs_out, vetting,
+                            "new_opposition_unvouched", unvouched, head,
+                            f"linkage DEMOTED to possible (status 0.6, not "
+                            f"submittable): {unvouched}")
         result.warnings.extend(x.held)
         vetting["warnings"] = list(result.warnings)
         return result

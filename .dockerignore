@@ -1,0 +1,11 @@
+# Only pyproject.toml, README.md, LICENSE.md and src/ go into the image; keep everything else,
+# above all secrets (.env) and local data, out of the build context.
+*
+!pyproject.toml
+!README.md
+!LICENSE.md
+!src/
+!docker-entrypoint.sh
+**/__pycache__
+**/*.pyc
+**/*.egg-info

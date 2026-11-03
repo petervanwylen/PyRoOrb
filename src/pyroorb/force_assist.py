@@ -30,6 +30,7 @@ Data files (downloaded once, see EPHEM_DIR):
 """
 import contextlib
 import contextvars
+import ctypes
 import os
 import threading
 from pathlib import Path
@@ -197,40 +198,59 @@ def _asteroids_on():
 
 
 # ---------------------------------------------------------------------------
-# Self-perturber suppression -- the ENFORCEMENT arm of guards.self_perturber_name
+# Self-perturber exclusion -- the ENFORCEMENT arm of guards.self_perturber_name
 # ---------------------------------------------------------------------------
 # guards decides WHETHER a request names one of the 16 sb441-n16 perturbers; this is where
-# that verdict bites. Such an object cannot be integrated in a field that contains it: the
+# that verdict bites. Such an object cannot be integrated in a field that contains IT: the
 # test particle sits at zero distance from its own perturbing mass and IAS15 dutifully
 # reports the singularity as a trajectory. (1) Ceres, seeded from its own published orbit,
-# arrives 5 deg off its observations 43 days later and ~76 deg off across the arc, so the
-# fit keeps 19 of 7993 observations and calls the whole modern arc a 1e5-sigma outlier.
+# arrived 5 deg off its observations 43 days later and ~76 deg off across the arc, so the
+# fit kept 19 of 7993 observations and called the whole modern arc a 1e5-sigma outlier.
 #
-# refine_asteroids / refit_force_model already REFUSE to turn +16ast on for these objects,
-# but whole-fit mode (PYROORB_ASTEROIDS_PATH) turns the perturbers on GLOBALLY, underneath
-# every per-call flag -- which is the door those refusals never covered. A ContextVar, not a
-# module global: web fits run concurrently on pool threads, and one thread fitting Ceres must
-# not take the perturbers away from its neighbours.
+# The cure is to take THAT ONE body out of the field, not all sixteen: (4) Vesta is fit with
+# the other 15 (Ceres the largest of them), so "+16ast" for a perturber object means
+# "+15ast, itself excluded". Until 2026-11-02 the guard switched all 16 off, which left the
+# 16 perturber objects as the one main-belt class that could never get the perturbed model.
+#
+# Mechanism: a separate cached assist.Ephem per excluded body with that body's GM zeroed
+# (_masked_ephem). ASSIST reads each asteroid's GM from its own Ephem's target table on every
+# force evaluation (forces.c: prefac = GM/r^3), so GM = 0 removes exactly that one term --
+# the test particle is never at r = 0 exactly, so there is no 0/0. The kernel is mmap'd
+# MAP_SHARED, so the extra Ephem shares its pages with the full one.
+#
+# A ContextVar, not a module global: web fits run concurrently on pool threads, and one
+# thread fitting Ceres must not take Ceres away from its neighbours. The context covers the
+# fit; SelfExcludedForce (below) is the DURABLE half that re-enters it on every backend call.
 _SELF_PERTURBER = contextvars.ContextVar("pyroorb_self_perturber", default=None)
 
-# Every backend call that accepts an `asteroids=` flag -- the ONE list, shared by the two
-# wrappers that pin it in opposite directions (GravityOnlyForce here, fit_object._AsteroidForce),
-# so a new asteroid-aware entry point cannot be pinned by one and missed by the other.
-ASTEROID_AWARE_CALLS = frozenset((
-    "predict_radec_jac_ng", "predict_radec_batch", "helio_states_multi",
-    "helio_positions_batch", "predict_state", "_jac_batch"))
+# Every backend call that accepts an `asteroids=` flag -- the ONE list, kept in the
+# dependency-free forcemodel module so the pin (forcemodel.PinnedForce) can read it on a box
+# without ASSIST; a test checks it against every signature here.
+from pyroorb.forcemodel import ASTEROID_AWARE_CALLS  # noqa: E402
 
 
 def suppressed_perturber():
-    """Display name ('1 Ceres') of the self-perturbing object being fitted in this context,
-    or None. Also the re-entrancy test for perturbers_off_for."""
+    """Display name ('1 Ceres') of the self-perturbing object being fitted in this context
+    (the body excluded from the perturber field), or None. Also the re-entrancy test for
+    perturbers_off_for."""
     return _SELF_PERTURBER.get()
+
+
+def _excluded_number():
+    """MP number of the body excluded in this context ('4 Vesta' -> 4), or None."""
+    name = _SELF_PERTURBER.get()
+    if name is None:
+        return None
+    from pyroorb.guards import perturber_number
+    return perturber_number(name)
 
 
 @contextlib.contextmanager
 def perturbers_off_for(name):
-    """Suppress the 16 asteroid perturbers for the duration of the block, because `name`
-    IS one of them (guards.self_perturber_name). See _SELF_PERTURBER."""
+    """Take `name` ('4 Vesta', one of the 16 -- guards.self_perturber_name) OUT of the
+    perturber field for the duration of the block; the other 15 stay as configured. See
+    _SELF_PERTURBER. (Named for the old behaviour, all 16 off, which is now only the fallback
+    when the exclusion cannot be built -- see _masked_ephem.)"""
     token = _SELF_PERTURBER.set(name)
     try:
         yield
@@ -238,42 +258,77 @@ def perturbers_off_for(name):
         _SELF_PERTURBER.reset(token)
 
 
-class GravityOnlyForce:
-    """A force backend with the 16 perturbers HARD-PINNED OFF -- the mirror image of
-    fit_object._AsteroidForce, and the DURABLE half of the self-perturber guard: the
-    contextvar covers only the fit, while this wrapper lands in the fit's ctx, so everything
-    the ctx reaches afterwards (an interactive step, a re-anchor, an ephemeris, an impact
-    scan) keeps the one force model the orbit was actually determined in.
+# The opposite switch: perturbers FORCED ON for one fit, whatever the global default. Used for
+# an identification hypothesis ("is A = B?", orbit_common.ident_requested): a main-belt pair
+# whose arcs only join under the 16 perturbers would otherwise be refused one apparition at a
+# time by the gravity linker -- a false "no" that no post-fit polish can undo, because the
+# polish starts from the gravity fit's links. A ContextVar for the same reason as above; the
+# self-perturber context still wins (see _use_asteroids), and obs_sources._force_backend turns
+# this into a durable fit_object._AsteroidForce on the fit's ctx.
+_FORCE_PERTURBERS = contextvars.ContextVar("pyroorb_force_perturbers", default=None)
 
-    Pinned rather than defaulted, and it does NOT unwrap: wrapping is the guard's answer to a
-    request that cannot be honoured, so an outer +16ast wrapper asking for asteroids=True is
-    overruled, not obeyed. Attribute access otherwise falls through, so hasattr-style
-    capability checks are unchanged."""
 
-    _gravity_pinned = True
+def forced_perturbers():
+    """Why the perturbers are forced on in this context ('ident'), or None."""
+    return _FORCE_PERTURBERS.get()
 
-    def __init__(self, backend):
+
+@contextlib.contextmanager
+def perturbers_on_for(reason):
+    """Force the 16 asteroid perturbers ON for the duration of the block (unless the object
+    is itself one of them -- perturbers_off_for overrules). See _FORCE_PERTURBERS."""
+    token = _FORCE_PERTURBERS.set(reason)
+    try:
+        yield
+    finally:
+        _FORCE_PERTURBERS.reset(token)
+
+
+class SelfExcludedForce:
+    """A force backend for one of the 16 perturber objects: EVERY call runs with that body
+    excluded from the perturber field (perturbers_off_for), whoever makes it and whether or
+    not the asteroids are on. It lands in the fit's ctx, so everything the ctx reaches later
+    -- an interactive step, the +16ast toggle, a re-anchor, an ephemeris, an impact scan --
+    keeps the object out of its own field after the fit's context has gone.
+
+    It pins the EXCLUSION, not the on/off choice: asteroids= passes through, so gravity vs
+    +15ast is decided outside it (the fit's forcemodel.PinnedForce, refine_asteroids'
+    keep-gate, the web toggle). forcemodel.excluded_body reads `_self_excluded`.
+    Non-callable attributes fall through unchanged, so hasattr-style capability checks are
+    unaffected. Wrapping is idempotent (an inner SelfExcludedForce is unwrapped)."""
+
+    def __init__(self, backend, name):
+        if isinstance(backend, SelfExcludedForce):
+            backend = backend._backend
         self._backend = backend
+        self._self_excluded = name
 
     def __getattr__(self, name):
         f = getattr(self._backend, name)
-        if name in ASTEROID_AWARE_CALLS:
-            def _pinned(*a, **k):
-                k["asteroids"] = False
+        if not callable(f) or name.startswith("__"):
+            return f
+        excluded = self._self_excluded
+
+        def _excluding(*a, **k):
+            with perturbers_off_for(excluded):
                 return f(*a, **k)
-            return _pinned
-        return f
+        return _excluding
 
 
 def _use_asteroids(asteroids):
     """Resolve a per-call asteroids flag: None -> the global default; else honour it --
     but only when a kernel is actually available (so True can never crash a kernel-less box).
-    A self-perturber context (see perturbers_off_for) overrules BOTH: an object that IS one
-    of the 16 can never be integrated in a field that contains it, whoever asked."""
-    if _SELF_PERTURBER.get() is not None:
-        return False
+    In a self-perturber context the perturbers run with that body excluded; if the exclusion
+    cannot be built (_masked_ephem None) they are refused outright -- an object that IS one of
+    the 16 is never integrated in a field that contains it, whoever asked.
+    Inside perturbers_on_for (an identification fit) None means ON."""
+    if asteroids is None and _FORCE_PERTURBERS.get() is not None:
+        asteroids = True
     use = _asteroids_on() if asteroids is None else bool(asteroids)
-    return use and asteroid_kernel_path() is not None
+    if not (use and asteroid_kernel_path() is not None):
+        return False
+    n = _excluded_number()
+    return n is None or _masked_ephem(n) is not None
 
 
 def _epsilon(asteroids=None):
@@ -282,15 +337,134 @@ def _epsilon(asteroids=None):
     return IAS15_EPSILON_ASTEROIDS if _use_asteroids(asteroids) else IAS15_EPSILON
 
 
+# ctypes views of ASSIST's `struct spk_s` / `struct spk_target` (src/spk.h, ASSIST 1.2.x):
+# assist.Ephem exposes only the `spk_asteroids` pointer, not the target table behind it.
+# The layout is VERIFIED before any mass is touched (the target codes must read back as the
+# kernel's 2000000 + MP numbers, the mass field must equal get_particle's GM, and
+# get_particle must then report exactly that one GM changed) -- a layout drift in a future
+# ASSIST therefore disables the exclusion (all 16 off, the old guard) instead of writing
+# into the wrong field.
+#
+# Those checks read THROUGH the views, so they cannot catch a layout that makes the read
+# itself fault (a moved `targets` pointer or a different `num` field is followed before
+# anything is compared). The first gate is therefore the release: only an ASSIST whose C
+# library reports a version these structs were checked against is read at all; any other
+# keeps the perturbers off for a perturber object, with the one-time notice. To admit a new
+# release, compare src/spk.h with the two classes below, then add it here.
+SPK_LAYOUT_VERIFIED = ("1.2",)       # ASSIST major.minor releases (1.2.3 checked 2026-11-02)
+
+
+def spk_layout_supported(version=None):
+    """True when the installed ASSIST C library (or `version`) is a release whose spk
+    structs match _SpkS / _SpkTarget -- the gate checked before any pointer is followed."""
+    v = str(getattr(assist, "__version__", "") if version is None else version).strip()
+    return any(v == r or v.startswith(r + ".") for r in SPK_LAYOUT_VERIFIED)
+
+
+class _SpkTarget(ctypes.Structure):
+    _fields_ = [("code", ctypes.c_int), ("cen", ctypes.c_int), ("mass", ctypes.c_double),
+                ("beg", ctypes.c_double), ("end", ctypes.c_double), ("res", ctypes.c_double),
+                ("one", ctypes.POINTER(ctypes.c_int)), ("two", ctypes.POINTER(ctypes.c_int)),
+                ("ind", ctypes.c_int), ("allocated_ind", ctypes.c_int)]
+
+
+class _SpkS(ctypes.Structure):
+    _fields_ = [("targets", ctypes.POINTER(_SpkTarget)), ("num", ctypes.c_int),
+                ("allocated_num", ctypes.c_int), ("map", ctypes.c_void_p),
+                ("len", ctypes.c_size_t)]
+
+
+_ASSIST_BODY_NPLANETS = 11          # ASSIST body index of the first asteroid (assist.h)
+_EPHEM_EXCL = {}                    # MP number -> Ephem with that body's GM zeroed, or None
+_EXCL_WARNED = set()
+
+
+def _spk_table(ephem):
+    """The asteroid SPK target table of `ephem` as a list of live _SpkTarget views; empty
+    (nothing dereferenced) for an ASSIST release whose layout is not verified."""
+    if not spk_layout_supported():
+        return []
+    p = ephem.spk_asteroids
+    if not p:
+        return []
+    spk = _SpkS.from_address(p)
+    if not (0 < spk.num <= 64):                        # implausible -> layout is not ours
+        return []
+    return [spk.targets[i] for i in range(spk.num)]
+
+
+def zero_asteroid_gm(ephem, number):
+    """Zero the GM of asteroid `number` (MP number, one of the 16) in THIS ephem's perturber
+    table, after verifying the struct layout. Returns True on a verified change; False (and
+    the ephem untouched) when the layout or the result does not check out."""
+    tbl = _spk_table(ephem)
+    codes = [t.code for t in tbl]
+    # layout check: every target code must read as a numbered asteroid (2000000 + n), and
+    # the one wanted must be there exactly once
+    if not tbl or not all(2000000 < c < 3000000 for c in codes) \
+            or codes.count(2000000 + number) != 1:
+        return False
+    i = codes.index(2000000 + number)
+    t_rel = 2451545.0 - ephem.jd_ref               # J2000: inside every sb441-n16 segment
+    try:
+        before = [ephem.get_particle(_ASSIST_BODY_NPLANETS + k, t_rel).m
+                  for k in range(len(tbl))]
+    except Exception:
+        return False
+    if not (before[i] > 0 and abs(before[i] - tbl[i].mass) <= 1e-12 * before[i]):
+        return False                                   # mass field is not where we think
+    tbl[i].mass = 0.0
+    after = [ephem.get_particle(_ASSIST_BODY_NPLANETS + k, t_rel).m for k in range(len(tbl))]
+    ok = after[i] == 0.0 and all(a == b for k, (a, b) in enumerate(zip(after, before))
+                                 if k != i)
+    if not ok:
+        tbl[i].mass = before[i]
+    return ok
+
+
+def _masked_ephem(number):
+    """The cached DE440 + 16-asteroid ephem with asteroid `number` excluded (GM 0), or None
+    when no kernel is available or the exclusion could not be verified (a one-time notice;
+    the caller then keeps the perturbers off for this object, the pre-2026-11-02 guard)."""
+    if number in _EPHEM_EXCL:
+        return _EPHEM_EXCL[number]
+    kern = asteroid_kernel_path()
+    if kern is None:
+        return None
+    with _EPHEM_LOCK:
+        if number not in _EPHEM_EXCL:
+            ok, eph = False, None
+            if spk_layout_supported():
+                eph = assist.Ephem(ensure_planets_kernel(), kern)
+                try:
+                    ok = zero_asteroid_gm(eph, number)
+                except Exception:
+                    ok = False
+                why = "ASSIST struct layout did not verify"
+            else:
+                why = (f"ASSIST {getattr(assist, '__version__', '?')} is not a release whose "
+                       f"struct layout is verified ({', '.join(SPK_LAYOUT_VERIFIED)}.x)")
+            if not ok and number not in _EXCL_WARNED:
+                _EXCL_WARNED.add(number)
+                print(f"(force_assist: could not exclude asteroid {number} from the perturber "
+                      f"field -- {why}; it stays gravity-only)")
+            _EPHEM_EXCL[number] = eph if ok else None
+    return _EPHEM_EXCL[number]
+
+
 def get_ephem(asteroids=None):
-    """Lazily construct (and cache) the ASSIST ephemeris. TWO caches: planets-only
-    (gravity) and planets + 16 asteroid perturbers. `asteroids` selects which (None ->
-    the global PYROORB_ASTEROIDS_PATH default); the asteroid ephem is built only when a kernel
-    is available, else this transparently returns the gravity ephem."""
+    """Lazily construct (and cache) the ASSIST ephemeris. THREE kinds of cache: planets-only
+    (gravity), planets + the 16 asteroid perturbers, and planets + the 16 with ONE excluded
+    (a self-perturber context, see perturbers_off_for). `asteroids` selects gravity vs
+    perturbed (None -> the global PYROORB_ASTEROIDS_PATH default); the asteroid ephem is built
+    only when a kernel is available, else this transparently returns the gravity ephem."""
     global _EPHEM, _EPHEM_AST
     # Double-checked: the cached read stays lock-free (this is on every sweep's
     # hot path), and only the one-time construction serialises. See _EPHEM_LOCK.
     if _use_asteroids(asteroids):
+        n = _excluded_number()
+        if n is not None:
+            return _masked_ephem(n)        # non-None: _use_asteroids checked it
         if _EPHEM_AST is None:
             with _EPHEM_LOCK:
                 if _EPHEM_AST is None:

@@ -4,10 +4,6 @@ Guidance for anyone (person or coding agent) changing PyRoOrb. Each rule is one 
 the symbol to read; the code beside it states the measured reason. Change a rule's behaviour
 only with a measurement, and update its line here when you do.
 
-**find_orb is the reference.** PyRoOrb ports Bill Gray's find_orb (GPL-2.0): logic openly
-ported, no source lines copied. When a behaviour is unclear, read the find_orb code rather
-than guess, and credit what was read or ported in the module's docstring (file + function).
-
 ## Layout (`src/pyroorb/`)
 
 - `fit_object.py` — orchestration, combined objects, `FittedOrbit`; `cli.py` — the command line.
@@ -19,6 +15,8 @@ than guess, and credit what was read or ported in the module's docstring (file +
 - `hyperbolic.py`, `boundbridge.py`, `nightmodel.py` — the unbound-orbit gate.
 - `constraint.py`, `rangescan.py`, `popprior.py`, `d2score.py` + `digest2/` — determinacy, range profile, display-only population prior, digest2.
 - `radar.py`, `impact.py` / `bplane.py` / `keyholes.py`, `egress.py` — radar, impact products, export formats.
+- `products.py` / `ensemble.py` — the public propagation, close-approach, radar-prediction and
+  orbit-ensemble products (implementations behind `__init__.py`).
 - `obs_sources.py`, `ades.py`, `obs80.py`, `sbn_obs.py` — observation fetch, parsing, the fetch cache.
 - `datadirs.py` — where files live (per-user cache, reference tables); `localstore.py` —
   `LOCAL_PERSISTENT_FOLDER`, the one setting for restart-surviving storage.
@@ -27,8 +25,18 @@ than guess, and credit what was read or ported in the module's docstring (file +
   trial linkages → recursion → gates → MPC identification JSON, dry-run by default). Needs your
   own SBN database. `pyroorb-itf` / `python -m pyroorb.itf`; see `itf/README.md`.
 - `web/` — server, fit pool, ITF jobs, static UI, add-ons (`web/README.md`).
-- `__init__.py` — the supported Python API (`read_observations`, `fetch_observations`,
-  `fit_orbit`, `ephemeris`, `export`); everything else is internal.
+- `__init__.py` — the supported Python API (`load_settings`, `read_observations`,
+  `fetch_observations`, `Observations.select`, `fit_orbit`, `asteroid_perturbers`, `ephemeris`,
+  `export`, `digest2_scores`, and the wrappers over `products.py` -- `propagate`,
+  `osculating_elements`, `close_approaches`, `radar_residuals`, `radar_prediction`: the fit's
+  own force model, linear sigma from one sweep over the state AND any free A coefficients
+  (`ephemerides.linear_parameters`, also the ephemeris ellipse) -- and over `ensemble.py` --
+  `sample_orbits`/`OrbitEnsemble`, `range_posterior`, `most_probable_orbit`).
+  `docs/api.rst` lists it with the supported `FittedOrbit` members
+  (stable / provisional); `tests/test_public_api.py` fails on an exported or listed name
+  without a docstring, and on a notebook cell importing an internal module unmarked.
+  Everything else is internal. New public options are spellings of engine arguments whose
+  defaults call the engine exactly as before (`test_fit_options_reach_the_engine_unchanged`).
 
 ## Testing
 
@@ -53,7 +61,10 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   warning (a seed degradation the seed's own extended opposition already carries
   excepted, `search._seed_opp_holds`); a partial pickup whose leftover tracklets misfit (`itf/pickup.py`, judged by
   `itf/mpcrules.py`, not our own gates); a comet/interstellar id (`linkage.comet_refusal`,
-  column-aware); the MPC night rule (`mpcrules.submittable_nights`: 12 h apart = 2 nights).
+  column-aware); the MPC night rule (`mpcrules.submittable_nights`: 12 h apart = 2 nights);
+  a single-opposition seed's new opposition the seed cannot vouch for
+  (`search._new_opposition_unpredicted`: identification penalty past chi2_6 99.7% AND a
+  warm leave-out `FittedOrbit.predict_without` p < 0.01; `tests/test_itf_negative.py`).
 - **A possible stays a possible through a web step** (`engine_api._pending_verdict`):
   only a GROWN obs set passing the search's own gate (`search.opp_profile_acceptable`)
   upgrades it; sole exception the opp-profile-only refusal after a re-solve
@@ -106,7 +117,19 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **One copy per detection** (`obs_sources.dedup_observations`, predicate
   `orbit_common.same_detection`): station+instant+sky; published designation wins.
 - **A perturber is never fit inside itself** (`force_assist.perturbers_off_for`,
-  ContextVar; `GravityOnlyForce` pinned on the fit's ctx).
+  ContextVar): one of the 16 is EXCLUDED from the field (its GM zeroed in its own cached
+  Ephem, `_masked_ephem`), the other 15 stay; `SelfExcludedForce` rides on the fit's ctx.
+  The ctypes view is read only for a verified ASSIST release (`SPK_LAYOUT_VERIFIED`, matching
+  the `assist` range in pyproject.toml); any other keeps the perturbers off for that object.
+- **An identification fit (>= 2 designations requested) runs +16ast from the first step**,
+  ungated (`fit_object.fit_orbit`, `force_assist.perturbers_on_for`; `_AsteroidForce` on the
+  ctx): the gated polish starts from the gravity linker's links, too late to undo a refusal.
+- **A fit's force model is state on its backend, fixed at fit time** (`forcemodel.PinnedForce`,
+  pinned in `_observer_geometry`): the evaluator, re-anchor, LOV, range profile and every
+  product integrate in it whatever the process-wide switch says later. Swap it only through
+  `fit_object.with_force_model` (backend, evaluator, `fit.asteroids` and label move together);
+  `forcemodel.excluded_body` is the one test for a self-exclusion. Never infer the model from
+  the `force_model` label.
 - **Published-orbit seed** for >500 obs / >5 opps (`mpc_orbit.py`,
   `fit_object._fit_from_mpc_seed`, fetched in CLI/web only). Comet fallbacks:
   `_catastrophic_seeded_alternative`, `_comet_extend_apparitions` (prefer recent apparitions).
@@ -125,6 +148,12 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **Nongrav discovery by BIC** (`_ng_choice`, `NONGRAV_BIC_MARGIN` 15; comet ladder
   `_comet_step_justified`); negative A1 refused; exact 0.0 = stall; marginal models
   jackknife-verified (`nongrav_jackknife_detail`, by tracklets, never warm-started).
+- **Ephemeris sigma rides a 0.01-sigma Jacobian step** (`ephemerides._jacobian_steps`, capped,
+  never larger than the fitter's 1.49e-8): the fixed step went non-linear through Apophis's
+  2029 pass (ellipse 265" vs a clone cloud's 3.7"); orbits looser than the step are unchanged.
+- **An orbit is predicted in the model it was fitted in** (`compute_ephemeris` passes
+  `products.fit_asteroids(fit)` to every ASSIST call): read from the global switch, a polished
+  (197) Arete sat 0.08-0.38" (7-25 sigma) off its own orbit.
 - **Radar** joins the final correction (`radar.py`; joint state+A+radar for nongrav).
 - **Egress**: `--out-format mpcorb,sof,elem,covar` / web Export (`egress.py`; `covar` is
   find_orb's own `covar.json` layout; state+covariance JSON web-only).

@@ -79,31 +79,82 @@ def _nongrav_pair(fit):
         return None
 
 
+def linear_parameters(fit, nongrav=True):
+    """What a LINEAR uncertainty of `fit` differentiates, with its covariance:
+    ``(pair, free_idx, cov)``.
+
+    A non-gravitational fit propagated with its force (`nongrav` True) is uncertain in its
+    free A coefficients as well as its state, and the two are correlated: an uncertain
+    acceleration spreads the orbit further the longer it acts. So the parameters are the six
+    state components then the free A axes (`free_idx`, 0/1/2 = A1/A2/A3, fit order), and
+    `cov` is the fit's full parameter covariance over them (`FittedOrbit.parameter_covariance`,
+    au/day^2 for the A rows). Otherwise -- a gravity fit, or the same state propagated without
+    its force -- the six state components and the state covariance (`pair` None, `free_idx`
+    empty). `pair` is `_nongrav_pair(fit)`, the (A, gr) the propagators take."""
+    pair = _nongrav_pair(fit) if nongrav else None
+    if pair is None:
+        return None, [], np.asarray(fit.covariance_matrix("state"), float)
+    import pyroorb.nongrav as ng
+    cov, names = fit.parameter_covariance()
+    return pair, [ng.A_AXES.index(n) for n in names[6:]], np.asarray(cov, float)
+
+
+# The Jacobian's displaced copies carry the covariance to the sky, so their step must stay in
+# the LINEAR part of the orbit's own uncertainty. The fitter's step (1.49e-8 x |x|, scipy-style)
+# is ~350 sigma in velocity for a well-observed NEA; through a deep planetary encounter a kick
+# that size goes non-linear and the ellipse comes out too wide (Apophis at its 2029 pass,
+# 38 000 km: 265" against a 300-clone cloud's 3.7", velocity columns up to 4.4x a 0.01-sigma
+# central difference). Capping the step at 0.01 sigma per axis agrees with the clones there and
+# leaves every orbit whose sigma already exceeds the fitter's step exactly as it was.
+JAC_STEP_SIGMAS = 1e-2
+JAC_STEP_FLOOR = 1e-12      # relative; a zero-sigma (dof 0) axis keeps a round-off-safe step
+
+
+def _jacobian_steps(state, cov):
+    """Per-axis step for the ephemeris Jacobian: the fitter's step, capped at JAC_STEP_SIGMAS
+    of the axis's own 1-sigma (never below JAC_STEP_FLOOR relative)."""
+    s = np.asarray(state, float)[:6]
+    scale = np.maximum(1.0, np.abs(s))
+    h = 1.49e-8 * scale
+    sig = np.sqrt(np.clip(np.diag(np.asarray(cov, float))[:6], 0.0, None))
+    cap = np.maximum(JAC_STEP_SIGMAS * sig, JAC_STEP_FLOOR * scale)
+    return np.where(np.isfinite(cap), np.minimum(h, cap), h)
+
+
+def _jacobian_A_steps(A, free_idx, cov):
+    """Step for each free A axis of the ephemeris Jacobian: predict_radec_jac_ng's own
+    default (1e-3 of the coefficient), capped at JAC_STEP_SIGMAS of the axis's 1-sigma like
+    the state steps; an axis without a usable sigma keeps the default."""
+    a = np.abs(np.asarray(A, float)[list(free_idx)])
+    h = np.where(a > 0, 1e-3 * a, 1.0)
+    sig = np.sqrt(np.clip(np.diag(np.asarray(cov, float))[6:6 + len(free_idx)], 0.0, None))
+    cap = JAC_STEP_SIGMAS * sig
+    return np.where(np.isfinite(cap) & (cap > 0), np.minimum(h, cap), h)
+
+
 def compute_ephemeris(fit, obscodes, jd_start, jd_stop, step_days, site="500",
-                      backend=None, full=True):
+                      backend=None, full=True, observer=None):
     """Ephemeris for `fit` over [jd_start, jd_stop] (UTC JD) at `step_days`, as seen from
     MPC observatory `site` (default 500 = geocentre). Returns a list of per-epoch dicts.
-    `full=True` adds the astropy-derived columns (alt/az, sun/moon, galactic/ecliptic, …)."""
+    `full=True` adds the astropy-derived columns (alt/az, sun/moon, galactic/ecliptic, …).
+    `observer` replaces the station offset by a geocentric equatorial position (au): one
+    vector for every epoch, or one per epoch. That is how a space telescope is placed --
+    the fit reads the same vector off each observation record (`sat_pos_au`); an ephemeris
+    is given only a code, and C57 (TESS, up to ~100,000 km from the geocentre) came out
+    ~800" off without it. The vector is already inertial, so it takes no Earth rotation,
+    and the ground-site columns (altitude, airmass) are not computed for it."""
     from pyroorb.obs_sources import observer_positions_batch, _force_backend
     if backend is None:
         backend, _ = _force_backend(fit)      # keeps a self-perturber's pinned force model
     state = np.asarray(fit._state)
     t0 = fit.epoch_tdb
-    cov = fit.covariance_matrix("state")
-    # A NON-GRAVITATIONAL fit carries a 7+-element state (6 orbital + the free
-    # A coefficients), and every batch predictor here is 6-D: the analytic
-    # Jacobian rides exactly 6 perturbed particles, so a 7-element state used to
-    # die in _jac_batch on a shape mismatch rather than produce an ephemeris.
-    # Split it: the ACCELERATION goes to the propagators as the (A, gr) pair
-    # they already accept, the 6 orbital elements stay the differentiated
-    # parameters, and the sky-plane sigma uses the 6x6 orbital block of the
-    # covariance.  That drops the A-coefficient's own uncertainty from the
-    # corridor width -- an approximation, and the alternative (a 7-column
-    # Jacobian) buys precision the corridor's 2.5x multiplier swamps.
-    nongrav = _nongrav_pair(fit)
-    if nongrav is not None:
-        state = state[:6]
-        cov = np.asarray(cov)[:6, :6]
+    # A NON-GRAVITATIONAL fit carries a 7+-element state (6 orbital + the free A
+    # coefficients). The ACCELERATION goes to the propagators as the (A, gr) pair they
+    # accept, and the sky-plane sigma differentiates the 6 state components AND the free A
+    # axes (linear_parameters): the A coefficients' own uncertainty, and its correlation with
+    # the state, widen the ellipse the longer the force has acted since the epoch.
+    nongrav, free_idx, cov = linear_parameters(fit)
+    state = state[:6]
     H, _ = fit.absolute_magnitude()
     G = fit.slope_parameter()
 
@@ -112,31 +163,48 @@ def compute_ephemeris(fit, obscodes, jd_start, jd_stop, step_days, site="500",
     tt = Time(jds, format="jd", scale="utc").tdb.jd
     base_sim = backend.build_base_sim(t0)
 
-    # observer (heliocentric, equatorial) at each epoch, and a step later for sky motion
-    Robs = np.asarray(observer_positions_batch(jds, [site] * n, obscodes))
-    Robs2 = np.asarray(observer_positions_batch(jds + MOTION_DT, [site] * n, obscodes))
+    # observer (heliocentric, equatorial) at each epoch, and a step later for sky motion.
+    # A caller-supplied geocentric vector stands in for the station offset at both instants
+    # (a spacecraft moves metres in MOTION_DT, far below the ephemeris's precision).
+    sat_pos = _observer_vectors(observer, n)
+    Robs = np.asarray(observer_positions_batch(jds, [site] * n, obscodes, sat_pos=sat_pos))
+    Robs2 = np.asarray(observer_positions_batch(jds + MOTION_DT, [site] * n, obscodes,
+                                                sat_pos=sat_pos))
     tt2 = Time(jds + MOTION_DT, format="jd", scale="utc").tdb.jd
+
+    # The orbit is predicted in the force model it was DETERMINED in: an orbit fitted or
+    # polished with the 16 asteroid perturbers (the fit backend's pin, products.fit_asteroids)
+    # is propagated with them, and a planets-only orbit without them, whatever the
+    # process-wide switch says at call time. Read from the switch instead, a polished (197)
+    # Arete's ephemeris sat 0.08-0.38" (7-25 sigma of its own ellipse) off its own orbit across
+    # its 2030 Vesta pass. Only the ASSIST backend takes the flag; the rebound fallback has no
+    # perturbers to choose.
+    from pyroorb.products import fit_asteroids
+    ast = ({"asteroids": fit_asteroids(fit)} if hasattr(backend, "ensure_asteroid_kernel")
+           else {})
 
     # nominal RA/Dec (+ analytic Jacobian if the backend supplies one) and the geometry
     jacfn = getattr(backend, "predict_radec_jac_batch", None)
     jacng = getattr(backend, "predict_radec_jac_ng", None)
+    h = _jacobian_steps(state, cov)
     if nongrav is not None and jacng is not None:
         A, gr = nongrav
-        # free_idx empty: differentiate the 6 orbital elements only, exactly the
-        # (n,2,6) the corridor's sigma projection expects
-        pred, jac = jacng(t0, state, list(A), [], gr, tt, list(Robs),
-                          hA=np.empty(0))
+        # (n, 2, 6+k): the state columns, then one per free A axis (physical units)
+        pred, jac = jacng(t0, state, list(A), free_idx, gr, tt, list(Robs),
+                          hstate=h, hA=_jacobian_A_steps(A, free_idx, cov), **ast)
     elif jacfn is not None:
-        pred, jac = jacfn(base_sim, t0, state, tt, list(Robs))
+        pred, jac = jacfn(base_sim, t0, state, tt, list(Robs), h=h, **ast)
     else:
         pred = backend.predict_radec_batch(base_sim, t0, state, tt, list(Robs),
-                                           nongrav=nongrav)
+                                           nongrav=nongrav, **ast)
         jac = _finite_diff_jac(backend, base_sim, t0, state, tt, Robs)
+    if np.shape(jac)[-1] < cov.shape[0]:
+        cov = cov[:6, :6]            # state columns only: the state block, A marginalised
     pred2 = backend.predict_radec_batch(base_sim, t0, state, tt2, list(Robs2),
-                                        nongrav=nongrav)                         # for sky motion
+                                        nongrav=nongrav, **ast)                  # for sky motion
 
     helio = backend.helio_positions_batch(base_sim, t0, state, tt,
-                                          nongrav=nongrav)                       # asteroid helio (n,3)
+                                          nongrav=nongrav, **ast)                # asteroid helio (n,3)
     r = np.linalg.norm(helio, axis=1)                                        # heliocentric dist
     earth_sun = np.linalg.norm(Robs, axis=1)                                 # observer helio dist
     delta = np.linalg.norm(helio - Robs, axis=1)                             # observer->target dist
@@ -181,8 +249,22 @@ def compute_ephemeris(fit, obscodes, jd_start, jd_stop, step_days, site="500",
             "unc_along_arcsec": sig_along, "unc_cross_arcsec": sig_cross,
         })
     if full:
-        _add_observer_columns(rows, site, obscodes)
+        _add_observer_columns(rows, None if sat_pos is not None else site, obscodes)
     return rows
+
+
+def _observer_vectors(observer, n):
+    """`observer` as a per-epoch list of geocentric equatorial vectors (au), or None.
+    One (3,) vector is repeated for every epoch; an (n, 3) array is used row by row."""
+    if observer is None:
+        return None
+    v = np.asarray(observer, dtype=float)
+    if v.shape == (3,):
+        return [v] * n
+    if v.shape == (n, 3):
+        return list(v)
+    raise ValueError(f"observer must be one (3,) vector or one per epoch (({n}, 3)); "
+                     f"got shape {v.shape}")
 
 
 def _earth_location(site, obscodes):

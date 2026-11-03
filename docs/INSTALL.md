@@ -1,7 +1,9 @@
 # Installing PyRoOrb
 
 PyRoOrb runs on Linux and macOS with Python 3.11–3.14. **Windows is not yet supported;
-support is coming in late 2026.** Pick one route.
+support is coming in late 2026.** Pick one route. Only want the web UI? Use
+[pyroorb.net](https://www.pyroorb.net), or run it yourself without Python through
+[Docker](#docker-the-web-ui-without-python).
 
 ## The install script (recommended)
 
@@ -15,7 +17,9 @@ Linux it prints the package-manager command, or runs it with `--yes`), installs
 [uv](https://docs.astral.sh/uv/) when it is missing, creates `.venv` with a uv-managed
 Python 3.12, installs PyRoOrb, and downloads the reference tables. Options: `--dir DIR`
 (where to clone; default `~/PyRoOrb`), `--extras itf` (the ITF search, see below; on macOS
-the script also installs Homebrew's `libomp` for it) or `--extras itf,dev`, `--asteroids`
+the script also installs Homebrew's `libomp` for it), `--extras notebooks` (what the
+[example notebooks](../notebooks/README.md) need, see below), several at once such as
+`--extras itf,dev`, `--asteroids`
 (adds the 616 MB asteroid ephemeris), `--no-data`, `--yes`.
 Through `curl`, options go after `bash -s --`:
 `curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash -s -- --yes`.
@@ -72,6 +76,65 @@ conda activate pyroorb
 pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
 ```
 
+
+## Docker: the web UI without Python
+
+For the web UI alone — on your own computer, or as a shared server for a lab or a group — the
+Docker image needs no Python, no compiler and no install script; only
+[Docker](https://docs.docker.com/get-docker/). It is built for Intel/AMD and ARM (Apple
+silicon, ARM servers).
+
+```bash
+docker run -d --name pyroorb -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervanwylen/pyroorb
+```
+
+Open http://localhost:8000 (on a server: `http://<server>:8000`). The first start downloads the
+reference tables (~110 MB) into the `pyroorb-data` volume; every later start, and every newer
+image, reuses them.
+
+| Option | What it does |
+|---|---|
+| `-e PYROORB_ASTEROIDS=1` | also downloads the 616 MB asteroid ephemeris (the 16 massive perturbers), for full fidelity |
+| `-p 9000:8000` | serve on another port of the host |
+| `-e PYROORB_MEMORY_PASSWORD=…` | unlocks the `/memory` diagnostics page |
+| `-v pyroorb-data:/data` | keeps the tables and caches across restarts and updates; leave it out and every new container downloads them again |
+
+**Update** to the newest version:
+
+```bash
+docker pull ghcr.io/petervanwylen/pyroorb
+docker rm -f pyroorb && docker run -d --name pyroorb -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervanwylen/pyroorb
+```
+
+**A shared server or lab** — the repository's [`compose.yaml`](../compose.yaml) runs it with the
+asteroid ephemeris, the data volume and a restart policy:
+
+```bash
+docker compose up -d                              # start (and restart after reboots)
+docker compose pull && docker compose up -d       # update
+```
+
+The server is plain HTTP; on a network beyond your own, put it behind a reverse proxy that
+adds HTTPS (Caddy, nginx, Traefik). It limits each client's rate on the costly routes by
+itself. Images are tagged `latest` (the newest from `main`), `X.Y.Z` (each release) and
+`sha-…` (each commit). To build it yourself from a clone: `docker build -t pyroorb .`
+
+The image is the web UI only: the Python API, the notebooks and the command-line tools need
+a normal install (above).
+
+## The notebooks extra
+
+The [example notebooks](../notebooks/README.md) also need matplotlib, pandas and JupyterLab.
+They are not installed by default:
+
+```bash
+./install.sh --extras notebooks          # with the script
+uv pip install -e ".[notebooks]"         # or by hand, inside a clone (or pip install -e ...)
+```
+
+The notebooks themselves come with the clone, not with the installed package; open them with
+`jupyter lab notebooks/` from the clone. Notebooks 01, 02, 04, 11, 12 and 14 also use the asteroid
+ephemeris: add `--asteroids` to the script, or run `pyroorb-fetch-data --asteroids`.
 
 ## The ITF search extra
 

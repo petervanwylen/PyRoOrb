@@ -213,8 +213,10 @@ def test_coverage_counts_a_tracklet_that_could_not_be_deleted():
 def test_asteroid_force_wrapper_forces_and_falls_through():
     """_AsteroidForce turns the perturbers on for every call that accepts `asteroids=`,
     leaves every other attribute untouched (capability hasattr-checks must keep working),
-    lets an explicit asteroids= win, and wraps idempotently -- a delivered ctx gets
-    re-wrapped by later re-fits and must not nest."""
+    lets an explicit asteroids=True/False win, and wraps idempotently -- a delivered ctx gets
+    re-wrapped by later re-fits and must not nest. An explicit asteroids=None ("the global
+    default") gets the pin: passing it through was how a pinned model leaked back to the
+    process-wide switch (forcemodel.PinnedForce)."""
     calls = {}
 
     class _B:
@@ -230,7 +232,8 @@ def test_asteroid_force_wrapper_forces_and_falls_through():
     inner = _B()
     b = fo._AsteroidForce(inner)
     assert b.predict_radec_jac_ng(1) == "pred" and calls["p"] == {"asteroids": True}
-    assert b.helio_states_multi(1, asteroids=None) == "st" and calls["m"] == {"asteroids": None}
+    assert b.helio_states_multi(1, asteroids=None) == "st" and calls["m"] == {"asteroids": True}
+    assert b.helio_states_multi(1, asteroids=False) == "st" and calls["m"] == {"asteroids": False}
     assert b.other() == 42
     assert hasattr(b, "predict_radec_jac_ng") and not hasattr(b, "predict_nope")
     assert fo._AsteroidForce(b)._backend is inner

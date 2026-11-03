@@ -37,3 +37,20 @@ def test_the_default_install_has_no_extras():
 def test_it_pins_rebound_4_for_the_assist_build():
     text = SCRIPT.read_text()
     assert "--build-constraint" in text and "rebound>=4.4.11,<5" in text
+
+
+def test_assist_is_built_against_the_rebound_it_runs_with():
+    """ASSIST compiles against REBOUND's headers and runs against REBOUND's library: the
+    script installs REBOUND first, then builds ASSIST (and resolves the rest) against exactly
+    that version, and never reuses an ASSIST wheel cached from another REBOUND."""
+    text = SCRIPT.read_text()
+    first = text.index("uv pip install --python .venv/bin/python 'rebound>=4.4.11,<5'")
+    main = text.index('-e "$TARGET"')
+    assert first < main
+    assert 'echo "rebound==$REBOUND_VERSION" > "$CONSTRAINTS"' in text
+    block = text[text.index("uv pip install --python .venv/bin/python --constraint"):main]
+    assert '--constraint "$CONSTRAINTS"' in block and '--build-constraint "$CONSTRAINTS"' in block
+    # uv reuses a cached ASSIST wheel whatever REBOUND it was built against (measured: 0.35 ms
+    # "Prepared", no build, even with --refresh-package); the cache entry must go first
+    assert text.index("uv cache clean assist") < text.index(
+        "uv pip install --python .venv/bin/python --constraint")

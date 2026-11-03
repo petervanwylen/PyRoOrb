@@ -1103,7 +1103,7 @@ async function setAsteroids(on) {
         (p.expired ? ` — <a href="#" onclick="runFit();return false">re-fit</a>` : "") + `</div>`;
       return;
     }
-    // Server refused +16ast because the object IS one of the 16 perturbers -> banner + stay gravity.
+    // The object IS one of the 16 perturbers and the server could not exclude it -> banner, gravity.
     if (p.self_perturber && p.banner) flashBanner(p.banner, "alert");
     CURRENT = p; render(p); $("workspace").hidden = false;
   } catch (e) {
@@ -1155,14 +1155,11 @@ function renderNongrav(p) {
   const aOn = !!p.asteroids;
   $("astToggle").querySelectorAll(".seg")
     .forEach((s) => s.classList.toggle("active", (s.dataset.ast === "1") === aOn));
-  // If this object IS one of the 16 +16ast perturbers, disable the +16ast segment: it
-  // can't be perturbed by itself, so that force model is unavailable for it.
+  // If this object IS one of the 16 +16ast perturbers, the +16ast segment runs the OTHER 15:
+  // it can't be perturbed by itself, so the engine excludes it from its own field.
   const sp = p.self_perturber;
   $("astToggle").querySelectorAll("button[data-ast='1']").forEach((s) => {
-    s.disabled = !!sp;
-    s.title = sp ? `(${sp}) is one of the 16 perturbers — it can't be perturbed by itself`
-      : "";
-    s.classList.toggle("disabled", !!sp);
+    s.title = sp ? `(${sp}) is one of the 16 perturbers — this uses the other 15` : "";
   });
   if (!sel.options.length && NG_MODELS) {
     sel.innerHTML = NG_MODELS.map((m) => `<option value="${escAttr(m.value)}">${escHtml(m.label)}</option>`).join("");
@@ -3240,14 +3237,6 @@ $("astToggle").addEventListener("click", (e) => {
   if (!b) return;
   const want = b.dataset.ast === "1";
   if (want === !!(CURRENT && CURRENT.asteroids)) return;   // already in that state
-  // This object IS one of the 16 +16ast perturbers -> it can't be perturbed by itself.
-  // Don't bother the server; explain and leave the toggle on gravity.
-  if (want && CURRENT && CURRENT.self_perturber) {
-    flashBanner(`(${CURRENT.self_perturber}) is one of the 16 +16ast perturber asteroids `
-      + `— it can't be perturbed by itself, so the +16ast force model is unavailable for it.`,
-      "alert");
-    return;
-  }
   _ga("change_force_model", { control: "asteroids", model: want ? "16ast" : "gravity" });
   setAsteroids(want);
 });
