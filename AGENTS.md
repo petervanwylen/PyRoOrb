@@ -164,6 +164,7 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   locale default is cp1252 on Windows (`tests/test_text_encoding.py`).
 
 ## Web / ops invariants
+- **`/memory` totals are summed in bytes and rounded once** (`tables_gross_mb`, `tables_combined_mb`, `overlap_mb`); summing per-table rounded figures drifts by 0.005 MB per table.
 - **Optional web features are add-ons** (`web/addons.py`): routes, pages, menu links and
   start hooks registered at start-up; the server names none of them.
 - **Fits go through the bounded pool** (`web/fitqueue.py`): single-flight by content,

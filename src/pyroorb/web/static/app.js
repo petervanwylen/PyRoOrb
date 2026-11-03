@@ -1452,7 +1452,7 @@ function renderStatus(p) {
   // Natural-satellite badge: the object orbits a giant planet (auto-detected or --center'd).
   const sp = p.planetocentric;
   const sat = sp
-    ? `<span class="chip sat" title="Detected as a natural satellite — its orbit about ${sp.center_label} is shown in the Orbital elements panel (toggle heliocentric ⇄ ${sp.center_label}-centric).">🛰 ${sp.class}</span>`
+    ? `<span class="chip sat" title="Detected as a natural satellite — its orbit about ${sp.center_label} is shown in the Orbital elements panel (toggle heliocentric ⇄ ${sp.center_label}-centric).">${sp.class}</span>`
     : "";
   // Prefer the published "(279) Thule" number+name form (several bodies -> show all);
   // fall back to the working designation when nothing resolved (e.g. an unnumbered

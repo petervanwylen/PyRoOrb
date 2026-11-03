@@ -1000,9 +1000,13 @@ def report(budget=_NODE_BUDGET, with_misc=True):
             continue
         gathered.append((key, title, note, got))
 
-    # Gross: each table sized on its own (deduped within itself).
+    # Gross: each table sized on its own (deduped within itself).  The byte counts
+    # are summed and rounded once: summing the per-table rounded figures loses up
+    # to 0.005 MB per table, enough with a dozen tables to put gross below combined.
+    gross_bytes = 0
     for key, title, note, got in gathered:
         w = walk(got["roots"], budget=budget)
+        gross_bytes += w["bytes"]
         all_rows = sorted(got.get("rows") or [], key=lambda r: -(r.get("bytes") or 0))
         rows = all_rows[:_MAX_ROWS]
         for r in rows:
@@ -1040,15 +1044,14 @@ def report(budget=_NODE_BUDGET, with_misc=True):
     for _e in gathered:
         _e[3]["roots"] = []
 
-    gross = sum(t.get("mb", 0.0) for t in out["tables"] if t.get("loaded"))
     rss_mb = proc.get("rss_mb")
     tables_mb = _mb(combined)
     misc_mb = misc["mb"] if misc else None
     accounted = tables_mb + (misc_mb or 0.0)
     out["totals"] = {
-        "tables_gross_mb": round(gross, 2),
+        "tables_gross_mb": _mb(gross_bytes),
         "tables_combined_mb": tables_mb,
-        "overlap_mb": round(gross - tables_mb, 2),
+        "overlap_mb": _mb(gross_bytes - combined),
         "misc_mb": misc_mb,
         # tables + misc = every Python object reachable from the GC's roots.
         "accounted_mb": round(accounted, 2) if misc else None,

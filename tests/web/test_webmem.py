@@ -132,6 +132,21 @@ def test_tables_plus_misc_partition_the_heap():
     assert t["overlap_mb"] >= -0.01
 
 
+def test_gross_and_combined_are_summed_in_bytes_and_rounded_once(monkeypatch):
+    """Twelve disjoint 0.0149 MB tables: rounding each first gives 0.12, the truth
+    is 0.18; with no overlap, gross and combined must agree and overlap be zero."""
+    size = int(0.0149 * 2**20)
+    sources = [(f"t{i}", f"T{i}", "", (lambda i=i: {"roots": [i], "rows": []}))
+               for i in range(12)]
+    monkeypatch.setattr(webmem, "_SOURCES", sources)
+    monkeypatch.setattr(webmem, "walk",
+                        lambda roots, seen=None, budget=None, **k:
+                        {"bytes": size, "objects": 1, "truncated": False})
+    t = webmem.report(with_misc=False)["totals"]
+    assert t["tables_gross_mb"] == t["tables_combined_mb"] == round(12 * size / 2**20, 2)
+    assert t["overlap_mb"] == 0.0
+
+
 def test_tables_only_mode_skips_the_expensive_pass():
     rep = webmem.report(with_misc=False)
     assert rep["misc"] is None

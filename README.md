@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/logo.png" width="120" alt="PyRoOrb"></p>
 
-<h1 align="center">🛰️ PyRoOrb</h1>
+<h1 align="center">PyRoOrb</h1>
 
 <p align="center">
   <strong>Raw astrometry in. A robust orbit out. All in Python.</strong>
@@ -12,7 +12,8 @@
 
 <p align="center">
   <a href="#install">Install</a> ·
-  <a href="#quickstart">Quickstart</a> ·
+  <a href="#web-ui-quickstart">Web UI Quickstart</a> ·
+  <a href="#python-quickstart">Python Quickstart</a> ·
   <a href="notebooks/README.md">Examples</a> ·
   <a href="#the-web-ui">Web UI</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -98,12 +99,40 @@ the install, so a C compiler is needed: Xcode command-line tools on macOS, `gcc`
 Visual Studio Build Tools on Windows. Details, pip and conda:
 **[`docs/INSTALL.md`](docs/INSTALL.md)**.
 
-## Quickstart
+## Web UI Quickstart
+
+Want to look at an orbit, not write code? The web UI is a point-and-click workbench; you
+never need to touch Python.
+
+1. **Open it.**
+   - **Nothing to install:** go to **[pyroorb.net](https://www.pyroorb.net)**.
+   - **On your own computer, no Python needed:** run the Docker image, then open
+     <http://localhost:8000> (the first start downloads ~110 MB of reference tables):
+
+     ```bash
+     docker run -d --name pyroorb -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervanwylen/pyroorb
+     ```
+
+   - **Already installed PyRoOrb** (see [Install](#install))**:** run `pyroorb-web` in a terminal
+     and open <http://127.0.0.1:8000>.
+2. **Load an object.** Type a name or designation (say `2023 QJ3` or `433`) into the box at
+   the top, or paste your own MPC 80-column or ADES observations into the paste area.
+3. **Fit it.** The orbit appears in 3-D with the residuals beside it. Click observations to
+   include or exclude them and press **Full step** to re-fit.
+4. **Go further.** Export an ephemeris or a pseudo-MPEC, or replay how the orbit was fit.
+   Everything the UI offers is described under [The web UI](#the-web-ui).
+
+Wanting to script it or work with the results in Python? Continue with the
+[Python Quickstart](#python-quickstart).
+
+## Python Quickstart
+
+For scripts, notebooks and pipelines: the Python API and the command line (install the
+Python package first, see [Install](#install)).
 
 ```bash
 pyroorb "2023 QJ3"                              # fetch from the MPC and fit
 pyroorb "2014 HM410" "2016 UA210"               # fit two designations as one object
-pyroorb-web                                     # the web UI -> http://127.0.0.1:8000
 ```
 
 ```python
