@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/logo.png" width="120" alt="PyRoOrb"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/docs/logo.png" width="120" alt="PyRoOrb"></p>
 
 <h1 align="center">PyRoOrb</h1>
 
@@ -62,7 +62,7 @@ docker run -d --name pyroorb -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervan
 
 then open http://localhost:8000 (the first start downloads ~110 MB of reference tables into
 the `pyroorb-data` volume; if the page does not load yet, `docker logs pyroorb` shows the download). A ready `compose.yaml` for a shared server, updating and the
-options: **[`docs/INSTALL.md`](docs/INSTALL.md#docker-the-web-ui-without-python)**.
+options: **[`docs/INSTALL.md`](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/INSTALL.md#docker-the-web-ui-without-python)**.
 
 **For the Python API, the notebooks and the command line** (macOS and Linux) — one script does everything: checks for a C compiler
 (and starts Apple's installer if it is missing), installs [uv](https://docs.astral.sh/uv/)
@@ -94,10 +94,10 @@ pyroorb-fetch-data          # once: DE440 (~102 MB) + the debias tables (~10 MB)
 ```
 
 Python 3.11–3.14 on Linux or macOS; Python 3.11–3.12 on 64-bit Windows, where the installer is
-`install.ps1` ([Windows](docs/INSTALL.md#windows)). One dependency, ASSIST, is compiled during
+`install.ps1` ([Windows](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/INSTALL.md#windows)). One dependency, ASSIST, is compiled during
 the install, so a C compiler is needed: Xcode command-line tools on macOS, `gcc` on Linux, the
 Visual Studio Build Tools on Windows. Details, pip and conda:
-**[`docs/INSTALL.md`](docs/INSTALL.md)**.
+**[`docs/INSTALL.md`](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/INSTALL.md)**.
 
 ## Web UI Quickstart
 
@@ -161,15 +161,15 @@ When the observations do not determine an orbit (a single short tracklet, say),
 `fit_orbit` still returns the nominal solution, warns, and sets `fit.is_determined` to
 `False`; `fit.determinacy()` says what is known.
 
-**API reference:** [`docs/api.rst`](docs/api.rst) lists the supported functions and
-`FittedOrbit` methods, with stable and provisional tiers; [`docs/conventions.rst`](docs/conventions.rst)
+**API reference:** [`docs/api.rst`](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/api.rst) lists the supported functions and
+`FittedOrbit` methods, with stable and provisional tiers; [`docs/conventions.rst`](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/conventions.rst)
 states the units, frames and time scales (the orbit's epoch is TDB, input times are UTC).
 Build it as HTML with `pip install -e ".[docs]"` and `sphinx-build -b html docs docs/_build/html`.
 Everything not listed there is internal and may change before 1.0.
 
 ## Example notebooks
 
-**[`notebooks/`](notebooks/README.md)** holds eleven short worked examples. Each one fits the raw
+**[`notebooks/`](https://github.com/petervanwylen/PyRoOrb/blob/main/notebooks/README.md)** holds eleven short worked examples. Each one fits the raw
 observations and checks its answer against JPL. The topics are Apophis's 2029 flyby, Vesta
 passing (197) Arete, a new NEO's first nights, Yarkovsky on Bennu, comet outgassing, the
 interstellar objects, radar, photometry, a Jovian moon, and a population prior for a single
@@ -221,7 +221,7 @@ object (`pyroorb-itf search "2017 CL37"`, or the web UI's **ITF search**).
 - **Searching yourself** needs access to an SBN database: either your own clone of it, or
   the author's permission to use his (ask in a GitHub issue). A clone takes some setup —
   the tracklet index and its maintenance jobs — described in
-  **[`docs/ITF_SETUP.md`](docs/ITF_SETUP.md)**. The search's extra packages are not
+  **[`docs/ITF_SETUP.md`](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/ITF_SETUP.md)**. The search's extra packages are not
   installed by default: `./install.sh --extras itf` (or `pip install "pyroorb[itf] @ …"`).
 - **Please give the author a polite heads-up before any mass ITF searching or submitting**
   (a GitHub issue). He already runs these searches across the ITF and submits what they

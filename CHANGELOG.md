@@ -1,9 +1,9 @@
 # Changelog
 
-PyRoOrb follows semantic versioning from 1.0.0, the first release on PyPI; until then the
-0.9.x releases on GitHub may still change the Python API.
+PyRoOrb follows semantic versioning from 1.0.0; until then the 0.9.x releases may still
+change the Python API. 0.9.1 is the first release on PyPI.
 
-## Unreleased
+## 0.9.1 - 2026-11-03
 
 - Windows: PyRoOrb runs natively on 64-bit Windows with Python 3.11-3.12 (REBOUND 4 has
   Windows wheels up to 3.12), installed by `install.ps1`, the PowerShell counterpart of
