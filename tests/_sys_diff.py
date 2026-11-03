@@ -1,8 +1,8 @@
 """Diff two _sys_sweep.py runs: which objects changed systematic-misfit verdict."""
 import sys, json
 
-old = {r["label"]: r for r in json.load(open(sys.argv[1]))}
-new = {r["label"]: r for r in json.load(open(sys.argv[2]))}
+old = {r["label"]: r for r in json.load(open(sys.argv[1], encoding="utf-8"))}
+new = {r["label"]: r for r in json.load(open(sys.argv[2], encoding="utf-8"))}
 gained, lost, kept = [], [], []
 for lab, n in new.items():
     o = old.get(lab)

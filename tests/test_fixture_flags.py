@@ -33,7 +33,7 @@ def test_fixture_carries_its_declared_flags(label):
     path = _fixture_path(label)
     if not os.path.exists(path):
         pytest.skip(f"{label} declared but not built")
-    fx = json.load(open(path))
+    fx = json.load(open(path, encoding="utf-8"))
     for key, want in _declared()[label].items():
         assert fx.get(key) == want, (
             f"{label}: build_fixtures declares {key}={want!r} but the fixture on disk has "

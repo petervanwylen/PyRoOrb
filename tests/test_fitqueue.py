@@ -201,10 +201,10 @@ def _age_disk_entry(key, secs):
     """Move a disk-tier record's `stored` clock ``secs`` into the past."""
     import json
     path = fitdisk._path(fitdisk._resolve_dir(), key)
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         rec = json.load(fh)
     rec["stored"] -= secs
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         json.dump(rec, fh)
 
 

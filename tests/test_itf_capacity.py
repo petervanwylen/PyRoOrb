@@ -25,9 +25,9 @@ MB = 1024 * 1024
 def _v2(root, limit, current=MB):
     base = os.path.join(root, "sys/fs/cgroup")
     os.makedirs(base, exist_ok=True)
-    with open(os.path.join(base, "memory.max"), "w") as fh:
+    with open(os.path.join(base, "memory.max"), "w", encoding="utf-8") as fh:
         fh.write(f"{limit}\n")
-    with open(os.path.join(base, "memory.current"), "w") as fh:
+    with open(os.path.join(base, "memory.current"), "w", encoding="utf-8") as fh:
         fh.write(f"{current}\n")
 
 
@@ -97,7 +97,7 @@ def _cap(tmp_path, limit_mb_, used_mb):
     _v2(root, limit_mb_ * MB, current=used_mb * MB)
     # a huge host MemAvailable so the CONTAINER is what binds
     os.makedirs(os.path.join(root, "proc"), exist_ok=True)
-    with open(os.path.join(root, "proc/meminfo"), "w") as fh:
+    with open(os.path.join(root, "proc/meminfo"), "w", encoding="utf-8") as fh:
         fh.write("MemAvailable:   99000000 kB\n")
     return search_capacity(1000, root)
 

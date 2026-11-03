@@ -89,7 +89,7 @@ def test_a_deadline_does_not_leak_to_another_thread():
 
 def test_remaining_counts_down_and_goes_negative():
     with deadline.deadline(0.05):
-        assert 0 < deadline.remaining() <= 0.05
+        assert 0 < deadline.remaining() <= 0.05 + 1e-6   # a coarse clock (Windows) may not tick
         time.sleep(0.08)
         assert deadline.remaining() < 0
 
@@ -288,7 +288,7 @@ def test_only_the_web_fit_pool_sets_a_deadline():
         if rel.startswith("tests/") or rel == "deadline.py":
             continue
         try:
-            src = path.read_text()
+            src = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):        # pragma: no cover
             continue
         if re.search(r"\bdeadline\.deadline\s*\(", src):
@@ -344,7 +344,7 @@ def test_the_engine_has_no_handler_that_could_swallow_a_deadline():
         if rel.startswith("tests/"):
             continue
         try:
-            src = path.read_text()
+            src = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):        # pragma: no cover
             continue
         for n, line in enumerate(src.splitlines(), 1):
@@ -370,7 +370,7 @@ def test_every_interactive_endpoint_runs_through_the_bounded_pool():
     import re
 
     src = (pathlib.Path(__file__).resolve().parent.parent
-           / "src" / "pyroorb" / "web" / "server.py").read_text()
+           / "src" / "pyroorb" / "web" / "server.py").read_text(encoding="utf-8")
     table = src.split("_JSON_POSTS = {", 1)[1].split("\n    }", 1)[0]
     # Each "/api/x": lambda d: <body> entry, with the body up to the next route.
     entries = re.split(r'\n\s*"(/api/[a-z_]+)":', "\n" + table)

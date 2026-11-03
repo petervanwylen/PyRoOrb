@@ -66,13 +66,13 @@ def test_write_cache_creates_the_missing_folder(fresh):
     p = datadirs.cache_dir() / "ades_2023_QJ3.json"
     assert not p.parent.exists()
     assert datadirs.write_cache(p, "[]") is True
-    assert p.read_text() == "[]"
+    assert p.read_text(encoding="utf-8") == "[]"
     assert datadirs.write_cache(p.parent / "b.bin", b"\x00") is True
 
 
 def test_write_cache_never_fails_the_fetch(fresh):
     blocker = fresh / "a_file"
-    blocker.write_text("x")                       # a FILE where the folder should be
+    blocker.write_text("x", encoding="utf-8")                       # a FILE where the folder should be
     assert datadirs.write_cache(blocker / "sub" / "c.json", "[]") is False
 
 

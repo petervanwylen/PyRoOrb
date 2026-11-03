@@ -15,6 +15,8 @@ if __name__ == "__main__":
     # the engine imports below read their settings.
     from pyroorb.envfile import load_env_file
     load_env_file()
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
 import time as _stime
 from pathlib import Path
 import numpy as np

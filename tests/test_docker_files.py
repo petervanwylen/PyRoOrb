@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DOCKERFILE = (ROOT / "docker" / "Dockerfile").read_text()
+DOCKERFILE = (ROOT / "docker" / "Dockerfile").read_text(encoding="utf-8")
 
 
 def test_it_runs_as_an_unprivileged_user():
@@ -31,7 +31,7 @@ def test_the_final_image_carries_no_compiler():
 def test_the_build_context_cannot_carry_secrets_or_data():
     """docker/Dockerfile.dockerignore excludes everything, then lets in only what the build needs: .env, the
     ephemerides and local state can never reach an image."""
-    lines = [ln.strip() for ln in (ROOT / "docker" / "Dockerfile.dockerignore").read_text().splitlines()
+    lines = [ln.strip() for ln in (ROOT / "docker" / "Dockerfile.dockerignore").read_text(encoding="utf-8").splitlines()
              if ln.strip() and not ln.startswith("#")]
     assert lines[0] == "*"
     allowed = {ln[1:].rstrip("/") for ln in lines if ln.startswith("!")}
@@ -42,7 +42,7 @@ def test_the_build_context_cannot_carry_secrets_or_data():
 def test_the_entrypoint_parses_and_serves_on_all_interfaces():
     script = ROOT / "docker-entrypoint.sh"
     assert subprocess.run(["sh", "-n", str(script)]).returncode == 0
-    assert "exec pyroorb-web --host 0.0.0.0" in script.read_text()
+    assert "exec pyroorb-web --host 0.0.0.0" in script.read_text(encoding="utf-8")
 
 
 def test_assist_is_built_against_the_rebound_the_image_runs():

@@ -60,7 +60,7 @@ def table(tmp_path, monkeypatch):
 
 def test_the_bundled_table_is_the_real_one():
     """What ships must parse as the MPC table (the release step re-bundles it)."""
-    text = obs_sources.BUNDLED_OBSCODES.read_text(errors="ignore")
+    text = obs_sources.BUNDLED_OBSCODES.read_text(encoding="utf-8", errors="ignore")
     assert len(obs_sources._station_codes(text)) >= 1500
     assert {"500", "568", "F51", "G96", "703"} <= set(obs_sources._station_codes(text))
 

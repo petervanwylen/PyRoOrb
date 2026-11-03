@@ -119,7 +119,7 @@ def never_train(path=None):
     if not path:
         raise RuntimeError(f"no eval wall: set {NEVER_TRAIN_ENV} to the list of designations "
                            "that must never be trained on")
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         return {l.strip() for l in fh if l.strip()}
 
 
@@ -183,7 +183,7 @@ def predict(bst, meta, df):
 
 def save(bst, meta, path):
     bst.save_model(path)
-    with open(path + ".meta.json", "w") as fh:
+    with open(path + ".meta.json", "w", encoding="utf-8") as fh:
         json.dump(meta, fh)
 
 

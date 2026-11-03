@@ -175,7 +175,7 @@ def parse_mpc80_file(path) -> Dict[str, List[Observation]]:
     program's streaming behavior -- see :mod:`pydigest2.intake`.
     """
     tracklets: Dict[str, List[Observation]] = {}
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         for raw in f:
             line = raw.rstrip("\n")
             if len(line) < 80:
@@ -317,7 +317,7 @@ def parse_ades_psv(path) -> Dict[str, List[Observation]]:
     tracklets: Dict[str, List[Observation]] = {}
     headers: Optional[List[str]] = None
 
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         for raw in f:
             line = raw.rstrip("\n")
             if not line or line.startswith("#"):

@@ -497,7 +497,7 @@ def write_rows(path, rows, batch=500, fields=None):
     small-append object survived byte-perfect).  Small synced batches keep
     each physical write under the tearing threshold."""
     new = not os.path.exists(path) or os.path.getsize(path) == 0
-    with open(path, "a", newline="") as fh:
+    with open(path, "a", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=fields or ALL_COLS,
                            extrasaction="ignore")
         if new:
@@ -674,7 +674,7 @@ def read_dataset(csv_path, neg_per_window=None, seed=0, log=print,
     lim = csv.field_size_limit()
     csv.field_size_limit(1 << 27)
     try:
-        with open(csv_path, newline="") as fh:
+        with open(csv_path, newline="", encoding="utf-8") as fh:
             _r = csv.reader(fh)
             hdr = next(_r)
             _lab = hdr.index("label")
@@ -845,7 +845,7 @@ def train_model(csv_path, model_out=None, test_frac=0.2, seed=0,
                     "train_split": split,
                     "metrics": metrics,
                 }}
-        with open(str(model_out) + ".meta.json", "w") as fh:
+        with open(str(model_out) + ".meta.json", "w", encoding="utf-8") as fh:
             _json.dump(meta, fh)
         log(f"model saved to {model_out} (+ .meta.json)")
     return bst, metrics
@@ -894,7 +894,7 @@ def load_ranker(path=None):
     if path not in _RANKER_CACHE:
         bst = xgb.Booster()
         bst.load_model(path)
-        with open(path + ".meta.json") as fh:
+        with open(path + ".meta.json", encoding="utf-8") as fh:
             meta = _json.load(fh)
         _RANKER_CACHE[path] = (bst, meta)
     return _RANKER_CACHE[path]

@@ -1407,7 +1407,7 @@ def _rss_mb():
     """This process's resident size in MB, or None off Linux. Cheap enough to call
     on every search start (one small read of /proc/self/status)."""
     try:
-        with open("/proc/self/status") as fh:
+        with open("/proc/self/status", encoding="utf-8") as fh:
             for line in fh:
                 if line.startswith("VmRSS:"):
                     return round(int(line.split()[1]) / 1024.0, 1)

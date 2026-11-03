@@ -24,7 +24,7 @@ def test_base_sim_and_its_copies_carry_the_floor():
 
 
 def test_both_backends_share_one_floor():
-    src = (PKG / "force_assist.py").read_text()
+    src = (PKG / "force_assist.py").read_text(encoding="utf-8")
     assert "from pyroorb.forward_model import IAS15_MIN_DT" in src
 
 

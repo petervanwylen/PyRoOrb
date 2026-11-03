@@ -15,7 +15,7 @@ pytestmark = pytest.mark.slow
 
 
 def _c46_fit():
-    d = json.load(open(os.path.join(_MVP, "tests", "range_fixtures", "C46MAH1.json")))
+    d = json.load(open(os.path.join(_MVP, "tests", "range_fixtures", "C46MAH1.json"), encoding="utf-8"))
     return fo.fit_orbit(d["obs"], obs_sources.load_obscodes(), desig="C46MAH1", meta=d["meta"])
 
 

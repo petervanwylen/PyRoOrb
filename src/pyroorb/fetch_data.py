@@ -26,6 +26,8 @@ if __name__ == "__main__":
     # their folders (PYROORB_EPHEM_DIR / PYROORB_DEBIAS_DIR) at import.
     from pyroorb.envfile import load_env_file
     load_env_file()
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
 
 import pyroorb.force_assist as fa  # noqa: E402
 import pyroorb.debias as db  # noqa: E402

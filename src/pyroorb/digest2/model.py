@@ -125,7 +125,7 @@ def _csv_fingerprint(csv_path: Path) -> str:
 def load_model_csv(csv_path: os.PathLike | str) -> Model:
     """Parse a ``digest2.model.csv`` file directly (no caching)."""
     csv_path = Path(csv_path)
-    text = csv_path.read_text()
+    text = csv_path.read_text(encoding="utf-8")
     return _parse_csv_text(text)
 
 

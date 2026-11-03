@@ -28,7 +28,7 @@
 ---
 
 **PyRoOrb** (**Py**thon **Ro**bust **Orb**it Determination) turns raw asteroid/comet astrometry (ADES or MPC 80-column) into a
-high-quality orbit — with realistic uncertainties, identifications, and ITF search — **entirely in Python, on every OS** (Windows support coming soon, but possible now with Docker). It ships with a **browser workbench**, but it is equally intended for science in Python notebooks. ITF search is primarily limited to web-based service a pyroorb.net but is possible for the motivated user to run locally with an SBN mirror of their own (please coordinate with the author before doing mass pipeline submissions using it in order to deconflict large number of duplicates arriving at MPC and to discuss submission credit).
+high-quality orbit — with realistic uncertainties, identifications, and ITF search — **entirely in Python, on every OS** (Linux, macOS and Windows). It ships with a **browser workbench**, but it is equally intended for science in Python notebooks. ITF search is primarily limited to web-based service a pyroorb.net but is possible for the motivated user to run locally with an SBN mirror of their own (please coordinate with the author before doing mass pipeline submissions using it in order to deconflict large number of duplicates arriving at MPC and to discuss submission credit).
 
 ## Why it exists
 
@@ -40,7 +40,7 @@ a working tool that's also the clearest way to learn orbit determination.
 instead of good data, recovers from a poisoned seed, and **tells you when the
 residuals say something's wrong** rather than hiding it.
 
-🐍 **Use it anywhere.** Linux and macOS (Windows support is coming in late 2026); a small
+🐍 **Use it anywhere.** Linux, macOS and Windows; a small
 Python API drops into your
 pipeline, with covariance + Monte-Carlo uncertainties and ephemerides that carry a
 sky-plane error ellipse.
@@ -93,9 +93,10 @@ source .venv/bin/activate   # in every new terminal, before the pyroorb commands
 pyroorb-fetch-data          # once: DE440 (~102 MB) + the debias tables (~10 MB)
 ```
 
-Python 3.11–3.14 on Linux or macOS. **Windows is not yet supported; support is coming in late
-2026.** One dependency, ASSIST, is compiled during the install, so a C compiler is needed:
-Xcode command-line tools on macOS, `gcc` on Linux. Details, pip and conda:
+Python 3.11–3.14 on Linux or macOS; Python 3.11–3.12 on 64-bit Windows, where the installer is
+`install.ps1` ([Windows](docs/INSTALL.md#windows)). One dependency, ASSIST, is compiled during
+the install, so a C compiler is needed: Xcode command-line tools on macOS, `gcc` on Linux, the
+Visual Studio Build Tools on Windows. Details, pip and conda:
 **[`docs/INSTALL.md`](docs/INSTALL.md)**.
 
 ## Quickstart

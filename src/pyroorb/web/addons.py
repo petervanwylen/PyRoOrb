@@ -112,7 +112,7 @@ def discover(log=print):
         log(f"web add-ons: entry points unreadable ({ex})")
     path = _registry_file()
     if path.is_file():
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             spec = line.split("#", 1)[0].strip()
             if not spec:
                 continue

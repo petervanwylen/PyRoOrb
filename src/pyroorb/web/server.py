@@ -104,6 +104,8 @@ if __name__ == "__main__":
     # `.env` settings file before the engine imports read their settings.
     from pyroorb.envfile import load_env_file
     load_env_file()
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
 from pyroorb.web import engine_api  # noqa: E402
 from pyroorb.web import loader      # noqa: E402  (paste-an-obs-blob loader)
 from pyroorb.web import exporters   # noqa: E402  (pseudo-MPEC + ephemeris text)

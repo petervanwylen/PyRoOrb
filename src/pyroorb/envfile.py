@@ -67,7 +67,7 @@ def load_env_file(cwd=None, force=False):
     found = None
     for path in candidates(cwd):
         if path.is_file():
-            for key, val in parse(path.read_text()):
+            for key, val in parse(path.read_text(encoding="utf-8")):
                 os.environ.setdefault(key, val)
             found = path
             break

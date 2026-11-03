@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PyRoOrb installer for macOS and Linux (Windows is not yet supported; support comes late 2026).
+# PyRoOrb installer for macOS and Linux (on Windows, use install.ps1 in PowerShell).
 #
 #   ./install.sh                  from a checkout: installs into ./.venv
 #   curl -LsSf https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.sh | bash
@@ -61,7 +61,8 @@ done
 OS="$(uname -s)"
 case "$OS" in
   Darwin|Linux) ;;
-  *) die "PyRoOrb supports macOS and Linux for now; Windows support is coming in late 2026." ;;
+  MINGW*|MSYS*|CYGWIN*) die "this is the macOS and Linux installer; on Windows, run install.ps1 in PowerShell (see docs/INSTALL.md#windows)." ;;
+  *) die "PyRoOrb's installers support macOS, Linux and Windows; $OS is not one of them." ;;
 esac
 
 is_checkout() { [ -f "$1/pyproject.toml" ] && grep -q '^name = "pyroorb"' "$1/pyproject.toml"; }

@@ -59,7 +59,7 @@ def test_a_normal_scratch_dir_is_accepted(tmp_path, monkeypatch):
 def test_an_unusable_directory_disables_rather_than_raises(tmp_path, monkeypatch):
     """A cache that can take the server down is a liability, not an optimisation."""
     blocker = tmp_path / "notadir"
-    blocker.write_text("i am a file")
+    blocker.write_text("i am a file", encoding="utf-8")
     monkeypatch.setenv("PYROORB_FIT_CACHE_DIR", str(blocker))
     monkeypatch.setattr(fitdisk, "_DIR", None)
     monkeypatch.setattr(fitdisk, "_DISABLED_REASON", None)

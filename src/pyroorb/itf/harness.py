@@ -147,10 +147,17 @@ def deadline(seconds):
     C extension (an ASSIST integration, a numpy reduction) defers it until it
     returns -- the deadline is therefore a floor, not a guarantee, and the
     collection driver still keeps a hard subprocess timeout above it as the
-    backstop.  Main thread only; a no-op if ``seconds`` is falsy."""
+    backstop.  Main thread only; a no-op if ``seconds`` is falsy.
+
+    Windows has no SIGALRM: there a timer thread raises SIGINT in the process instead,
+    delivered between bytecodes exactly as the alarm is (:func:`_deadline_by_sigint`)."""
     import signal
     if not seconds:
         yield
+        return
+    if not hasattr(signal, "SIGALRM"):
+        with _deadline_by_sigint(seconds):
+            yield
         return
 
     def _fire(_signum, _frame):
@@ -163,6 +170,51 @@ def deadline(seconds):
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0.0)
         signal.signal(signal.SIGALRM, old)
+
+
+@contextmanager
+def _deadline_by_sigint(seconds):
+    """:func:`deadline` where there is no SIGALRM (Windows): a timer thread raises SIGINT,
+    whose handler runs on the main thread between bytecodes, as the alarm's does, and also
+    wakes a ``time.sleep``. The handler raises :class:`SearchDeadline` only once the timer
+    has rung; a real Ctrl-C before then keeps its own meaning. The lock orders the timer
+    against the exit, so a SIGINT is never raised after the previous handler is back."""
+    import signal
+    import threading
+
+    lock = threading.Lock()
+    state = {"rang": False, "done": False}
+
+    def _ring():
+        with lock:
+            if state["done"]:
+                return
+            state["rang"] = True
+            signal.raise_signal(signal.SIGINT)
+
+    def _fire(signum, frame):
+        if state["rang"]:
+            raise SearchDeadline(f"collection deadline: {seconds:g}s")
+        if callable(old):
+            return old(signum, frame)
+        raise KeyboardInterrupt
+
+    old = signal.signal(signal.SIGINT, _fire)
+    timer = threading.Timer(float(seconds), _ring)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        with lock:
+            state["done"] = True
+        timer.cancel()
+        try:
+            # signal.signal runs a still-pending ring first (raising SearchDeadline, as a
+            # SIGALRM landing on the way out would), so restore again behind it
+            signal.signal(signal.SIGINT, old)
+        finally:
+            signal.signal(signal.SIGINT, old)
 
 
 def fetch_object_obs(desig, obscodes):
@@ -842,7 +894,7 @@ def run_suite(designations, cfg=None, base_source=None, log=print,
             + r.summary())
     log(f"{n_full}/{len(reports)} full recoveries, {n_found} linkages found")
     if report_path:
-        with open(report_path, "w") as fh:
+        with open(report_path, "w", encoding="utf-8") as fh:
             json.dump([{**r.__dict__,
                         "planted_apparitions": sorted(r.planted_apparitions),
                         "recovered_apparitions": sorted(r.recovered_apparitions),

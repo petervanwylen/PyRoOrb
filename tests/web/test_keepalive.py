@@ -100,7 +100,7 @@ def test_a_refused_post_never_corrupts_the_next_request_on_the_connection(
         try:
             _send_post(s, "/api/session", {"job": "innocent-request"})
             status2, body2 = _read_response(s, timeout=3)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:     # reset, broken pipe, or Windows' abort
             status2, body2 = None, None  # a clean reset is a PASS
 
         if status2 is not None:
@@ -148,7 +148,7 @@ def test_a_rate_limited_post_also_closes_rather_than_corrupts(
         try:
             _send_post(s, "/api/session", {"job": "x"})
             status2, body2 = _read_response(s, timeout=3)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:     # reset, broken pipe, or Windows' abort
             status2, body2 = None, None
 
         if status2 is not None:

@@ -74,7 +74,7 @@ def test_public_code_carries_no_development_record():
         path = REPO / rel
         if not path.is_file():
             continue
-        for n, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        for n, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             for what, rx in _PATTERNS:
                 if what == "private module name" and rel in _NAMES_PRIVATE_ON_PURPOSE:
                     continue
@@ -98,7 +98,7 @@ def test_public_docs_link_only_to_public_files():
     for rel in out.stdout.split():
         if rel.startswith(PRIVATE) or not (REPO / rel).is_file():
             continue
-        text = re.sub(r"<!--.*?-->", "", (REPO / rel).read_text(errors="replace"), flags=re.S)
+        text = re.sub(r"<!--.*?-->", "", (REPO / rel).read_text(encoding="utf-8", errors="replace"), flags=re.S)
         for m in _MD_LINK.finditer(text):
             target = m.group(1)
             if re.match(r"[a-z][a-z0-9+.-]*:", target):          # http:, mailto:, ...
@@ -128,7 +128,7 @@ def test_public_docs_name_no_old_layout_or_private_record():
     for rel in out.stdout.split():
         if rel.startswith(PRIVATE) or not (REPO / rel).is_file():
             continue
-        for n, line in enumerate((REPO / rel).read_text(errors="replace").splitlines(), 1):
+        for n, line in enumerate((REPO / rel).read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             if _DOC_FORBIDDEN.search(line):
                 bad.append(f"{rel}:{n}: {line.strip()[:120]}")
     assert not bad, "public docs name the old layout or a private record:\n" + "\n".join(bad)

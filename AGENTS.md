@@ -159,6 +159,9 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   find_orb's own `covar.json` layout; state+covariance JSON web-only).
 - Opt-in reports never touch the default fit: `--mag-audit`, `--impact`, `--impact-ip`,
   `--keyholes` (IP/keyholes CLI-only; they have not passed validation against Sentry).
+- **Text is UTF-8 on every OS**: every text-mode open names `encoding="utf-8"`, and every command
+  switches its streams to UTF-8 at start-up (`console.utf8_stdio`, beside `load_env_file`); the
+  locale default is cp1252 on Windows (`tests/test_text_encoding.py`).
 
 ## Web / ops invariants
 - **Optional web features are add-ons** (`web/addons.py`): routes, pages, menu links and

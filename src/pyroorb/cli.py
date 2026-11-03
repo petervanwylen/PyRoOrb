@@ -84,7 +84,7 @@ def _read_pairs(path):
     space, so we split on 2+ whitespace, not 1). Blank lines and `#` comments are ignored."""
     import re
     pairs = []
-    with open(path) as fp:
+    with open(path, encoding="utf-8") as fp:
         for ln in fp:
             ln = ln.strip()
             if not ln or ln.startswith("#"):
@@ -240,7 +240,7 @@ def _ident_check_one(d1, d2, out_path, obscodes, force=False):
                       f"[{code}]", file=sys.stderr)
             else:
                 print(f"[ident-check] {d1} + {d2}: MATCH ({stat}) [{code}]", file=sys.stderr)
-            with open(out_path, "a") as out:
+            with open(out_path, "a", encoding="utf-8") as out:
                 out.write(text + "\n"); out.flush()
     else:
         # Not a CLEAN identification -> AMBIGUOUS link worth a human look ('y-examine') or a clear
@@ -335,7 +335,7 @@ def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=120):
         # Columns: d1 <TAB> d2 <TAB> code <TAB> wall-seconds. The `secs` column lets a bulk scan
         # spot the pairs that ate the most time (the slow-non-match tail) without re-timing; the
         # pairs reader only consumes columns 0-1, so the extra field is backward-compatible.
-        with open(classify_path, "a") as cf:
+        with open(classify_path, "a", encoding="utf-8") as cf:
             cf.write(f"{d1}\t{d2}\t{code}\t{secs:.1f}\n"); cf.flush()
 
     if not pair_timeout:                               # no-timeout: plain in-process loop
@@ -354,6 +354,7 @@ def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=120):
         t0 = time.perf_counter()
         try:
             r = subprocess.run(cmd, timeout=pair_timeout, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace",
                                env=_child_env())
             verdict = next((l for l in r.stderr.splitlines() if l.startswith("[ident-check]")), None)
             code = next((l.split()[-1] for l in r.stderr.splitlines()
@@ -562,6 +563,7 @@ def run_batch_cli(text, batch_file, obscodes, fmts, out_file, in_format,
                 cmd += ["--in-format", in_format]
             try:
                 r = subprocess.run(cmd, timeout=batch_timeout, capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace",
                                    env=_child_env())
                 got = False
                 for ln in r.stdout.splitlines():
@@ -595,7 +597,7 @@ def run_batch_cli(text, batch_file, obscodes, fmts, out_file, in_format,
 
     output = _assemble_batch_output(fmts, ordered_rows)
     if out_file:
-        with open(out_file, "w") as fp:
+        with open(out_file, "w", encoding="utf-8") as fp:
             fp.write(output + "\n")
         print(f"[batch] wrote {','.join(fmts)} ({len(ordered_rows)} object(s)) -> {out_file}",
               file=sys.stderr)
@@ -847,13 +849,13 @@ def main():
         obscodes = load_obscodes()
         desigs = []
         if list_file:
-            with open(list_file) as fp:
+            with open(list_file, encoding="utf-8") as fp:
                 desigs += [ln.strip() for ln in fp if ln.strip() and not ln.startswith("#")]
         desigs += [a for a in args if not a.startswith("--")]
         if not desigs:
             print("usage: fit_object.py --mag-audit DESIG [DESIG ...]   (or --mag-audit --list FILE)",
                   file=sys.stderr); return
-        out = open(out_file, "w") if out_file else sys.stdout
+        out = open(out_file, "w", encoding="utf-8") if out_file else sys.stdout
         try:
             run_mag_audit(desigs, obscodes, force=force, out=out)
         finally:
@@ -1001,7 +1003,7 @@ def main():
             return
         obscodes = load_obscodes()
         verbose = bool(os.environ.get("PYROORB_VERBOSE"))
-        with open(batch_file) as fp:
+        with open(batch_file, encoding="utf-8") as fp:
             text = fp.read()
         run_batch_cli(text, batch_file, obscodes, fmts, out_file, in_format,
                       force, only, batch_timeout, emit_json, verbose)
@@ -1341,7 +1343,7 @@ def main():
         fmts = _parse_egress_formats(out_format)
         text = _assemble_batch_output(fmts, [_rows_for_fit(fit, fmts, egress._now_jd())])
         if out_file:
-            with open(out_file, "w") as fp:
+            with open(out_file, "w", encoding="utf-8") as fp:
                 fp.write(text + "\n")
             print(f"\nwrote {out_format} -> {out_file}")
         elif text:
@@ -1371,4 +1373,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
     main()

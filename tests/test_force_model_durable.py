@@ -260,7 +260,7 @@ def test_the_excluded_number_is_the_guards_number_not_a_string_split():
 def test_the_pyproject_assist_range_is_the_verified_one():
     import pathlib
     import re
-    text = (pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+    text = (pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     spec = re.search(r'"assist([^"]*)"', text).group(1)
     assert spec == ">=1.2,<1.3" and fa.SPK_LAYOUT_VERIFIED == ("1.2",)
 

@@ -21,7 +21,7 @@ def test_lifetimes_follow_the_designation():
 
 def test_a_two_hour_old_published_cache_is_still_fresh(tmp_path):
     f = tmp_path / "ades_2013_PY26.json"
-    f.write_text("[]")
+    f.write_text("[]", encoding="utf-8")
     two_hours = time.time() - 2 * 3600
     os.utime(f, (two_hours, two_hours))
     assert obs80.cache_fresh(f, obs80.astrometry_ttl("2013 PY26"))

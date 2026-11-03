@@ -119,7 +119,7 @@ def _load():
         import re
         rx = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
         vals = []
-        with open(DEBIAS_DIR / "bias.dat") as f:
+        with open(DEBIAS_DIR / "bias.dat", encoding="utf-8") as f:
             for line in f:
                 if line.startswith("!") or not line.strip():
                     continue

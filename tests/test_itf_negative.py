@@ -29,7 +29,7 @@ _NEG = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 @pytest.mark.parametrize("path", _NEG, ids=[os.path.basename(p)[:-5] for p in _NEG])
 def test_foreign_tracklets_are_not_submitted(path):
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         fx = json.load(fh)
     oc = load_obscodes()
     obs, meta = load_obs(fx, oc)

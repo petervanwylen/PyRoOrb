@@ -19,7 +19,7 @@ def test_read_observations_from_a_path_or_text_in_either_format():
     a = pyroorb.read_observations(OBS80)
     assert isinstance(a, pyroorb.Observations) and len(a) == 3
     assert a.meta["format"] == "OBS80"
-    with open(OBS80) as fh:
+    with open(OBS80, encoding="utf-8") as fh:
         b = pyroorb.read_observations(fh.read())
     assert [o["jd_utc"] for o in b] == [o["jd_utc"] for o in a]
     p = pyroorb.read_observations(PSV)
@@ -74,7 +74,7 @@ def test_a_determined_orbit_fits_ephemerides_and_exports():
 
 def test_load_settings_reads_the_env_file_without_overriding(tmp_path, monkeypatch):
     from pyroorb import envfile
-    (tmp_path / ".env").write_text("PYROORB_TEST_SETTING=from-file\nPYROORB_TEST_SET=from-file\n")
+    (tmp_path / ".env").write_text("PYROORB_TEST_SETTING=from-file\nPYROORB_TEST_SET=from-file\n", encoding="utf-8")
     monkeypatch.setenv("PYROORB_TEST_SET", "from-shell")
     monkeypatch.delenv("PYROORB_TEST_SETTING", raising=False)
     monkeypatch.delenv("PYROORB_ENV_FILE", raising=False)

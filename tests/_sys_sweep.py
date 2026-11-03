@@ -106,7 +106,7 @@ def main():
             tag = "ERR " if r.get("error") else ("skip" if r.get("skipped") else "ok  ")
             print(f"[{i}/{len(paths)}] {tag} {r['label']}"
                   + (f"  {r.get('error','')}" if r.get("error") else ""), flush=True)
-    with open(a.o, "w") as fp:
+    with open(a.o, "w", encoding="utf-8") as fp:
         json.dump(result, fp)
     print(f"wrote {a.o} in {time.time()-t0:.0f}s", flush=True)
 

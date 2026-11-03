@@ -228,7 +228,7 @@ def ensure_obscodes_file(verbose=False):
         if os.environ.get("PYROORB_OBSCODES_REFRESH", "0").strip() == "1":
             current = _current_obscodes_path()
             try:
-                prior = (_station_codes(current.read_text(errors="ignore"))
+                prior = (_station_codes(current.read_text(encoding="utf-8", errors="ignore"))
                          if current.exists() else None)
                 data, _url = _download_obscodes(verbose, prior)
                 _write_obscodes(data)
@@ -260,7 +260,8 @@ def refresh_on_miss(codes, verbose=False):
             return set()
         _OBSCODES_MISS_AT = now
         current = _current_obscodes_path()
-        prior = _station_codes(current.read_text(errors="ignore")) if current.exists() else set()
+        prior = (_station_codes(current.read_text(encoding="utf-8", errors="ignore"))
+                 if current.exists() else set())
         try:
             data, _url = _download_obscodes(verbose, prior or None)
         except Exception as ex:
@@ -319,7 +320,7 @@ def obscodes_token():
 
 def load_obscodes():
     codes = {}
-    for line in ensure_obscodes_file().read_text(errors="ignore").splitlines():
+    for line in ensure_obscodes_file().read_text(encoding="utf-8", errors="ignore").splitlines():
         if len(line) < 30 or not line[:3].strip() or line.startswith("<"):
             continue
         try:
@@ -338,7 +339,7 @@ def load_obscode_names():
     stays a lean ``code -> (lon, cos, sin)`` map; this is a display-only lookup.
     """
     names = {}
-    for line in ensure_obscodes_file().read_text(errors="ignore").splitlines():
+    for line in ensure_obscodes_file().read_text(encoding="utf-8", errors="ignore").splitlines():
         code = line[:3]
         if len(line) <= 30 or not code.strip() or line.startswith("<") or code == "Cod":
             continue
@@ -478,7 +479,7 @@ def fetch_obs80(desig, cache=None):
     raw = None
     if cache_fresh(cache, astrometry_ttl(desig)):
         try:
-            raw = json.loads(Path(cache).read_text())
+            raw = json.loads(Path(cache).read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
             Path(cache).unlink()        # corrupt/truncated cache -> drop & re-fetch
     if raw is None:

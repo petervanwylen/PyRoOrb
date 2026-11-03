@@ -151,4 +151,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
     sys.exit(main())

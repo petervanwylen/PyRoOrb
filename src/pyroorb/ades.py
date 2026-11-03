@@ -84,7 +84,7 @@ def fetch_ades(desig, cache=None):
     """GET ADES_DF records (list of dicts) for one designation from the MPC API."""
     if cache_fresh(cache, astrometry_ttl(desig)):
         try:
-            return json.loads(Path(cache).read_text())
+            return json.loads(Path(cache).read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
             # Corrupt/truncated cache (the sandbox FS can truncate large writes) ->
             # discard it and re-fetch fresh rather than failing on every retry.
@@ -284,7 +284,7 @@ def _neocp_xml_to_records(xml_text):
 def fetch_neocp_xml(desig, cache=None):
     """GET the raw ADES XML for one NEOCP/temporary designation (cached as text)."""
     if cache_fresh(cache, NEOCP_CACHE_TTL_S):
-        txt = Path(cache).read_text()
+        txt = Path(cache).read_text(encoding="utf-8")
         if txt.strip():
             return txt
         Path(cache).unlink()                 # empty/truncated cache -> re-fetch

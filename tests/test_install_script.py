@@ -29,13 +29,13 @@ def test_an_unknown_option_is_refused_first():
 def test_the_default_install_has_no_extras():
     """The ITF extra (xgboost, and Homebrew's libomp on macOS) needs an SBN database almost
     nobody has, so it is opt-in: --extras itf."""
-    text = SCRIPT.read_text()
+    text = SCRIPT.read_text(encoding="utf-8")
     assert '\nEXTRAS=""\n' in text
     assert "brew install libomp" in text and ',$EXTRAS," == *",itf,"*' in text
 
 
 def test_it_pins_rebound_4_for_the_assist_build():
-    text = SCRIPT.read_text()
+    text = SCRIPT.read_text(encoding="utf-8")
     assert "--build-constraint" in text and "rebound>=4.4.11,<5" in text
 
 
@@ -43,7 +43,7 @@ def test_assist_is_built_against_the_rebound_it_runs_with():
     """ASSIST compiles against REBOUND's headers and runs against REBOUND's library: the
     script installs REBOUND first, then builds ASSIST (and resolves the rest) against exactly
     that version, and never reuses an ASSIST wheel cached from another REBOUND."""
-    text = SCRIPT.read_text()
+    text = SCRIPT.read_text(encoding="utf-8")
     first = text.index("uv pip install --python .venv/bin/python 'rebound>=4.4.11,<5'")
     main = text.index('-e "$TARGET"')
     assert first < main

@@ -34,7 +34,7 @@ from .memory import available_mb, breakdown
 def rss_mb():
     """This process's resident set in MB, or None where it cannot be read."""
     try:
-        with open("/proc/self/status") as fh:
+        with open("/proc/self/status", encoding="utf-8") as fh:
             for line in fh:
                 if line.startswith("VmRSS:"):
                     return int(line.split()[1]) // 1024

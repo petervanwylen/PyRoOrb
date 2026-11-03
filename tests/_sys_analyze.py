@@ -5,7 +5,7 @@ import numpy as np
 
 
 def load(p):
-    return [r for r in json.load(open(p)) if not r.get("error") and not r.get("skipped")]
+    return [r for r in json.load(open(p, encoding="utf-8")) if not r.get("error") and not r.get("skipped")]
 
 
 def fires_new(r, floor, se_ratio):

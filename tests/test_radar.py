@@ -73,7 +73,7 @@ def test_fetch_radar_from_canned_dump():
                               "altitude": "0.45334", "alt_units": "km",
                               "name": "Arecibo"}}}
     with tempfile.TemporaryDirectory() as td:
-        (radar.Path(td) / "radar_astrometry.json").write_text(json.dumps(dump))
+        (radar.Path(td) / "radar_astrometry.json").write_text(json.dumps(dump), encoding="utf-8")
         rows = radar.fetch_radar(["308635"], cache_dir=td)
         assert len(rows) == 1 and rows[0]["kind"] == "delay"
         assert abs(rows[0]["value"] - 32.60629607) < 1e-9   # us -> s

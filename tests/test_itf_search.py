@@ -598,6 +598,30 @@ def test_deadline_keeps_the_rows_harvested_so_far():
     assert len(collected) == 2, "harvested rows must survive the deadline"
 
 
+def test_the_sigint_deadline_fires_and_leaves_ctrl_c_alone():
+    """Windows has no SIGALRM, so there the deadline rides a timer that raises SIGINT.
+    It must fire like the alarm (waking a sleep), and a Ctrl-C before it rings, or the
+    handler left behind after the block, must still be a KeyboardInterrupt."""
+    import signal
+    import pyroorb.itf.harness as H
+
+    t0 = time.perf_counter()
+    with pytest.raises(H.SearchDeadline):
+        with H._deadline_by_sigint(0.3):
+            time.sleep(5)
+    assert time.perf_counter() - t0 < 3, "the deadline did not wake the sleep"
+
+    runner = signal.signal(signal.SIGINT, signal.default_int_handler)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            with H._deadline_by_sigint(30):
+                signal.raise_signal(signal.SIGINT)
+                time.sleep(1)
+        assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+    finally:
+        signal.signal(signal.SIGINT, runner)
+
+
 def test_row_budget_override_and_incomplete_sweep_is_reported():
     """The sweep row budget is calibrated for ONE corridor, so the LOV variant
     scan's union of n_scan corridors overrides it with its own
@@ -1409,7 +1433,7 @@ def test_column_selection_cannot_silently_disable_a_filter():
 
     with tempfile.TemporaryDirectory() as td:
         path = os.path.join(td, "t.csv")
-        with open(path, "w", newline="") as fh:
+        with open(path, "w", newline="", encoding="utf-8") as fh:
             w = _csv.DictWriter(fh, fieldnames=ALL_COLS)
             w.writeheader()
             for i in range(40):
@@ -1452,7 +1476,7 @@ def test_negative_thinning_keeps_every_positive_and_samples_within_window():
 
     with tempfile.TemporaryDirectory() as td:
         path = os.path.join(td, "t.csv")
-        with open(path, "w", newline="") as fh:
+        with open(path, "w", newline="", encoding="utf-8") as fh:
             w = _csv.DictWriter(fh, fieldnames=ALL_COLS)
             w.writeheader()
             for window in range(4):
@@ -1481,6 +1505,8 @@ def test_negative_thinning_keeps_every_positive_and_samples_within_window():
         assert set(again["trkid"]) == set(df["trkid"])
 
 
+@pytest.mark.skipif(not hasattr(__import__("signal"), "pthread_sigmask"),
+                    reason="blocking a signal needs pthread_sigmask (POSIX only)")
 def test_watchdog_rescues_rows_when_the_signal_cannot_be_delivered():
     """The signal deadline is a floor, not a guarantee -- SIGALRM is delivered
     between bytecodes and a long C call defers it indefinitely (2000 PL8 ran
@@ -1522,7 +1548,7 @@ except SearchDeadline:
                            text=True, timeout=60)
         assert r.returncode == 0, f"watchdog did not exit cleanly: {r.stderr}"
         assert os.path.exists(out), "the watchdog never fired"
-        got = open(out).read()
+        got = open(out, encoding="utf-8").read()
         assert got == "3", f"rescue saw {got!r} rows, not the 3 harvested"
 
 
@@ -2077,7 +2103,7 @@ def test_seed_rms_is_reported_per_axis():
     # the vetting dict's two rms pairs must be in ONE currency: overall_* comes
     # straight off TrialFit.rms (per-axis), so seed_* has to be converted
     src = (pathlib.Path(__file__).resolve().parents[1]
-           / "src" / "pyroorb" / "itf" / "search.py").read_text()
+           / "src" / "pyroorb" / "itf" / "search.py").read_text(encoding="utf-8")
     assert '"seed_rms_pre": round(per_axis(self.rms_pre), 4),' in src
     assert '"seed_rms_post": round(per_axis(self.rms_post), 4),' in src
     # ...and no display site may quote the raw per-observation pair again
