@@ -58,7 +58,8 @@ def main():
         a = fa.ensure_asteroid_kernel(verbose=True)
         if a:
             print(f"  asteroids: {a}")
-            print("  -> set PYROORB_ASTEROIDS_PATH to this path to enable whole-fit perturbers")
+            print("  -> the web UI and fits use it automatically for objects that need it;\n"
+                  "     for every command-line fit, set PYROORB_ASTEROIDS_PATH to this path")
         else:
             print("  asteroids: download failed; fits will run gravity-only")
             sys.exit(1)

@@ -1,6 +1,6 @@
 # PyRoOrb web UI in a container: no Python, no compiler on the host.
 #
-#   docker run -d -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervanwylen/pyroorb
+#   docker run -d --name pyroorb -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervanwylen/pyroorb
 #   -> http://localhost:8000
 #
 # The reference tables (DE440, the debias tables; with PYROORB_ASTEROIDS=1 also the 616 MB

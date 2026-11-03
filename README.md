@@ -56,11 +56,11 @@ To run the web UI yourself without installing Python — on your own computer, o
 server for a lab — use the Docker image:
 
 ```bash
-docker run -d -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervanwylen/pyroorb
+docker run -d --name pyroorb -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervanwylen/pyroorb
 ```
 
 then open http://localhost:8000 (the first start downloads ~110 MB of reference tables into
-the `pyroorb-data` volume). A ready `compose.yaml` for a shared server, updating and the
+the `pyroorb-data` volume; if the page does not load yet, `docker logs pyroorb` shows the download). A ready `compose.yaml` for a shared server, updating and the
 options: **[`docs/INSTALL.md`](docs/INSTALL.md#docker-the-web-ui-without-python)**.
 
 **For the Python API, the notebooks and the command line** (macOS and Linux) — one script does everything: checks for a C compiler

@@ -8,7 +8,7 @@ services:
     volumes:
       - pyroorb-data:/data          # reference tables + caches; survives updates
     environment:
-      PYROORB_ASTEROIDS: "1"        # full fidelity: also the 616 MB asteroid ephemeris
+      PYROORB_ASTEROIDS: "1"        # also the 616 MB asteroid ephemeris, used for objects that need it
       # PYROORB_MEMORY_PASSWORD: "choose-one"   # unlocks the /memory diagnostics page
     restart: unless-stopped
 

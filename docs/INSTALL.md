@@ -90,11 +90,12 @@ docker run -d --name pyroorb -p 8000:8000 -v pyroorb-data:/data ghcr.io/petervan
 
 Open http://localhost:8000 (on a server: `http://<server>:8000`). The first start downloads the
 reference tables (~110 MB) into the `pyroorb-data` volume; every later start, and every newer
-image, reuses them.
+image, reuses them. Until the download finishes the page does not load: `docker logs pyroorb`
+shows its progress.
 
 | Option | What it does |
 |---|---|
-| `-e PYROORB_ASTEROIDS=1` | also downloads the 616 MB asteroid ephemeris (the 16 massive perturbers), for full fidelity |
+| `-e PYROORB_ASTEROIDS=1` | also downloads the 616 MB asteroid ephemeris (the 16 massive perturbers); the engine switches them on for the objects that need them (e.g. a close pass of Ceres), not for every fit |
 | `-p 9000:8000` | serve on another port of the host |
 | `-e PYROORB_MEMORY_PASSWORD=…` | unlocks the `/memory` diagnostics page |
 | `-v pyroorb-data:/data` | keeps the tables and caches across restarts and updates; leave it out and every new container downloads them again |
