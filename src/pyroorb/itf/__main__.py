@@ -25,6 +25,8 @@ from .verdict import SearchVerdict  # noqa: E402
 
 
 def main(argv=None):
+    from pyroorb.obs_sources import route_fetch_notes_to_stdout
+    route_fetch_notes_to_stdout()      # an application: keep the fetch notes on stdout
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "maintain":
         from .maintain import main as maintain_main

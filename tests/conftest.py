@@ -86,6 +86,22 @@ def _no_ambient_memory_floor(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fetch_logger_restored():
+    """A test that runs an application's main (cli, web server, ITF tools) calls
+    obs_sources.route_fetch_notes_to_stdout(), which leaves a stdout handler on the
+    `pyroorb.fetch` logger for the rest of the session; every later test that
+    expects library-quiet fetch notes then fails, depending on test order.  Put
+    the logger back as it was after each test."""
+    import logging
+    log = logging.getLogger("pyroorb.fetch")
+    saved = (list(log.handlers), log.level, log.propagate)
+    yield
+    log.handlers[:] = saved[0]
+    log.setLevel(saved[1])
+    log.propagate = saved[2]
+
+
+@pytest.fixture(autouse=True)
 def _no_ambient_sbn_fallback(monkeypatch, request):
     """An offline test that makes the MPC fetchers fail must not then reach the
     real SBN replica through the observation-fetch fallback (sbn_obs) just

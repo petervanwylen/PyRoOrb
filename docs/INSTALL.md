@@ -47,7 +47,7 @@ there), the script says so and prints the line to add.
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh     # if you don't have uv yet
-uv venv && uv pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+uv venv && uv pip install pyroorb
 source .venv/bin/activate          # in every new terminal, before the pyroorb commands
 pyroorb-fetch-data                 # once: the reference tables (see below)
 ```
@@ -59,13 +59,30 @@ current Ubuntu, Debian and Homebrew Pythons refuse a bare `pip install`
 ```bash
 python3 -m venv .venv              # Ubuntu/Debian: needs  sudo apt install python3-venv
 source .venv/bin/activate
-pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+pip install pyroorb
 pyroorb-fetch-data
 ```
 
-To update a by-hand install, run its install line again so it refetches from GitHub:
-`uv pip install --reinstall-package pyroorb "pyroorb @ git+…"`, or with pip
-`pip install --force-reinstall "pyroorb @ git+…"` (which also recompiles ASSIST).
+To update a by-hand install: `uv pip install --upgrade pyroorb` (or `pip install -U pyroorb`).
+To run the development version instead, install it from the GitHub repository:
+`uv pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"`.
+
+### If PyRoOrb stops with "ASSIST cannot run against the installed REBOUND"
+
+ASSIST is compiled against REBOUND's headers, so the two must be the same release. They drift
+apart when an older REBOUND was already in the environment while `pip` built ASSIST, after
+`pip install -U rebound`, or when `uv` reuses an ASSIST wheel it built for another REBOUND.
+PyRoOrb checks this before its first fit; without the check the symptom is a process or Jupyter
+kernel that dies with no traceback (`free(): invalid size`, `corrupted size vs. prev_size`).
+Rebuild ASSIST against the REBOUND you have (`install.sh` does the same):
+
+```bash
+pip install setuptools wheel      # --no-build-isolation needs them in the environment
+pip install --no-build-isolation --force-reinstall --no-deps --no-cache-dir assist
+```
+
+With uv: `uv cache clean assist`, then `uv pip install setuptools wheel`, then
+`uv pip install --reinstall --no-build-isolation --no-deps assist`.
 
 **A C compiler is needed** for now: ASSIST, the force model PyRoOrb integrates with, has no
 pre-built wheels on PyPI, so the install compiles it (about half a minute), against REBOUND 4
@@ -213,7 +230,7 @@ installed by default:
 
 ```bash
 ./install.sh --extras itf                                                      # with the script
-uv pip install "pyroorb[itf] @ git+https://github.com/petervanwylen/PyRoOrb"   # or by hand (or pip install ...)
+uv pip install "pyroorb[itf]"                                                  # or by hand (or pip install ...)
 ```
 
 On macOS the ranker's xgboost also needs the OpenMP runtime: `brew install libomp` (the

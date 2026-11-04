@@ -55,6 +55,7 @@ dev = [
     "pytest>=7.0",
     "pytest-xdist>=3.0",
     "pillow",                # the web UI icon tests decode the images
+    "jplephem",              # the nightly reads the sb441-n16 kernel's SPK targets
 ]
 # ITF search + native index maintenance (pyroorb.itf): the PostgreSQL client for the
 # SBN database, plus the candidate-ranking model runtime — ranking_mode defaults to

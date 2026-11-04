@@ -43,6 +43,8 @@ Fitting
 
 .. autoclass:: UndeterminedOrbitWarning
 
+.. autoclass:: FetchError
+
 Products
 --------
 
@@ -108,7 +110,10 @@ The solution
 .. automethod:: FittedOrbit.element_sigmas
 .. automethod:: FittedOrbit.epoch_jd
 .. automethod:: FittedOrbit.epoch_iso
+.. automethod:: FittedOrbit.semimajor_axis
+.. automethod:: FittedOrbit.eccentricity
 .. automethod:: FittedOrbit.state
+.. automethod:: FittedOrbit.state_vector
 .. automethod:: FittedOrbit.covariance_matrix
 .. automethod:: FittedOrbit.correlation_matrix
 .. automethod:: FittedOrbit.parameter_covariance
@@ -140,6 +145,7 @@ Physical and hazard quantities
 .. automethod:: FittedOrbit.slope_parameter
 .. automethod:: FittedOrbit.n_magnitudes
 .. automethod:: FittedOrbit.magnitude_residuals
+.. automethod:: FittedOrbit.geocentric_range
 .. automethod:: FittedOrbit.moid_earth
 .. automethod:: FittedOrbit.orbit_class
 .. automethod:: FittedOrbit.is_pha

@@ -7040,8 +7040,12 @@ class FittedOrbit:
     def _sig(self, name): return float(math.sqrt(max(0.0, self._elem_cov[ELEM_NAMES.index(name)][ELEM_NAMES.index(name)])))
 
     # individual getters (value, 1-sigma)
-    def semimajor_axis(self):           return self._val("a"), self._sig("a")          # au
-    def eccentricity(self):             return self._val("e"), self._sig("e")
+    def semimajor_axis(self):
+        """``(value, 1-sigma)`` of the semi-major axis, au (negative for a hyperbola)."""
+        return self._val("a"), self._sig("a")
+    def eccentricity(self):
+        """``(value, 1-sigma)`` of the eccentricity."""
+        return self._val("e"), self._sig("e")
     def perihelion_distance(self):      return self._val("q"), self._sig("q")          # au
     def aphelion_distance(self):        return self._val("Q"), self._sig("Q")          # au
     def inclination(self):              return self._val("i"), self._sig("i")          # deg

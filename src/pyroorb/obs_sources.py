@@ -14,7 +14,7 @@ astropy -- never fit_object -- so importing it can't cycle. ades is imported laz
 the fetch/read entry points (ades imports back into this module's observer geometry, so a
 module-level import would cycle). fit_object re-exports these names for compatibility.
 """
-import json, os, re, sys, threading, urllib.request
+import json, logging, os, re, sys, threading, urllib.error, urllib.request
 from pathlib import Path
 import numpy as np
 from pyroorb import orbit_common                 # the shared "same physical detection" predicate
@@ -32,6 +32,40 @@ from pyroorb.obs80 import (mpc80_to_radec, mpc80_magnitude, mpc80_catalog, mpc80
 # pin cost 17-25 m of site (<=0.02") past its 2026-05-02 end, where it took UT1-UTC=0.
 from pyroorb import eop
 from pyroorb import datadirs
+
+# The fetch's progress and failure notes go here, not to stdout: a library should not print.
+# WARNING and above reach stderr by default; a notebook or script that wants the rest can
+# `logging.basicConfig(level="INFO")`.
+_log = logging.getLogger("pyroorb.fetch")
+
+
+class _StdoutNow(logging.StreamHandler):
+    """A handler on whatever ``sys.stdout`` is at the moment of each record, as ``print`` was."""
+    def __init__(self):
+        super().__init__(sys.stdout)
+
+    @property
+    def stream(self):
+        return sys.stdout
+
+    @stream.setter
+    def stream(self, _value):
+        pass
+
+
+def route_fetch_notes_to_stdout():
+    """For an APPLICATION (the command line, the web server, the ITF tools): print the fetch's
+    notes on stdout as ``(note)``, exactly as the library did before it logged them. These are
+    operator diagnostics -- "fetched 31 obs for P12nCge from the NEOCP", "ADES batch
+    unavailable; falling back to OBS80" -- that belong in a server's log. A library user
+    (a notebook, a script) does not call this and sees only warnings, on stderr. Idempotent."""
+    if any(isinstance(h, _StdoutNow) for h in _log.handlers):
+        return
+    handler = _StdoutNow()
+    handler.setFormatter(logging.Formatter("(%(message)s)"))
+    _log.addHandler(handler)
+    _log.setLevel(logging.INFO)
+    _log.propagate = False            # no second copy through a root handler the host configured
 eop.pin()
 
 class ObsParseError(ValueError):
@@ -127,9 +161,12 @@ def _force_backend(fit=None):
 # CI and the test suite need no download. A newer copy in the cache (OBSCODES_CACHE;
 # PYROORB_OBSCODES_PATH overrides it) wins when present. A download is tried only when it
 # can matter:
-#   * a MISS -- an observation names a station the table lacks: one validated download,
-#     at most once per process per OBSCODES_MISS_INTERVAL, then the fetch resolves again
-#     (`refresh_on_miss`); offline, the observation is dropped and reported as before;
+#   * a MISS -- an observation (or an `ephemeris` site) names a station the table lacks: one
+#     validated download, at most once per OBSCODES_MISS_INTERVAL (4 h) across ALL processes
+#     (the time of the last request is kept in a stamp file beside the cache, failures
+#     included), then the fetch resolves again (`refresh_on_miss`); offline, the observation
+#     is dropped and reported as before. The MPC bans addresses that poll, and a script that
+#     is started again for every object would otherwise ask each time;
 #   * the web server's periodic re-check (`refresh_obscodes`,
 #     PYROORB_OBSCODES_REFRESH_HOURS, default 12);
 #   * PYROORB_OBSCODES_REFRESH=1, which forces one at first use.
@@ -148,8 +185,8 @@ OBSCODES_URLS = (
 OBSCODES_CACHE = Path(os.environ.get("PYROORB_OBSCODES_PATH")
                       or datadirs.cache_dir() / "ObsCodes.htm")
 BUNDLED_OBSCODES = Path(__file__).resolve().parent / "package_data" / "ObsCodes.htm"
-OBSCODES_MISS_INTERVAL = 3600.0   # seconds between miss-triggered downloads, per process
-_OBSCODES_MISS_AT = None          # time.monotonic() of the last miss-triggered attempt
+OBSCODES_MISS_INTERVAL = 4 * 3600.0   # seconds between two miss-triggered downloads, any process
+_OBSCODES_MISS_AT = None          # time.time() of this process's last attempt (the stamp file's fallback)
 _OBSCODES_RESOLVED = None     # memoised path: resolve/download at most once per process
 OBSCODES_MIN_STATIONS = 1500  # 2729 on 2026-10-06; fewer parseable rows = not the table
 OBSCODES_MAX_SHRINK = 0.95    # a download listing < 95% of the cached stations is refused
@@ -230,6 +267,7 @@ def ensure_obscodes_file(verbose=False):
             try:
                 prior = (_station_codes(current.read_text(encoding="utf-8", errors="ignore"))
                          if current.exists() else None)
+                _record_request()
                 data, _url = _download_obscodes(verbose, prior)
                 _write_obscodes(data)
             except Exception as ex:
@@ -243,22 +281,58 @@ def ensure_obscodes_file(verbose=False):
     return _OBSCODES_RESOLVED
 
 
+def _request_stamp_path():
+    """The file recording when this machine last asked the MPC for the station table."""
+    return OBSCODES_CACHE.with_name("ObsCodes.last_request")
+
+
+def _last_request_time():
+    """Wall-clock time of the last table request by ANY process on this machine (the later of
+    the stamp file and this process's own record), or None. A stamp in the future (the clock
+    was set back) is ignored, so it can never block downloads for good."""
+    import time as _time
+    seen = [t for t in (_OBSCODES_MISS_AT,) if t is not None]
+    try:
+        seen.append(float(_request_stamp_path().read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        pass
+    now = _time.time()
+    seen = [t for t in seen if t <= now]
+    return max(seen) if seen else None
+
+
+def _record_request(when=None):
+    """Note that the MPC is being asked now (called BEFORE the download, so a failed request
+    counts too and an MPC outage is not met with a retry from every process)."""
+    global _OBSCODES_MISS_AT
+    import time as _time
+    _OBSCODES_MISS_AT = _time.time() if when is None else when
+    try:
+        stamp = _request_stamp_path()
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        tmp = stamp.with_name(stamp.name + ".part")
+        tmp.write_text(repr(_OBSCODES_MISS_AT), encoding="utf-8")
+        tmp.replace(stamp)
+    except OSError:
+        pass                      # a read-only cache directory: the in-process record still holds
+
+
 def refresh_on_miss(codes, verbose=False):
-    """Observations named stations the table lacks (`codes`): try ONE validated download
-    -- at most once per process per OBSCODES_MISS_INTERVAL, never under
-    PYROORB_OBSCODES_REFRESH=never -- and return the subset of `codes` the refreshed
-    table now lists (empty when nothing changed, the download failed or was not tried).
-    The caller resolves those observations again."""
-    global _OBSCODES_MISS_AT, _OBSCODES_RESOLVED
+    """Observations or an ephemeris site named stations the table lacks (`codes`): try ONE
+    validated download -- at most once per OBSCODES_MISS_INTERVAL (4 h) across all processes,
+    never under PYROORB_OBSCODES_REFRESH=never -- and return the subset of `codes` the
+    refreshed table now lists (empty when nothing changed, the download failed or was not
+    tried). The caller resolves those observations again."""
+    global _OBSCODES_RESOLVED
     import time as _time
     codes = set(codes or ())
     if not codes or not _obscodes_downloads_allowed():
         return set()
     with _OBSCODES_LOCK:
-        now = _time.monotonic()
-        if _OBSCODES_MISS_AT is not None and now - _OBSCODES_MISS_AT < OBSCODES_MISS_INTERVAL:
+        last = _last_request_time()
+        if last is not None and _time.time() - last < OBSCODES_MISS_INTERVAL:
             return set()
-        _OBSCODES_MISS_AT = now
+        _record_request()
         current = _current_obscodes_path()
         prior = (_station_codes(current.read_text(encoding="utf-8", errors="ignore"))
                  if current.exists() else set())
@@ -289,6 +363,7 @@ def refresh_obscodes(verbose=False):
         if not _obscodes_downloads_allowed():
             return {"changed": False, "source": None, "n": len(prior), "added": [],
                     "removed": [], "error": "downloads off (PYROORB_OBSCODES_REFRESH=never)"}
+        _record_request()
         try:
             data, url = _download_obscodes(verbose, prior)
         except Exception as ex:
@@ -721,6 +796,17 @@ def fetch_failure_message(meta):
             f"answer from less astrometry than requested. Try again in a moment.")
 
 
+def _close_error(ex):
+    """Close an ``HTTPError`` we are only going to describe: it holds the response socket, and
+    left to the garbage collector it raises a ResourceWarning in the user's session."""
+    close = getattr(ex, "close", None)
+    if callable(close) and isinstance(ex, urllib.error.HTTPError):
+        try:
+            close()
+        except Exception:
+            pass
+
+
 def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
     from pyroorb.ades import fetch_combined_ades, fetch_combined_neocp, is_neocp_desig
     cache_dir = cache_dir or (datadirs.cache_dir())
@@ -734,7 +820,8 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
             if obs:
                 return obs, meta
         except Exception as ex:
-            print(f"(ADES batch unavailable: {ex}; falling back to OBS80)")
+            _close_error(ex)
+            _log.info("ADES batch unavailable: %s; falling back to OBS80", ex)
     # The published-obs API (ADES + OBS80) shares one backend that HTTP-500s on a
     # designation it can't find, so guard the OBS80 attempt: a failure here is the
     # signal to try the NEOCP, not a reason to abort.
@@ -744,7 +831,8 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
             meta["format"] = "OBS80"
             return obs, meta
     except Exception as ex:
-        print(f"(OBS80 batch unavailable: {ex})")
+        _close_error(ex)
+        _log.info("OBS80 batch unavailable: %s", ex)
     # Per-designation fallback. The whole-batch fetch above is all-or-nothing: a
     # single designation the published API can't find -- typically an unconfirmed
     # NEOCP / temporary tracklet -- HTTP-500s the entire request, taking its published
@@ -769,12 +857,14 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
             try:
                 one, _ = fetch_combined_ades([d], obscodes, cache_dir=cache_dir)
             except Exception as ex:
+                _close_error(ex)
                 why.append(f"ADES: {type(ex).__name__}: {ex}")
                 one = []
         if not one:
             try:
                 one, _ = fetch_combined([d], obscodes, cache_dir=cache_dir)
             except Exception as ex:
+                _close_error(ex)
                 why.append(f"OBS80: {type(ex).__name__}: {ex}")
                 one = []
         if not one and is_neocp_desig(d):
@@ -782,10 +872,11 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
                 one, _ = fetch_combined_neocp([d], obscodes, cache_dir=cache_dir)
                 if one:
                     used_neocp = True
-                    print(f"(fetched {len(one)} obs for {d} from the NEOCP)")
+                    _log.info("fetched %d obs for %s from the NEOCP", len(one), d)
             except Exception as ex:
+                _close_error(ex)
                 why.append(f"NEOCP: {type(ex).__name__}: {ex}")
-                print(f"(NEOCP fetch failed for {d}: {ex})")
+                _log.info("NEOCP fetch failed for %s: %s", d, ex)
         if not one:
             one = _fetch_from_sbn(d, obscodes, why)
             if one:
@@ -793,9 +884,9 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
         if not one:
             if why:
                 fetch_errors[d] = "; ".join(why)
-                print(f"(could not reach the MPC for {d}: {why[0]})")
+                _log.warning("could not reach the MPC for %s: %s", d, why[0])
             else:
-                print(f"(no observations found for {d})")
+                _log.warning("no observations found for %s", d)
         merged += one
     if not merged:
         meta = {"designation": desig_list[0] if desig_list else str(desigs),

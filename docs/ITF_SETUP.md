@@ -38,7 +38,7 @@ ITF_DB_PASSWORD=...
 
 Install PyRoOrb with the ITF extra: [`install.sh`](../install.sh) includes it by default (and
 on macOS installs Homebrew's `libomp`, which the ranker's xgboost needs); see
-[INSTALL.md](INSTALL.md). By hand: `uv pip install "pyroorb[itf] @ git+https://github.com/petervanwylen/PyRoOrb"`
+[INSTALL.md](INSTALL.md). By hand: `uv pip install "pyroorb[itf]"`
 (on macOS also `brew install libomp`).
 
 ## The tracklet index

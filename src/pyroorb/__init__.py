@@ -15,8 +15,8 @@ may change in any release. The station table is implicit: every call uses the MP
 ships with PyRoOrb (refreshed when an observation names a station it lacks); ``obscodes=``
 overrides it. Units, frames and time scales are stated once, in ``docs/conventions.rst``.
 """
-import os
-import warnings
+import os as _os
+import warnings as _warnings
 
 __version__ = "0.9.1"
 
@@ -36,6 +36,15 @@ def __getattr__(name):
         from pyroorb.obs_sources import load_obscodes
         return load_obscodes
     raise AttributeError(f"module 'pyroorb' has no attribute {name!r}")
+
+
+class FetchError(RuntimeError):
+    """The observations could not be fetched: the Minor Planet Center did not answer.
+
+    A subclass of ``RuntimeError``, so code that caught that keeps working. The MPC answers
+    HTTP 500 both for a designation it does not know and for an outage, so the two cannot be
+    told apart: the message names the designation and what came back, and says whether
+    retrying is worth it."""
 
 
 class UndeterminedOrbitWarning(UserWarning):
@@ -170,8 +179,8 @@ def read_observations(source, *, obscodes=None, format=None):
         The optical observations; any radar astrometry is in ``meta["radar"]``.
     """
     text = source
-    if isinstance(source, os.PathLike) or (
-            isinstance(source, str) and "\n" not in source and os.path.isfile(source)):
+    if isinstance(source, _os.PathLike) or (
+            isinstance(source, str) and "\n" not in source and _os.path.isfile(source)):
         with open(source, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
     from pyroorb import obs_sources as _obs_sources
@@ -203,15 +212,17 @@ def fetch_observations(designations, *, obscodes=None):
 
     Raises
     ------
-    RuntimeError
-        When nothing could be fetched; the message says why.
+    FetchError
+        When nothing could be fetched; the message says why. (A ``RuntimeError``.) The MPC
+        reports an unknown designation exactly like an outage, so a misspelt name raises this
+        too.
     """
     from pyroorb import obs_sources as _obs_sources
     desigs = [designations] if isinstance(designations, str) else list(designations)
     records, meta = _obs_sources.fetch_observations(desigs, _table(obscodes))
     failure = _obs_sources.fetch_failure_message(meta)
     if failure:
-        raise RuntimeError(failure)
+        raise FetchError(failure)
     return Observations(records, meta)
 
 
@@ -313,7 +324,7 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
             from pyroorb import radar as _radar
             fit = _radar.refine_radar(fit, radar_rows, table)
     if not fit.is_determined:
-        warnings.warn(f"{designation}: the observations leave the orbit undetermined; its "
+        _warnings.warn(f"{designation}: the observations leave the orbit undetermined; its "
                       f"elements are a nominal solution only (fit.determinacy())",
                       UndeterminedOrbitWarning, stacklevel=2)
     return fit
@@ -406,6 +417,12 @@ def ephemeris(fit, start, stop, step=1.0, site="500", *, obscodes=None, full=Tru
         carries as ``sat_pos_au`` (the MPC's satellite line). ``site`` then only labels the
         rows, and the altitude and airmass columns are left empty.
 
+    Raises
+    ------
+    ValueError
+        If ``stop`` is before ``start``, ``step`` is not positive, or ``site`` is not in the
+        station table (and no ``observer`` is given).
+
     Returns
     -------
     list of dict
@@ -421,8 +438,30 @@ def ephemeris(fit, start, stop, step=1.0, site="500", *, obscodes=None, full=Tru
         ``gal_l_deg``, ``gal_b_deg``, ``ecl_lon_deg``, ``ecl_lat_deg`` and
         ``constellation``.
     """
+    jd0, jd1 = _to_jd(start), _to_jd(stop)
+    if jd1 < jd0:
+        raise ValueError(f"ephemeris: stop ({stop}) is before start ({start}); the span runs "
+                         f"from start to stop")
+    if not float(step) > 0:
+        raise ValueError(f"ephemeris: step must be positive, not {step}")
+    table = _table(obscodes)
+    if observer is None and str(site) not in table:
+        # A station newer than the bundled table is real, so ask the MPC for its table -- but
+        # only for the bundled table (an `obscodes=` the caller supplied is deliberate), and
+        # at most once every 4 hours on this machine however often this is called
+        # (obs_sources.refresh_on_miss keeps the time of the last request; the MPC bans
+        # addresses that poll).
+        if obscodes is None:
+            from pyroorb import obs_sources as _obs_sources
+            if _obs_sources.refresh_on_miss({str(site)}):
+                table = _table(None)
+        if str(site) not in table:
+            raise ValueError(f"ephemeris: unknown observatory code {str(site)!r}; it is not in "
+                             f"the MPC station table (see pyroorb.obscodes(); the table is "
+                             f"re-fetched from the MPC at most every 4 hours). Pass observer= "
+                             f"to place a spacecraft or other position that has no code.")
     import pyroorb.ephemerides as _eph
-    return _eph.compute_ephemeris(fit, _table(obscodes), _to_jd(start), _to_jd(stop),
+    return _eph.compute_ephemeris(fit, table, jd0, jd1,
                                   float(step), site=str(site), full=full, observer=observer)
 
 
@@ -787,7 +826,7 @@ class asteroid_perturbers:
 
     def __repr__(self):
         path = self._fa.ASTEROIDS_PATH
-        return ("asteroid perturbers on (" + os.path.basename(path) + ")") if path else \
+        return ("asteroid perturbers on (" + _os.path.basename(path) + ")") if path else \
             "asteroid perturbers off"
 
     def __enter__(self):
@@ -883,4 +922,4 @@ __all__ = ["load_settings", "read_observations", "fetch_observations", "fit_orbi
            "radar_prediction",
            "sample_orbits", "range_posterior", "most_probable_orbit", "OrbitEnsemble",
            "FittedOrbit", "Observations", "UndeterminedOrbitWarning", "obscodes",
-           "load_obscodes", "__version__"]
+           "FetchError", "__version__"]

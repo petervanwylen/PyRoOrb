@@ -5,6 +5,35 @@ change the Python API. 0.9.1 is the first release on PyPI.
 
 ## Unreleased
 
+- Fixed: an ASSIST built against a different REBOUND than the one installed (REBOUND already
+  present in an older release when `pip` built ASSIST, a later `pip install -U rebound`, a
+  cached ASSIST wheel under `uv`) made the first fit return an unchanged state and then abort
+  the process with no traceback. PyRoOrb now runs a 0.3 s test integration in a child process
+  once per installed pair and, on a mismatch, raises `pyroorb.abi_check.AssistMismatchError`
+  with the rebuild command (docs/INSTALL.md). `PYROORB_SKIP_ABI_CHECK=1` turns it off.
+- `ephemeris` raises `ValueError` for a `stop` before `start`, a non-positive `step`, and a
+  station code that is not in the table (it used to answer with the geocentre, or crash with an
+  `IndexError`); give `observer=` for a position that has no code. A code that is merely newer
+  than the bundled table triggers one validated re-fetch of the MPC's table first, never for an
+  `obscodes=` you supplied.
+- The MPC's station table is now requested at most once every 4 hours per machine, across
+  processes (the time of the last request, failures included, is kept beside the cached table;
+  it was once per process per hour), so a script started anew for every object cannot hammer
+  the MPC.
+- `fetch_observations` raises `pyroorb.FetchError` (a `RuntimeError`); its progress and failure
+  notes go to the `pyroorb.fetch` logger, not stdout (the `pyroorb`, `pyroorb-web` and
+  `pyroorb-itf` commands still print them on stdout, as before; in a notebook or script,
+  `logging.basicConfig(level="INFO")` shows them), and unclosed `HTTPError` responses no
+  longer raise a `ResourceWarning`.
+- Observations from before 1959-12-31 (433 Eros has thousands of plates from the 1890s) no
+  longer produce ERFA's "dubious year" warning: their UTC Julian date is plain calendar
+  arithmetic, bit-identical to astropy's. The same warning for dates after ~2029, where leap
+  seconds are unknowable, is still shown.
+- `FittedOrbit.semimajor_axis`, `eccentricity`, `state_vector` and `geocentric_range` are
+  documented; `os` and `warnings` no longer appear in the `pyroorb` namespace;
+  `load_obscodes` leaves `__all__` (`pyroorb.obscodes()` is the documented spelling).
+- Docs: INSTALL.md, ITF_SETUP.md and the README install from PyPI; README notebook list and
+  the `fit.epoch_iso()` comment corrected.
 - The install scripts put the PyRoOrb commands on PATH: `pyroorb`, `pyroorb-web`,
   `pyroorb-itf` and `pyroorb-fetch-data` run from any folder in a new terminal, with no
   `activate` step (that is now needed only to use PyRoOrb from your own Python). They are
@@ -44,7 +73,7 @@ change the Python API. 0.9.1 is the first release on PyPI.
 - `body_states(body, times)`: heliocentric states of the Sun, planets, Moon, Pluto and the 16
   asteroid perturbers, from the ephemerides PyRoOrb integrates in; `close_approaches` (and an
   ensemble's) accept Pluto and those asteroids as bodies. `ref` (the publication reference) is a
-  supported observation-record key. Notebooks 11, 12 and 14 now use only the public API.
+  supported observation-record key. Notebooks 04, 11 and 12 now use only the public API.
 
 - Removed `fit_orbit(force=...)` from the Python API. The experimental brute-force linker can
   drive two different objects into one clean-looking orbit, so it is not something to build

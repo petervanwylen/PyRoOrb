@@ -1240,6 +1240,8 @@ def main():
     # $HOST overrides too (set HOST=127.0.0.1 to scope to loopback without a flag).
     ap.add_argument("--host", default=os.environ.get("HOST", "0.0.0.0"))
     args = ap.parse_args()
+    from pyroorb.obs_sources import route_fetch_notes_to_stdout
+    route_fetch_notes_to_stdout()      # an application: the fetch notes belong in the server log
     _maybe_start_itf_maintenance()
     _maybe_start_obscodes_refresh()
     addons.start_all(addons.CONTEXT)
@@ -1256,7 +1258,7 @@ def main():
         os.environ.get("PYROORB_LISTEN_BACKLOG") or 128)
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"PyRoOrb web UI  ->  http://{args.host}:{args.port}")
-    print("  (Phase 0 read-only viewer; Ctrl-C to stop)")
+    print("  (Ctrl-C to stop)")
     if args.host == "0.0.0.0":
         print("  from the host browser, try http://localhost:%d  (or the VM's IP:%d)"
               % (args.port, args.port))

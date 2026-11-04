@@ -5,6 +5,7 @@ Downloads try the MPC first, find_orb's mirror as fallback, and are validated be
 replace the cache; a changed table reaches the in-process caches (obs_sources.
 refresh_obscodes / obscodes_token, engine_api._obscodes, fitqueue.fit_key)."""
 import io
+import time
 
 import pytest
 
@@ -12,6 +13,14 @@ from pyroorb import obs_sources
 
 MPC, FINDORB = obs_sources.OBSCODES_URLS
 NEW_STATION = "Z99 359.978740.595468+0.800687New Station"
+
+
+def _age_the_last_request(hours):
+    """Make the last table request (any process) `hours` old: the stamp file and this process's
+    own record, the two things `refresh_on_miss` consults."""
+    obs_sources._request_stamp_path().parent.mkdir(parents=True, exist_ok=True)
+    obs_sources._request_stamp_path().write_text(repr(time.time() - hours * 3600), encoding="utf-8")
+    obs_sources._OBSCODES_MISS_AT = None
 
 
 def _table(n, extra=()):
@@ -165,7 +174,7 @@ def test_a_miss_refreshes_once_per_interval(table, monkeypatch):
     n = net({MPC: _table(100, [NEW_STATION])})
     assert obs_sources.refresh_on_miss({"Z99"}) == set()      # within the interval: no call
     assert n.calls == []
-    monkeypatch.setattr(obs_sources, "_OBSCODES_MISS_AT", None)   # the interval has passed
+    _age_the_last_request(hours=5)                            # the 4 h interval has passed
     assert obs_sources.refresh_on_miss({"Z99", "Q00"}) == {"Z99"}
     assert "Z99" in obs_sources.load_obscodes()
 
@@ -223,3 +232,110 @@ def test_engine_cache_and_fit_key_follow_a_refresh(table):
         assert fitqueue.fit_key(["2023 QJ3"], False) != k0
     finally:
         engine_api._OBSCODES = engine_api._OBSNAMES = None
+
+
+# --- the 4-hour limit holds across processes -------------------------------------------------
+
+def test_the_interval_is_four_hours():
+    assert obs_sources.OBSCODES_MISS_INTERVAL == 4 * 3600.0
+
+
+def test_a_new_process_does_not_ask_again_within_four_hours(table, monkeypatch):
+    """The limit is the time of the last request on this machine, not a per-process counter: a
+    script started again for every object must not hit the MPC each time."""
+    path, net = table
+    n = net({MPC: _table(100)})
+    obs_sources.refresh_on_miss({"Z99"})
+    assert n.calls == [MPC]
+    for _ in range(5):                                        # five "new processes"
+        monkeypatch.setattr(obs_sources, "_OBSCODES_MISS_AT", None)
+        assert obs_sources.refresh_on_miss({"Z99"}) == set()
+    assert n.calls == [MPC]
+    _age_the_last_request(hours=3.9)
+    obs_sources.refresh_on_miss({"Z99"})
+    assert n.calls == [MPC]                                   # 3.9 h: still too soon
+    _age_the_last_request(hours=4.1)
+    obs_sources.refresh_on_miss({"Z99"})
+    assert n.calls == [MPC, MPC]                              # past 4 h: one more
+
+
+def test_a_failed_request_counts_so_an_outage_is_not_retried(table, monkeypatch):
+    path, net = table
+    n = net({})                                               # both sources down
+    assert obs_sources.refresh_on_miss({"Z99"}) == set()
+    assert n.calls == [MPC, FINDORB]
+    monkeypatch.setattr(obs_sources, "_OBSCODES_MISS_AT", None)
+    assert obs_sources.refresh_on_miss({"Z99"}) == set()
+    assert n.calls == [MPC, FINDORB]                          # nothing more was requested
+
+
+def test_a_stamp_from_the_future_cannot_block_downloads_for_good(table, monkeypatch):
+    path, net = table
+    n = net({MPC: _table(100)})
+    _age_the_last_request(hours=-48)                          # the clock was set back
+    obs_sources.refresh_on_miss({"Z99"})
+    assert n.calls == [MPC]
+
+
+def test_an_unwritable_cache_still_limits_within_the_process(table, monkeypatch, tmp_path):
+    path, net = table
+    blocker = tmp_path / "a_file"
+    blocker.write_text("x")
+    monkeypatch.setattr(obs_sources, "_request_stamp_path", lambda: blocker / "ObsCodes.last_request")
+    n = net({MPC: _table(100)})
+    obs_sources.refresh_on_miss({"Z99"})
+    obs_sources.refresh_on_miss({"Z99"})
+    assert n.calls == [MPC]
+
+
+def test_the_periodic_refresh_also_postpones_miss_downloads(table, monkeypatch):
+    path, net = table
+    n = net({MPC: _table(100)})
+    obs_sources.refresh_obscodes()
+    assert n.calls == [MPC]
+    monkeypatch.setattr(obs_sources, "_OBSCODES_MISS_AT", None)
+    assert obs_sources.refresh_on_miss({"Z99"}) == set()
+    assert n.calls == [MPC]
+
+
+# --- ephemeris(site=...) uses it -------------------------------------------------------------
+
+def test_ephemeris_site_newer_than_the_table_triggers_one_limited_refresh(table, monkeypatch):
+    import pyroorb
+    import pyroorb.ephemerides as eph
+    path, net = table
+    seen = {}
+    monkeypatch.setattr(eph, "compute_ephemeris",
+                        lambda fit, tbl, *a, **k: seen.update(site=k["site"], known="Z99" in tbl))
+    n = net({MPC: _table(100, [NEW_STATION])})
+    pyroorb.ephemeris(None, "2026-11-01", "2026-11-02", site="Z99")
+    assert seen == {"site": "Z99", "known": True} and n.calls == [MPC]
+
+
+def test_ephemeris_unknown_site_raises_and_does_not_hammer_the_mpc(table):
+    import pyroorb
+    path, net = table
+    n = net({MPC: _table(100)})                               # the MPC does not list it either
+    for _ in range(10):
+        with pytest.raises(ValueError, match="XYZ"):
+            pyroorb.ephemeris(None, "2026-11-01", "2026-11-02", site="XYZ")
+    assert n.calls == [MPC]                                   # ten calls, one request
+
+
+def test_a_caller_supplied_table_is_never_refreshed_for(table):
+    import pyroorb
+    path, net = table
+    n = net({MPC: _table(100, [NEW_STATION])})
+    with pytest.raises(ValueError, match="Z99"):
+        pyroorb.ephemeris(None, "2026-11-01", "2026-11-02", site="Z99", obscodes={"500": (0, 0, 0)})
+    assert n.calls == []
+
+
+def test_no_refresh_when_downloads_are_off(table, monkeypatch):
+    import pyroorb
+    path, net = table
+    monkeypatch.setenv("PYROORB_OBSCODES_REFRESH", "never")
+    n = net({MPC: _table(100, [NEW_STATION])})
+    with pytest.raises(ValueError, match="Z99"):
+        pyroorb.ephemeris(None, "2026-11-01", "2026-11-02", site="Z99")
+    assert n.calls == []

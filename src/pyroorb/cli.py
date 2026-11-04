@@ -809,6 +809,8 @@ def _print_keyholes(fit, years):
 
 
 def main():
+    from pyroorb.obs_sources import route_fetch_notes_to_stdout
+    route_fetch_notes_to_stdout()      # an application: keep the fetch notes on stdout
     args = sys.argv[1:]
     if not args or args[0] in ("-h", "--help") or "--help" in args:
         print(USAGE)

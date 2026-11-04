@@ -628,11 +628,33 @@ def mpc80_catalog(line):
     return c if c.strip() else None
 
 
+def utc_jd_before_1960(year, month, day, day_fraction=0.0):
+    """The UTC Julian date of a calendar date before 1959-12-31, as a plain calendar count; for
+    any later date, ``None`` (the caller uses ``astropy.time.Time``).
+
+    UTC does not exist before 1960 and there were no leap seconds, so the date's Julian date is
+    arithmetic. Going through ``astropy.time.Time`` returns the same number, but ERFA flags every
+    such conversion "dubious year" (433 Eros alone has thousands of 1890s plates), and the only
+    ways to silence that warning are a process-wide filter, which also hides the warning's other
+    and genuine cause (a date after ~2029, where leap seconds are unknowable), or
+    ``catch_warnings``, which is not thread-safe in the threaded web server. Equal to the ``Time``
+    route to the last bit on every earlier day (tests/test_install_and_api_guards.py). 1959-12-31
+    itself is left to astropy: ERFA stretches that one day by the 1.4 s offset that begins the
+    next, so calendar arithmetic would differ from it by 0.17 s.
+    """
+    if (int(year), int(month), int(day)) >= (1959, 12, 31):
+        return None
+    import erfa
+    return 2400000.5 + erfa.cal2jd(int(year), int(month), int(day))[1] + day_fraction
+
+
 def mpc80_to_radec(line):
     y, mo = int(line[15:19]), int(line[20:22])
     dfrac = float(line[23:32])
     day = int(dfrac); frac = dfrac - day
-    jd = Time(f"{y:04d}-{mo:02d}-{day:02d}T00:00:00", scale="utc").jd + frac
+    jd = utc_jd_before_1960(y, mo, day, frac)
+    if jd is None:
+        jd = Time(f"{y:04d}-{mo:02d}-{day:02d}T00:00:00", scale="utc").jd + frac
     rh, rm, rs = float(line[32:34]), float(line[35:37]), float(line[38:44])
     ra = 15.0 * (rh + rm/60 + rs/3600)
     sgn = -1.0 if line[44] == "-" else 1.0

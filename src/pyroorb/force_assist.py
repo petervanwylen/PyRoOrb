@@ -37,6 +37,7 @@ from pathlib import Path
 import numpy as np
 import rebound
 import assist
+from pyroorb import abi_check
 import pyroorb.deadline as _deadline                 # cooperative wall-clock bound (leaf, stdlib only)
 import pyroorb.sweepwatch as _sweepwatch              # what this thread is integrating right now (leaf, stdlib only)
 from pyroorb.forward_model import _radec_from_helio   # shared light-time + RA/Dec geometry kernel
@@ -435,7 +436,9 @@ def _masked_ephem(number):
         if number not in _EPHEM_EXCL:
             ok, eph = False, None
             if spk_layout_supported():
-                eph = assist.Ephem(ensure_planets_kernel(), kern)
+                planets = ensure_planets_kernel()
+                abi_check.verify(planets)
+                eph = assist.Ephem(planets, kern)
                 try:
                     ok = zero_asteroid_gm(eph, number)
                 except Exception:
@@ -468,13 +471,15 @@ def get_ephem(asteroids=None):
         if _EPHEM_AST is None:
             with _EPHEM_LOCK:
                 if _EPHEM_AST is None:
-                    _EPHEM_AST = assist.Ephem(ensure_planets_kernel(),
-                                              asteroid_kernel_path())
+                    planets = ensure_planets_kernel()
+                    abi_check.verify(planets)
+                    _EPHEM_AST = assist.Ephem(planets, asteroid_kernel_path())
         return _EPHEM_AST
     if _EPHEM is None:
         with _EPHEM_LOCK:
             if _EPHEM is None:
                 planets = ensure_planets_kernel()
+                abi_check.verify(planets)
                 with _quiet_no_asteroid_notice():
                     _EPHEM = assist.Ephem(planets)
     return _EPHEM

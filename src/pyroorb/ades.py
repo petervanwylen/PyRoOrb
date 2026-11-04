@@ -16,14 +16,14 @@ PROVENANCE: ADES is the IAU astrometry standard; we read it from the MPC API and
 parse user files natively (PSV logic ported from adam_core's ADES_string_to_tables,
 B612, MIT; no copied source). Designation packing is native (packing.py).
 """
-import json, ssl, sys, urllib.request, urllib.parse
+import json, re, ssl, sys, urllib.request, urllib.parse
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from astropy.time import Time
 
 from pyroorb.weights import sigma_for, ades_rms_usable
 from pyroorb.obs80 import (geodetic_to_itrs_au, pack_designation, cache_stem, cache_fresh,
-                   astrometry_ttl, NEOCP_CACHE_TTL_S)
+                   astrometry_ttl, NEOCP_CACHE_TTL_S, utc_jd_before_1960)
 from pyroorb import datadirs
 
 OBS_API = "https://data.minorplanetcenter.net/api/get-obs"
@@ -108,9 +108,19 @@ def _designation(rec):
     return str(d).strip() if d else None
 
 
+_ISOT = re.compile(r"(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d(?:\.\d*)?)$")
+
+
 def _jd_utc(obstime):
     # ADES obsTime is ISO-8601 UTC, e.g. '2014-09-28T08:40:58.656Z'
-    return float(Time(obstime.replace("Z", ""), format="isot", scale="utc").jd)
+    iso = obstime.replace("Z", "")
+    m = _ISOT.match(iso)
+    if m:                                       # plates: no UTC, no leap seconds (obs80.utc_jd_before_1960)
+        y, mo, d, hh, mi = (int(g) for g in m.groups()[:5])
+        jd = utc_jd_before_1960(y, mo, d, (hh * 3600 + mi * 60 + float(m.group(6))) / 86400.0)
+        if jd is not None:
+            return float(jd)
+    return float(Time(iso, format="isot", scale="utc").jd)
 
 
 def _reported(v):

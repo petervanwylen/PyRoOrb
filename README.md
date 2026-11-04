@@ -32,7 +32,7 @@
 ---
 
 **PyRoOrb** (**Py**thon **Ro**bust **Orb**it Determination) turns raw asteroid/comet astrometry (ADES or MPC 80-column) into a
-high-quality orbit — with realistic uncertainties, identifications, and ITF search — **entirely in Python, on every OS** (Linux, macOS and Windows). It ships with a **browser workbench**, but it is equally intended for science in Python notebooks. ITF search is primarily limited to web-based service a pyroorb.net but is possible for the motivated user to run locally with an SBN mirror of their own (please coordinate with the author before doing mass pipeline submissions using it in order to deconflict large number of duplicates arriving at MPC and to discuss submission credit).
+high-quality orbit — with realistic uncertainties, identifications, and ITF search — **entirely in Python, on every OS** (Linux, macOS and Windows). It ships with a **browser workbench**, but it is equally intended for science in Python notebooks. ITF search is primarily limited to the web-based service at pyroorb.net but is possible for the motivated user to run locally with an SBN mirror of their own (please coordinate with the author before doing mass pipeline submissions using it in order to deconflict large number of duplicates arriving at MPC and to discuss submission credit).
 
 ## Why it exists
 
@@ -93,7 +93,7 @@ needs your own SBN database, is left out; `--extras itf` adds it (~500 MB more).
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh     # if you don't have uv yet
-uv venv && uv pip install "pyroorb @ git+https://github.com/petervanwylen/PyRoOrb"
+uv venv && uv pip install pyroorb
 source .venv/bin/activate   # in every new terminal, before the pyroorb commands
 pyroorb-fetch-data          # once: DE440 (~102 MB) + the debias tables (~10 MB)
 ```
@@ -117,7 +117,10 @@ The same C-compiler requirement applies (ASSIST has no PyPI wheels; see below). 
 install ASSIST from its Windows fork first, or `pip install pyroorb` fails building the PyPI
 ASSIST: the three commands are in
 [Windows, by hand](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/INSTALL.md#windows). The ITF search
-extras are optional: `pip install "pyroorb[itf]"`. The full function and method reference is
+extras are optional: `pip install "pyroorb[itf]"`. If you later upgrade REBOUND (or it was
+already installed in an older version), ASSIST must be rebuilt against it; PyRoOrb detects the
+mismatch and prints the command ([INSTALL.md](https://github.com/petervanwylen/PyRoOrb/blob/main/docs/INSTALL.md)
+has it). The full function and method reference is
 on Read the Docs: **[pyroorb.readthedocs.io](https://pyroorb.readthedocs.io/en/latest/)**.
 
 Python 3.11–3.14 on Linux or macOS; Python 3.11–3.12 on 64-bit Windows, where the installer is
@@ -169,7 +172,8 @@ pyroorb.load_settings()                         # your .env settings file, if yo
 obs = pyroorb.fetch_observations("2023 QJ3")     # or pyroorb.read_observations("my.psv")
 fit = pyroorb.fit_orbit(obs, designation="2023 QJ3")
 print(fit.is_determined, fit.rms_residual(), fit.n_observations())
-print(fit.elements(), fit.element_sigmas())     # a, e, i, Ω, ω, M … (+1σ), epoch
+print(fit.elements(), fit.element_sigmas())     # a, e, i, Ω, ω, M … and their 1σ
+print(fit.epoch_iso())                          # the epoch the elements refer to
 print(fit.moid_earth(), fit.orbit_class(), fit.uncertainty_parameter())
 
 eph = pyroorb.ephemeris(fit, "2026-11-01", "2026-12-01", step=1.0, site="568")
@@ -196,11 +200,12 @@ Everything not listed there is internal and may change before 1.0.
 
 ## Example notebooks
 
-**[`notebooks/`](https://github.com/petervanwylen/PyRoOrb/blob/main/notebooks/README.md)** holds eleven short worked examples. Each one fits the raw
-observations and checks its answer against JPL. The topics are Apophis's 2029 flyby, Vesta
-passing (197) Arete, a new NEO's first nights, Yarkovsky on Bennu, comet outgassing, the
-interstellar objects, radar, photometry, a Jovian moon, and a population prior for a single
-night's orbit.
+**[`notebooks/`](https://github.com/petervanwylen/PyRoOrb/blob/main/notebooks/README.md)** holds thirteen short worked examples. Each one fits the raw
+observations and, where JPL publishes an orbit, checks its answer against it. The topics are
+Vesta passing (197) Arete, Apophis's 2029 flyby and its remeasured 2004 positions, a new NEO's
+first nights, comet outgassing, the interstellar objects, radar, photometry, a Jovian moon, a
+population prior for a single night's orbit, young asteroid pairs, a brush with Ceres, and the
+debias tables.
 
 ## How it works
 
