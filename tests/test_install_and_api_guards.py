@@ -91,7 +91,8 @@ def canary(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("rc, err", [(-6, ""), (134, ""), (abi_check._UNCHANGED, ""),
-                                     (1, "free(): invalid size")])
+                                     (1, "free(): invalid size"),
+                                     (0xC0000005, ""), (0xC0000374, ""), (0xC0000409, "")])
 def test_a_mismatched_assist_is_refused_with_the_rebuild_command(canary, rc, err):
     canary(rc, err)
     with pytest.raises(abi_check.AssistMismatchError) as ei:

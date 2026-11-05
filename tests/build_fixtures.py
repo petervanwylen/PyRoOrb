@@ -735,6 +735,14 @@ OBJECTS = [
     #   did not -> a clean 'y'. test_ident_check also shifts 2026 SA12 onto a wrong track (1"
     #   offset, 3"/day drift) and asserts the same fit is still refused.
     ("PAIR_2026SA12", ["2026 SW11", "2026 SA12"]),
+    # --- RANGE AMBIGUITY on a short arc (iod.SEED_RIVAL_FACTOR) ---
+    #   P/2026 U1: 68 obs over 9 days. The best raw Vaisala seed (4.96", a=0.78, 1.9 au away)
+    #   is the WRONG basin; the right one (a=2.9, 3.3 au) scores 12.58" raw, outside the old 2x
+    #   rival window, so it was never corrected. The wrong distance leaves a parallax split --
+    #   northern stations +0.5..+1.2" in Dec, the one southern station (W68) -3.5" -- and the
+    #   fit rejected all of W68 and delivered q=0.05 at 59/68 @ 0.58". Right basin: 67/68 @ 0.39",
+    #   q~1.6 (other orbit computers: q=1.54, Q=4.45). See test_iod_range_ambiguity.
+    ("P2026_U1", ["P/2026 U1"]),
 ]
 
 

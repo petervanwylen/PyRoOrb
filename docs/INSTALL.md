@@ -304,16 +304,23 @@ print(pyroorb.export(fit, "mpcorb"))
 powershell -ExecutionPolicy Bypass -File $HOME\PyRoOrb\install.ps1 -Uninstall
 ```
 
-It lists what it will remove and asks first (`--yes` / `-Yes` skips the question), and it
-removes only what the script made:
+It first lists everything it will remove and keep, and why, then asks (`--yes` / `-Yes` skips
+that question). It removes only what the script made:
 
 - the PyRoOrb commands in `~/.local/bin`, and on Windows that folder's PATH entry when the
   script added it and nothing else is left in the folder;
-- the PyRoOrb folder (`~/PyRoOrb`, or your `--dir`) when the script downloaded it and it holds
-  no files of yours; otherwise only its `.venv`, and it says what it kept and why. A clone of
-  your own, where you ran `./install.sh`, keeps everything but `.venv`;
+- the folder's `.venv`, the Python environment;
 - the reference tables and caches; `--keep-data` / `-KeepData` keeps them, for a reinstall
-  without downloading them again.
+  without downloading them again. They are shared by every PyRoOrb install of yours, so they
+  are also kept while another one is on PATH.
+
+The PyRoOrb folder itself (`~/PyRoOrb`, or your `--dir`) is offered for deletion only when the
+script downloaded it and it holds nothing of yours: no files, no stash, no commit that is on no
+remote, no other git worktree. Even then it is a separate question, asked last, that `--yes` /
+`-Yes` does not answer; with no one to answer it, the folder stays and the command to delete it
+is printed. A folder updated rather than downloaded by the script, or a clone of your own where
+you ran `./install.sh`, keeps everything but `.venv`. With `--dir` / `-Dir`, that folder is the
+install removed, wherever you run the command from.
 
 It leaves uv, Python, the C compiler and git alone, since other software can use them, and
 does not uninstall packages from any environment it did not create.

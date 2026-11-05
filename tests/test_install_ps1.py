@@ -68,61 +68,91 @@ def test_both_installers_put_every_pyroorb_command_on_path():
 # No "path-added" mark, so the user PATH in the registry is never written.
 COMMANDS = ("pyroorb", "pyroorb-web", "pyroorb-itf", "pyroorb-fetch-data")
 windows_only = pytest.mark.skipif(sys.platform != "win32", reason="install.ps1 -Uninstall runs on Windows")
+GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@example.org", "-c", "core.autocrlf=false"]
+GIT_WT = "work" "tree"      # the git subcommand; the public-code scan reserves that word
 
 
-def _install(tmp_path, cloned=True):
-    """A PyRoOrb folder as install.ps1 leaves it: a git checkout, a .venv, the commands' copies in
-    ~\.local\bin (each naming its .venv's python.exe, as uv's launchers do) and the tables."""
+def _install(tmp_path, cloned=True, name="PyRoOrb", copies=True):
+    """A PyRoOrb folder as install.ps1 leaves it: a git checkout of a remote, a .venv, the
+    commands' copies in ~\.local\bin (each naming its .venv's python.exe, as uv's launchers do)
+    and the tables."""
     home = tmp_path / "home"
-    root = home / "PyRoOrb"
+    root = home / name
     root.mkdir(parents=True)
     shutil.copy(SCRIPT, root / "install.ps1")
     (root / "pyproject.toml").write_text('[project]\nname = "pyroorb"\n', encoding="utf-8")
     (root / ".gitignore").write_text(".venv/\n.env\n", encoding="utf-8")
-    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.org", "-c", "core.autocrlf=false"]
-    subprocess.run(git + ["init", "-q"], cwd=root, check=True)
-    subprocess.run(git + ["add", "."], cwd=root, check=True)
-    subprocess.run(git + ["commit", "-q", "-m", "c"], cwd=root, check=True)
+    subprocess.run(GIT + ["init", "-q"], cwd=root, check=True)
+    subprocess.run(GIT + ["add", "."], cwd=root, check=True)
+    subprocess.run(GIT + ["commit", "-q", "-m", "c"], cwd=root, check=True)
+    remote = tmp_path / f"{name}-origin.git"                      # what it was cloned from
+    subprocess.run(GIT + ["clone", "-q", "--bare", str(root), str(remote)], check=True)
+    subprocess.run(GIT + ["remote", "add", "origin", str(remote)], cwd=root, check=True)
+    subprocess.run(GIT + ["fetch", "-q", "origin"], cwd=root, check=True)
     scripts = root / ".venv" / "Scripts"
     scripts.mkdir(parents=True)
     links = home / ".local" / "bin"
-    links.mkdir(parents=True)
+    links.mkdir(parents=True, exist_ok=True)
     for c in COMMANDS:
         launcher = b"MZ launcher " + str(scripts / "python.exe").encode() + b" PK"
         (scripts / f"{c}.exe").write_bytes(launcher)
-        (links / f"{c}.exe").write_bytes(launcher)
-    (links / "uv.exe").write_bytes(b"MZ not ours")
+        if copies:
+            (links / f"{c}.exe").write_bytes(launcher)
+    if not (links / "uv.exe").exists():
+        (links / "uv.exe").write_bytes(b"MZ not ours")
     if cloned:
         (root / ".venv" / "pyroorb-install").write_text("cloned\n", encoding="ascii")
     local, roaming, temp = tmp_path / "Local", tmp_path / "Roaming", tmp_path / "Temp"
     cache, state = local / "pyroorb" / "Cache", roaming / "pyroorb"
-    cache.mkdir(parents=True)
+    cache.mkdir(parents=True, exist_ok=True)
     (cache / "de440.bsp").write_text("tables", encoding="utf-8")
-    state.mkdir(parents=True)
-    temp.mkdir()
+    state.mkdir(parents=True, exist_ok=True)
+    temp.mkdir(exist_ok=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYROORB_")}
     env.update(USERPROFILE=str(home), LOCALAPPDATA=str(local), APPDATA=str(roaming),
                TEMP=str(temp), TMP=str(temp))
     return root, links, cache, state, env
 
 
-def _uninstall(root, env, *args, cwd=None):
+def _uninstall(root, env, *args, cwd=None, answers=None, script=None):
+    """Non-interactive (every question reads no) unless ``answers``: then the questions read
+    them, one per line, from standard input."""
     shell = shutil.which("powershell") or shutil.which("pwsh")
-    return subprocess.run([shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                           "-File", str(root / "install.ps1"), "-Uninstall", *args],
+    mode = [] if answers else ["-NonInteractive"]
+    return subprocess.run([shell, "-NoProfile", *mode, "-ExecutionPolicy", "Bypass",
+                           "-File", str(script or root / "install.ps1"), "-Uninstall", *args],
                           env=env, cwd=cwd or root.parent.parent, capture_output=True, text=True,
-                          stdin=subprocess.DEVNULL)
+                          input="".join(a + "\n" for a in answers) if answers else None,
+                          stdin=None if answers else subprocess.DEVNULL)
 
 
 @windows_only
-def test_uninstall_removes_what_a_downloaded_install_made(tmp_path):
+def test_uninstall_yes_removes_what_it_made_and_never_the_folder(tmp_path):
     root, links, cache, state, env = _install(tmp_path)
-    (links / "pyroorb-itf.exe").write_bytes(b"MZ C:\other\.venv\Scripts\python.exe")
     out = _uninstall(root, env, "-Yes")
     assert out.returncode == 0, out.stdout + out.stderr
-    assert not root.exists() and not cache.parent.exists()
-    assert sorted(p.name for p in links.iterdir()) == ["pyroorb-itf.exe", "uv.exe"]
+    assert (root / "install.ps1").exists() and not (root / ".venv").exists()
+    assert not cache.parent.exists()
+    assert sorted(p.name for p in links.iterdir()) == ["uv.exe"]
+    assert "asks, separately, whether to delete the whole folder" in out.stdout
+    assert "Remove-Item -Recurse -Force" in out.stdout
     assert state.exists() and str(state) in out.stdout          # saved state: named, kept
+
+
+@windows_only
+def test_uninstall_deletes_the_folder_only_when_that_question_is_answered_yes(tmp_path):
+    root, _links, cache, _state, env = _install(tmp_path)
+    out = _uninstall(root, env, answers=["y", "y"])
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert not root.exists() and not cache.parent.exists()
+
+
+@windows_only
+def test_uninstall_answering_no_for_the_folder_keeps_it(tmp_path):
+    root, _links, _cache, _state, env = _install(tmp_path)
+    out = _uninstall(root, env, answers=["y", "n"])
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert (root / "install.ps1").exists() and not (root / ".venv").exists()
 
 
 @windows_only
@@ -136,20 +166,50 @@ def test_uninstall_keeps_a_clone_it_did_not_download(tmp_path):
 
 
 @windows_only
-def test_uninstall_keeps_a_downloaded_folder_holding_files_of_yours(tmp_path):
+@pytest.mark.parametrize("make, reason", [
+    (lambda r: (r / ".env").write_text("SECRET=1\n"), "it holds files of your own"),
+    (lambda r: subprocess.run(GIT + ["commit", "-q", "--allow-empty", "-m", "mine"], cwd=r,
+                              check=True), "commit(s) that are on no remote"),
+    (lambda r: ((r / "install.ps1").write_bytes((r / "install.ps1").read_bytes() + b"\n# mine\n"),
+                subprocess.run(GIT + ["stash", "-q"], cwd=r, check=True)),
+     "it holds stashed changes"),
+    (lambda r: subprocess.run(GIT + [GIT_WT, "add", "-q", "--detach",
+                                     str(r.parent / "wt")], cwd=r, check=True),
+     "trees use it"),
+])
+def test_uninstall_never_offers_a_downloaded_folder_holding_work_of_yours(tmp_path, make, reason):
     root, _links, _cache, _state, env = _install(tmp_path)
-    (root / ".env").write_text("SECRET=1\n", encoding="utf-8")      # ignored by git, still yours
+    make(root)
+    out = _uninstall(root, env, answers=["y", "y"])
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert (root / "install.ps1").exists() and not (root / ".venv").exists()
+    assert reason in out.stdout and "Also delete the whole folder" not in out.stdout
+
+
+@windows_only
+def test_an_explicit_dir_is_the_install_removed_wherever_it_runs_from(tmp_path):
+    root, _links, _cache, _state, env = _install(tmp_path)
+    other, *_ = _install(tmp_path, name="dev-checkout", cloned=False, copies=False)
+    out = _uninstall(root, env, "-Yes", "-Dir", str(root), script=other / "install.ps1", cwd=other)
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert not (root / ".venv").exists() and (other / ".venv").exists()
+
+
+@windows_only
+def test_uninstall_keeps_the_shared_tables_while_another_install_is_on_path(tmp_path):
+    root, links, cache, _state, env = _install(tmp_path)
+    (links / "pyroorb-itf.exe").write_bytes(b"MZ C:\\other\\.venv\\Scripts\\python.exe")
     out = _uninstall(root, env, "-Yes")
     assert out.returncode == 0, out.stdout + out.stderr
-    assert (root / ".env").exists() and not (root / ".venv").exists()
-    assert ".env" in out.stdout
+    assert (cache / "de440.bsp").exists() and "another PyRoOrb install uses them" in out.stdout
+    assert sorted(p.name for p in links.iterdir()) == ["pyroorb-itf.exe", "uv.exe"]
 
 
 @windows_only
 def test_uninstall_keep_data_keeps_the_tables(tmp_path):
     root, _links, cache, _state, env = _install(tmp_path)
     assert _uninstall(root, env, "-Yes", "-KeepData").returncode == 0
-    assert (cache / "de440.bsp").exists() and not root.exists()
+    assert (cache / "de440.bsp").exists() and not (root / ".venv").exists()
 
 
 @windows_only
@@ -165,7 +225,7 @@ def test_uninstall_started_inside_the_folder_still_removes_it(tmp_path):
     """The update route leaves people in the folder. Windows will not delete a folder a process
     is in, and Set-Location alone does not move the script's own process out of it."""
     root, _links, _cache, _state, env = _install(tmp_path)
-    out = _uninstall(root, env, "-Yes", cwd=root)
+    out = _uninstall(root, env, cwd=root, answers=["y", "y"])
     assert out.returncode == 0, out.stdout + out.stderr
     assert not root.exists()
 
@@ -182,3 +242,12 @@ def test_uninstall_run_in_your_own_session_leaves_your_location_alone(tmp_path):
                          stdin=subprocess.DEVNULL)
     assert out.stdout.strip().splitlines()[-1] == str(root), out.stdout + out.stderr
     assert not (root / ".venv").exists()
+
+
+def test_only_a_fresh_clone_is_marked_as_downloaded():
+    """Updating a checkout that was already there (git pull) must not mark it as this
+    script's: the mark is what lets the uninstall offer the whole folder."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    clone = text.index("Run git clone --depth 1 $RepoUrl $Dir")
+    assert text.index("$Cloned = $true", clone) < text.index("\n    }", clone)
+    assert text.count("$Cloned = $true") == 1

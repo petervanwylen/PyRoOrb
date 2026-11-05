@@ -20,13 +20,16 @@
 #      asteroid ephemeris). --no-data skips this;
 #   7. puts the PyRoOrb commands on PATH: links them into ~/.local/bin, where uv installs itself.
 #
-# --uninstall undoes what this script made: the command links in ~/.local/bin, .venv, the
-# downloaded PyRoOrb folder when this script cloned it and it holds no files of yours, and the
-# reference tables and caches (--keep-data keeps those). It never removes uv, Python, the
-# compiler or git.
+# --uninstall first lists what it would remove and keep, then undoes what this script made: the
+# command links in ~/.local/bin, .venv, and the reference tables and caches (--keep-data keeps
+# those; they are also kept while another PyRoOrb install is on PATH). The PyRoOrb folder itself
+# is offered only when this script cloned it and it holds nothing of yours -- no files, stashes,
+# commits on no remote or other worktrees -- and only by a question of its own that --yes does
+# not answer. It never removes uv, Python, the compiler or git.
 #
 # Options: --dir DIR  --extras LIST (default: none; e.g. itf, notebooks, or itf,dev)  --asteroids
-#          --no-data  --yes (run system package installs, or the uninstall, without asking)
+#          --no-data  --yes (run system package installs, or the uninstall, without asking;
+#          never deletes the PyRoOrb folder)
 #          --uninstall  --keep-data  -h|--help
 #          Through curl, options go after "bash -s --":  curl -LsSf …/install.sh | bash -s -- --yes
 set -euo pipefail
@@ -46,6 +49,7 @@ YES=0
 UNINSTALL=0
 KEEP_DATA=0
 CLONED=0
+DIR_GIVEN=0; [ -n "${PYROORB_DIR:-}" ] && DIR_GIVEN=1
 # The commands put on PATH (pyproject.toml [project.scripts]) and where their links go.
 COMMANDS="pyroorb pyroorb-web pyroorb-itf pyroorb-fetch-data"
 BIN="$HOME/.local/bin"
@@ -58,7 +62,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dir|--extras)
       [ $# -ge 2 ] || die "$1 needs a value, e.g.  --dir ~/PyRoOrb  or  --extras itf,dev  (see --help)"
-      if [ "$1" = --dir ]; then DIR="$2"; else EXTRAS="$2"; fi
+      if [ "$1" = --dir ]; then DIR="$2"; DIR_GIVEN=1; else EXTRAS="$2"; fi
       shift 2 ;;
     --asteroids) ASTEROIDS=1; shift ;;
     --no-data) DATA=0; shift ;;
@@ -91,33 +95,69 @@ fi
 has_mark() { [ -f "$1/.venv/pyroorb-install" ] && grep -qx "$2" "$1/.venv/pyroorb-install"; }
 
 # --- --uninstall -----------------------------------------------------------------------------
+# Ask on the terminal: piped through curl, standard input is the script itself. With no terminal
+# to ask on, the answer is no.
+ask() {
+  local ans=""
+  printf '%s [y/N] ' "$1"
+  read -r ans 2>/dev/null < /dev/tty || { echo; return 1; }
+  case "$ans" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
 uninstall() {
-  local root venv c link links="" whole=0 why="" own="" cache state fitcache caches="" ans
-  if [ -n "$HERE" ] && is_checkout "$HERE"; then root="$HERE"
+  local root venv c link t links="" folder=0 why="" own="" cache state fitcache caches="" others=""
+  # An explicit --dir (or PYROORB_DIR) is the install to remove, wherever this runs from: the
+  # folder the script sits in or the current one could be a different PyRoOrb checkout.
+  if [ "$DIR_GIVEN" = 1 ]; then
+    is_checkout "$DIR" || die "no PyRoOrb install found in $DIR"
+    root="$(cd "$DIR" && pwd)"
+  elif [ -n "$HERE" ] && is_checkout "$HERE"; then root="$HERE"
   elif is_checkout "$PWD"; then root="$PWD"
   elif is_checkout "$DIR"; then root="$(cd "$DIR" && pwd)"
   else die "no PyRoOrb install found in $DIR (use --dir to name its folder)"; fi
   venv="$root/.venv"
   for c in $COMMANDS; do      # only links into THIS .venv; another install's stay
     link="$BIN/$c"
-    if [ -L "$link" ] && [ "$(readlink "$link")" = "$venv/bin/$c" ]; then links="$links${links:+
-}$link"; fi
+    [ -L "$link" ] || continue
+    t="$(readlink "$link")"
+    if [ "$t" = "$venv/bin/$c" ]; then links="$links${links:+
+}$link"
+    else case "$t" in */.venv/bin/"$c") others="$others${others:+
+}$link -> $t" ;; esac; fi
   done
-  # The whole folder goes only when this script downloaded it and nothing in it is yours:
-  # git lists changed, new and ignored files, all but the environment and build leftovers.
+  # The folder itself is offered for deletion only when this script downloaded it and nothing
+  # in it is the user's: no changed, new or ignored files (but the environment and build
+  # leftovers), no commit or stash that is on no remote, no other worktree, and it is its own
+  # repository (inside another one, git would answer for that one). Even then it is asked about
+  # on its own, after the rest, and --yes does not answer that question.
   if ! has_mark "$root" cloned; then why="this script did not download it"
-  elif own="$(git -C "$root" status --porcelain --ignored 2>/dev/null)"; then
+  elif ! t="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)"; then
+    why="git could not check it for work of your own"
+  elif [ "$(cd "$t" && pwd -P)" != "$(cd "$root" && pwd -P)" ]; then
+    why="it is inside another git repository ($t)"
+  elif ! own="$(git -C "$root" status --porcelain --ignored 2>/dev/null)"; then
+    own=""; why="git could not check it for work of your own"
+  else
     own="$(printf '%s\n' "$own" | sed 's/^...//' \
            | grep -Ev '(^|/)(\.venv|__pycache__|\.pytest_cache|[^/]*\.egg-info)/$' | grep . || true)"
-    if [ -z "$own" ]; then whole=1; else why="it holds files of your own"; fi
-  else why="git could not check it for files of your own"; fi
+    if [ -n "$own" ]; then why="it holds files of your own"
+    elif [ -n "$(git -C "$root" stash list 2>/dev/null)" ]; then why="it holds stashed changes"
+    elif ! t="$(git -C "$root" rev-list --all --not --remotes 2>/dev/null)"; then
+      why="git could not check it for commits of your own"
+    elif [ -n "$t" ]; then
+      why="it holds $(printf '%s\n' "$t" | wc -l | tr -d ' ') commit(s) that are on no remote"
+    elif [ "$(git -C "$root" worktree list --porcelain 2>/dev/null | grep -c '^worktree ')" != 1 ]; then
+      why="other git worktrees use it"
+    else folder=1; fi
+  fi
   if [ "$OS" = Darwin ]; then
     cache="$HOME/Library/Caches/pyroorb"; state="$HOME/Library/Application Support/pyroorb"
   else
     cache="${XDG_CACHE_HOME:-$HOME/.cache}/pyroorb"; state="${XDG_DATA_HOME:-$HOME/.local/share}/pyroorb"
   fi
   fitcache="${TMPDIR:-/tmp}"; fitcache="${fitcache%/}/pyroorb-fitcache"
-  if [ "$KEEP_DATA" = 0 ]; then
+  # The tables are shared by every PyRoOrb install of this user: kept while another one is on PATH.
+  if [ "$KEEP_DATA" = 0 ] && [ -z "$others" ]; then
     [ -d "$cache" ] && caches="$cache"
     [ -d "$fitcache" ] && caches="$caches${caches:+
 }$fitcache"
@@ -125,18 +165,23 @@ uninstall() {
 
   say "Uninstalling PyRoOrb from $root"
   echo "This removes:"
-  if [ -n "$links" ]; then printf '%s
-' "$links" | sed 's/^/  /'; fi
-  if [ "$whole" = 1 ]; then echo "  $root (the PyRoOrb folder this script downloaded)"
-  elif [ -d "$venv" ]; then echo "  $venv"; fi
+  if [ -n "$links" ]; then printf '%s\n' "$links" | sed 's/^/  /'; fi
+  if [ -d "$venv" ]; then echo "  $venv (the Python environment)"; fi
   if [ -n "$caches" ]; then
     printf '%s\n' "$caches" | while IFS= read -r c; do
       echo "  $c ($(du -sm "$c" 2>/dev/null | cut -f1) MB of downloaded tables and caches)"
     done
   fi
-  if [ "$whole" = 0 ]; then
-    echo "It keeps $root ($why)${own:+:}"
+  if [ "$folder" = 1 ]; then
+    echo "Then it asks, separately, whether to delete the whole folder $root ($(du -sm "$root" 2>/dev/null | cut -f1) MB),"
+    echo "which this script downloaded and which holds nothing of yours."
+  else
+    echo "It keeps the folder $root ($why)${own:+:}"
     if [ -n "$own" ]; then printf '%s\n' "$own" | head -10 | sed 's/^/    /'; fi
+  fi
+  if [ -n "$others" ] && [ "$KEEP_DATA" = 0 ]; then
+    echo "It keeps the downloaded tables ($cache): another PyRoOrb install uses them:"
+    printf '%s\n' "$others" | sed 's/^/    /'
   fi
   if [ -n "${PYROORB_CACHE_DIR:-}" ]; then
     echo "It keeps PYROORB_CACHE_DIR ($PYROORB_CACHE_DIR); delete it yourself if you no longer need it."
@@ -145,19 +190,20 @@ uninstall() {
     echo "It keeps $state (PyRoOrb's saved state); look inside, and delete it yourself if you no longer need it."
   fi
   echo "It keeps uv, Python, the compiler and git, which other software can use."
-  if [ "$YES" != 1 ]; then
-    # Piped through curl, standard input is the script itself: ask on the terminal.
-    printf 'Remove these? [y/N] '
-    ans=""; read -r ans < /dev/tty 2>/dev/null || true
-    case "$ans" in y|Y|yes|YES) ;; *) echo "Nothing removed."; return 0 ;; esac
-  fi
+  if [ "$YES" != 1 ] && ! ask "Remove these?"; then echo "Nothing removed."; return 0; fi
 
-  if [ -n "$links" ]; then printf '%s
-' "$links" | while IFS= read -r link; do rm -f "$link"; done; fi
+  if [ -n "$links" ]; then printf '%s\n' "$links" | while IFS= read -r link; do rm -f "$link"; done; fi
   rmdir "$BIN" 2>/dev/null || true              # only when empty
-  case "$PWD/" in "$root"/*) cd "$HOME" ;; esac
-  if [ "$whole" = 1 ]; then rm -rf "$root"; else rm -rf "$venv"; fi
+  rm -rf "$venv"
   if [ -n "$caches" ]; then printf '%s\n' "$caches" | while IFS= read -r c; do rm -rf "$c"; done; fi
+  if [ "$folder" = 1 ]; then
+    if ask "Also delete the whole folder $root? Everything in it goes, its git history too."; then
+      case "$PWD/" in "$root"/*) cd "$HOME" ;; esac
+      rm -rf "$root"
+    else
+      echo "Kept $root. To delete it yourself:  rm -rf '$root'"
+    fi
+  fi
   say "PyRoOrb is uninstalled."
 }
 if [ "$UNINSTALL" = 1 ]; then uninstall; exit 0; fi
@@ -246,9 +292,9 @@ else
   else
     say "Downloading PyRoOrb into $DIR"
     git clone --depth 1 "$REPO_URL" "$DIR"
+    CLONED=1          # only a folder this run downloaded is marked; an update is the user's
   fi
   ROOT="$DIR"
-  CLONED=1
 fi
 cd "$ROOT"
 ROOT="$(pwd)"     # a relative --dir, made absolute: the command links name it

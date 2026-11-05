@@ -28,6 +28,8 @@ dominated) and treats the system barycentre as "the planet". Deep regular moons 
 major moons as perturbers + planetary J2) are out of scope.
 """
 import math
+from pathlib import Path
+
 import numpy as np
 from astropy.time import Time
 from astropy.coordinates import get_body_barycentric_posvel
@@ -85,13 +87,19 @@ def planet_helio_state(name, jd_tdb):
     against the planet the orbit was fitted with. astropy's built-in ephemeris, the previous
     source, puts Jupiter ~80,000 km from DE440: notebook 09 had to fetch its own Jupiter to get
     Ersa's elements within 700 km of JPL's. The built-in ephemeris remains the fallback when
-    the planet ephemeris file is absent (the rebound backend, which integrates with it)."""
+    the planet ephemeris file is absent (the rebound backend, which integrates with it).
+
+    The file is looked for before body_states is called: body_states builds the ASSIST
+    ephemeris, which downloads the ~102 MB DE440 when it is missing, and auto-centring calls
+    this on ordinary fits -- a rebound-only fit must not block on that download."""
     key = resolve_planet(name)
-    try:
-        from pyroorb.products import body_states
-        return np.asarray(body_states(key, [float(jd_tdb)])[0], float)
-    except Exception:                                   # no DE440 file: the rebound fallback
-        pass
+    from pyroorb import force_assist
+    if Path(force_assist.PLANETS_PATH).exists():
+        try:
+            from pyroorb.products import body_states
+            return np.asarray(body_states(key, [float(jd_tdb)])[0], float)
+        except Exception:                               # an unreadable DE440: the fallback
+            pass
     t = Time(jd_tdb, format="jd", scale="tdb")
     p, v = get_body_barycentric_posvel(key, t)
     sp, sv = get_body_barycentric_posvel("sun", t)

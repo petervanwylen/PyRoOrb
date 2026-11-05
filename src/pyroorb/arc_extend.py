@@ -1325,6 +1325,30 @@ def fit_lov_pinned(ev, seed, mask, state0, u, sigma, k, w=LOV_PIN_W, max_nfev=20
     sra = ev.fit_sig_ra[idx]; sdec = ev.fit_sig_dec[idx]
     state0 = np.asarray(state0, float); u = np.asarray(u, float)
 
+    if ev._predict_jac is not None:
+        # Analytic Jacobian, as _fit_anchor_fixed_a: ~1 integration per LM iteration
+        # instead of the 7 a numeric jac forces. The pin is LINEAR in s, so its row is
+        # exactly w*u/sigma. This is the LOV refinement's / LOV variants' hot loop (one
+        # pinned fit per picket), which the ITF search runs on every weak seed.
+        cache = {}
+        def _compute(s):
+            key = s.tobytes(); hit = cache.get(key)
+            if hit is None:
+                cache.clear(); hit = cache[key] = ev._predict_jac(ev.base_sim, ev.t0, s, tt, Rs)
+            return hit
+        prow = w * u / sigma
+        def resid_a(s):
+            pred, _ = _compute(s)
+            r = _radec_resid(pred, ra, dec, cosd, sra, sdec)
+            return _clamp(np.append(r, w * (np.dot(s - state0, u) / sigma - k)))
+        def jac_a(s):
+            _, J = _compute(s)
+            full = np.vstack([_radec_jac(J, cosd, sra, sdec), prow])
+            return np.where(np.isfinite(full), full, 0.0)
+        out = least_squares(resid_a, np.asarray(seed, float), jac=jac_a, method="lm",
+                            xtol=1e-8, ftol=1e-8, max_nfev=max_nfev).x
+        return out if np.all(np.isfinite(out)) else np.asarray(seed, float)
+
     def resid(s):
         pred = ev._predict(ev.base_sim, ev.t0, s, tt, Rs)
         d = ((pred[:, 0] - ra + 180) % 360 - 180) * cosd

@@ -213,6 +213,10 @@ def compute_ephemeris(fit, obscodes, jd_start, jd_stop, step_days, site="500",
     phase = np.degrees(np.arccos(np.clip(
         (r**2 + delta**2 - earth_sun**2) / (2 * r * delta), -1, 1)))
 
+    # ONE vectorised Time for every row's UTC string: a Time per row cost ~0.12 ms, i.e.
+    # 0.45 s for the ~3650-node, 30-year sweep the ITF search builds for every trial orbit
+    # (same strings either way).
+    iso = Time(jds, format="jd", scale="utc").iso if n else []
     rows = []
     for i in range(n):
         ra, dec = float(pred[i, 0]), float(pred[i, 1])
@@ -238,7 +242,7 @@ def compute_ephemeris(fit, obscodes, jd_start, jd_stop, step_days, site="500",
             sig_along = sig_cross = None
         rows.append({
             "jd_utc": float(jds[i]),
-            "date_iso": Time(jds[i], format="jd", scale="utc").iso[:19],
+            "date_iso": iso[i][:19],
             "ra_deg": ra, "dec_deg": dec,
             "ra_hms": _ra_hms(ra), "dec_dms": _dec_dms(dec),
             "delta_au": float(delta[i]), "r_au": float(r[i]),

@@ -74,6 +74,10 @@ from astropy.time import Time
 #: Julian date of the Unix epoch.
 JD_UNIX = 2440587.5
 
+#: Nodes per shared integration in :meth:`LovRefineProfile.prepare` (16-64 are
+#: all ~6.5 s on 2005 UD562's 1071 nodes; 1 is 42 s, one sim 55 s).
+LOV_PROP_CHUNK = 32
+
 
 def _jd(epoch_sec):
     return epoch_sec / 86400.0 + JD_UNIX
@@ -213,9 +217,22 @@ class LovRefineProfile:
         t0 = time.perf_counter()
         from pyroorb.force_assist import helio_states_multi
         tt = Time(grid, format="jd", scale="utc").tdb.jd
-        self._G = np.asarray(helio_states_multi(self.fit.epoch_tdb,
-                                                list(np.asarray(states)), tt),
-                             dtype=np.float32)
+        # In CHUNKS of neighbouring nodes, not one simulation.  IAS15's step is
+        # shared by every particle in a sim, so with ~1000 planet-crossing LOV
+        # nodes SOME node is always mid-encounter and the whole grid crawls at
+        # its step: 2005 UD562, 1071 nodes x 2733 epochs, 55 s in one sim vs
+        # 6.4 s in chunks of 32.  Neighbours in k share their encounter
+        # history, so a chunk's step is still cheap.  Same answer: nodes
+        # 0..891 agree to < 1e-8 au; only the far tail differs, where the
+        # orbits are chaotic (ejected to 1e3-1e9 au) and a node integrated
+        # ALONE disagrees with both versions by hundreds of au.
+        states = np.asarray(states)
+        c = int(LOV_PROP_CHUNK)
+        self._G = np.concatenate(
+            [np.asarray(helio_states_multi(self.fit.epoch_tdb,
+                                           list(states[i:i + c]), tt),
+                        dtype=np.float32)
+             for i in range(0, len(states), c)], axis=1)
         self.t_prop = time.perf_counter() - t0
         return True
 

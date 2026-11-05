@@ -67,8 +67,14 @@ IOD_RESCUE_STALLS = 2           # stop the rescue after this many non-improving 
 SEED_RERANK_TRIGGER = 2.0       # arcsec; below this the best raw seed is already the right basin
 SEED_RERANK_K = 4               # distinct orbital basins to correct and compare
 SEED_BASIN_RATIO = 1.25         # |a1/a2| within this == same basin
-SEED_RIVAL_FACTOR = 2.0         # only re-rank when a DIFFERENT-basin seed is this competitive on
-                                # raw score (a clear single basin -> skip; keeps the suite fast)
+SEED_RIVAL_FACTOR = 3.0         # only re-rank when a DIFFERENT-basin seed is this competitive on
+                                # raw score (a clear single basin -> skip; keeps the suite fast).
+                                # The raw score is coarse -- the Vaisala distance grid steps 1.4x --
+                                # so the right basin can sit well behind: P/2026 U1 (9-day arc) raw
+                                # 4.96" at a=0.78 (wrong, geocentric 1.9 au) vs 12.58" at a=2.9
+                                # (right, 3.3 au), ratio 2.54; corrected, 1.03" vs 0.36". At 2.0
+                                # the fit rejected the one southern station (W68, -3.5" in Dec:
+                                # the parallax a wrong distance leaves) and kept q=0.05.
 SEED_RERANK_MAX_ARC = 90.0      # days; rerank only a SHORT SINGLE-APPARITION arc -- range
                                 # ambiguity is a short-arc thing; multi-apparition objects
                                 # disambiguate by extension, so they skip it (and stay fast)

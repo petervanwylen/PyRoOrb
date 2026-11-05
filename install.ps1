@@ -19,13 +19,17 @@
 #   6. puts the PyRoOrb commands on PATH: copies them into ~\.local\bin (where uv installs
 #      itself) and adds that folder to your user PATH when it is not there yet.
 #
-# -Uninstall undoes what this script made: the commands in ~\.local\bin (and the PATH entry,
-# when this script added it and nothing else is left there), .venv, the downloaded PyRoOrb
-# folder when this script cloned it and it holds no files of yours, and the reference tables
-# and caches (-KeepData keeps those). It never removes uv, Python, the Build Tools or git.
+# -Uninstall first lists what it would remove and keep, then undoes what this script made: the
+# commands in ~\.local\bin (and the PATH entry, when this script added it and nothing else is
+# left there), .venv, and the reference tables and caches (-KeepData keeps those; they are also
+# kept while another PyRoOrb install is on PATH). The PyRoOrb folder itself is offered only when
+# this script cloned it and it holds nothing of yours -- no files, stashes, commits on no remote
+# or other worktrees -- and only by a question of its own that -Yes does not answer. It never
+# removes uv, Python, the Build Tools or git.
 #
 # Options: -Dir DIR  -Extras LIST (default: none; e.g. itf, notebooks, or itf,dev)  -Asteroids
-#          -NoData  -Yes (run the winget installs, or the uninstall, without asking)
+#          -NoData  -Yes (run the winget installs, or the uninstall, without asking; never
+#          deletes the PyRoOrb folder)
 #          -Uninstall  -KeepData  -Help
 # Through irm, options need the script block form:
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/petervanwylen/PyRoOrb/main/install.ps1))) -Yes
@@ -123,9 +127,32 @@ function Get-SizeMB($path) {
 }
 
 # --- -Uninstall ----------------------------------------------------------------------------
+# Ask on the console; with none to ask on (-NonInteractive, no console) the answer is no.
+function Ask($question) {
+    try { $answer = Read-Host "$question [y/N]" } catch { $answer = "" }
+    return ($answer -match '^(y|yes)$')
+}
+# git's output in $Root as @{ ok; out }: ok False when git is missing or fails. Native stderr
+# under ErrorActionPreference Stop would end the script on PowerShell 5.1, so it is dropped here.
+function Get-GitOutput($root) {
+    $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    try {
+        $out = @(& git -C $root @args 2>$null)
+        return @{ ok = ($LASTEXITCODE -eq 0); out = $out }
+    } catch { return @{ ok = $false; out = @() } }
+    finally { $ErrorActionPreference = $old }
+}
 if ($Uninstall) {
-    $Root = if ($Here) { $Here } elseif (Test-Checkout $PWD.Path) { $PWD.Path }
-            elseif (Test-Checkout $Dir) { (Resolve-Path $Dir).Path } else { "" }
+    # An explicit -Dir (or PYROORB_DIR) is the install to remove, wherever this runs from: the
+    # folder the script sits in or the current one could be a different PyRoOrb checkout.
+    $DirGiven = $PSBoundParameters.ContainsKey("Dir") -or [bool]$env:PYROORB_DIR
+    if ($DirGiven) {
+        if (-not (Test-Checkout $Dir)) { Die "no PyRoOrb install found in $Dir" }
+        $Root = (Resolve-Path $Dir).Path
+    } else {
+        $Root = if ($Here) { $Here } elseif (Test-Checkout $PWD.Path) { $PWD.Path }
+                elseif (Test-Checkout $Dir) { (Resolve-Path $Dir).Path } else { "" }
+    }
     if (-not $Root) { Die "no PyRoOrb install found in $Dir (use -Dir to name its folder)" }
     $venv = Join-Path $Root ".venv"
     $venvPy = Join-Path $venv "Scripts\python.exe"
@@ -133,25 +160,50 @@ if ($Uninstall) {
     if ($busy) { Die "PyRoOrb is running ($(($busy | ForEach-Object { $_.Name } | Sort-Object -Unique) -join ', ')); close it, then run this again" }
 
     $copies = @($Commands | ForEach-Object { Join-Path $Bin "$_.exe" } | Where-Object { Test-Launcher $_ $venvPy })
+    # another install's command copies: a .venv launcher that is not this .venv's
+    $otherInstalls = @($Commands | ForEach-Object { Join-Path $Bin "$_.exe" } |
+                       Where-Object { ($copies -notcontains $_) -and (Test-Launcher $_ $null) })
     $pathAdded = (Test-Mark $Root "path-added")
     $othersInBin = @(Get-ChildItem $Bin -Force -ErrorAction SilentlyContinue | Where-Object { $copies -notcontains $_.FullName })
     $dropPath = $pathAdded -and $othersInBin.Count -eq 0
-    # The whole folder goes only when this script downloaded it and nothing in it is yours:
-    # git lists changed, new and ignored files, all but the environment and build leftovers.
-    $whole = $false; $why = ""; $own = @()
+    # The folder itself is offered for deletion only when this script downloaded it and nothing
+    # in it is the user's: no changed, new or ignored files (but the environment and build
+    # leftovers), no commit or stash that is on no remote, no other worktree, and it is its own
+    # repository (inside another one, git would answer for that one). Even then it is asked
+    # about on its own, after the rest, and -Yes does not answer that question.
+    $folder = $false; $why = ""; $own = @()
     if (-not (Test-Mark $Root "cloned")) { $why = "this script did not download it" }
     else {
-        $status = & git -C $Root status --porcelain --ignored 2>$null
-        if ($LASTEXITCODE -ne 0) { $why = "git could not check it for files of your own" }
-        else {
-            $own = @($status | ForEach-Object { $_.Substring(3) } |
+        $top = Get-GitOutput $Root rev-parse --show-toplevel
+        $status = Get-GitOutput $Root status --porcelain --ignored
+        if (-not $top.ok -or -not $status.ok) { $why = "git could not check it for work of your own" }
+        elseif (((Resolve-Path ($top.out | Select-Object -First 1)).Path.TrimEnd("\")) -ine $Root.TrimEnd("\")) {
+            $why = "it is inside another git repository ($($top.out | Select-Object -First 1))"
+        } else {
+            $own = @($status.out | ForEach-Object { $_.Substring(3) } |
                      Where-Object { $_ -notmatch '(^|/)(\.venv|__pycache__|\.pytest_cache|[^/]*\.egg-info)/$' })
-            if ($own.Count -eq 0) { $whole = $true } else { $why = "it holds files of your own" }
+            $stash = Get-GitOutput $Root stash list
+            $unpushed = Get-GitOutput $Root rev-list --all --not --remotes
+            $trees = Get-GitOutput $Root worktree list --porcelain
+            if ($own.Count -gt 0) { $why = "it holds files of your own" }
+            elseif (-not $stash.ok -or -not $unpushed.ok -or -not $trees.ok) {
+                $why = "git could not check it for work of your own"
+            }
+            elseif (@($stash.out | Where-Object { $_ }).Count -gt 0) { $why = "it holds stashed changes" }
+            elseif (@($unpushed.out | Where-Object { $_ }).Count -gt 0) {
+                $why = "it holds $(@($unpushed.out | Where-Object { $_ }).Count) commit(s) that are on no remote"
+            }
+            elseif (@($trees.out | Where-Object { $_ -like "worktree *" }).Count -ne 1) {
+                $why = "other git worktrees use it"
+            }
+            else { $folder = $true }
         }
     }
+    # The tables are shared by every PyRoOrb install of this user: kept while another one is on PATH.
+    $cacheRoot = Join-Path $env:LOCALAPPDATA "pyroorb"
     $caches = @()
-    if (-not $KeepData) {
-        $caches = @((Join-Path $env:LOCALAPPDATA "pyroorb"), (Join-Path $env:TEMP "pyroorb-fitcache")) | Where-Object { Test-Path $_ }
+    if (-not $KeepData -and $otherInstalls.Count -eq 0) {
+        $caches = @($cacheRoot, (Join-Path $env:TEMP "pyroorb-fitcache")) | Where-Object { Test-Path $_ }
     }
     $state = Join-Path $env:APPDATA "pyroorb"
 
@@ -159,50 +211,60 @@ if ($Uninstall) {
     "This removes:"
     foreach ($c in $copies) { "  $c" }
     if ($dropPath) { "  $Bin from your PATH (this script added it)" }
-    if ($whole) { "  $Root (the PyRoOrb folder this script downloaded)" }
-    elseif (Test-Path $venv) { "  $venv" }
+    if (Test-Path $venv) { "  $venv (the Python environment)" }
     foreach ($c in $caches) { "  $c ($(Get-SizeMB $c) MB of downloaded tables and caches)" }
-    if (-not $whole) {
-        "It keeps $Root ($why)$(if ($own) { ':' })"
+    if ($folder) {
+        "Then it asks, separately, whether to delete the whole folder $Root ($(Get-SizeMB $Root) MB),"
+        "which this script downloaded and which holds nothing of yours."
+    } else {
+        "It keeps the folder $Root ($why)$(if ($own) { ':' })"
         foreach ($f in ($own | Select-Object -First 10)) { "    $f" }
+    }
+    if ($otherInstalls.Count -gt 0 -and -not $KeepData) {
+        "It keeps the downloaded tables ($cacheRoot): another PyRoOrb install uses them:"
+        foreach ($o in $otherInstalls) { "    $o" }
     }
     if ($env:PYROORB_CACHE_DIR) { "It keeps PYROORB_CACHE_DIR ($env:PYROORB_CACHE_DIR); delete it yourself if you no longer need it." }
     if (Test-Path $state) { "It keeps $state (PyRoOrb's saved state); look inside, and delete it yourself if you no longer need it." }
     "It keeps uv, Python, the Build Tools and git, which other software can use."
-    if (-not $Yes) {
-        try { $answer = Read-Host "Remove these? [y/N]" } catch { $answer = "" }   # no console: no
-        if ($answer -notmatch '^(y|yes)$') { "Nothing removed."; return }
-    }
+    if (-not $Yes -and -not (Ask "Remove these?")) { "Nothing removed."; return }
 
     $failed = @()
     foreach ($c in $copies) { try { Remove-Item $c -Force } catch { $failed += $c } }
     if ($dropPath) {
         $kept = @((Get-UserPath) -split ";" | Where-Object { $_ -and [Environment]::ExpandEnvironmentVariables($_).TrimEnd("\") -ine $Bin.TrimEnd("\") })
         Set-UserPath ($kept -join ";")
-        Remove-Item $Bin -ErrorAction SilentlyContinue     # only when empty
+        if (-not (Get-ChildItem $Bin -Force -ErrorAction SilentlyContinue)) { Remove-Item $Bin -ErrorAction SilentlyContinue }
     }
     # Windows will not delete the folder a process is in: step out of the one being deleted,
     # PowerShell's location and the process's own working folder both (Set-Location moves only
     # the first). Only out of that folder: run as ./install.ps1 the location is the user's own.
-    $gone = if ($whole) { $Root } else { $venv }
     function Test-Inside($path, $folder) {
         ($path.TrimEnd("\") + "\").StartsWith($folder.TrimEnd("\") + "\", [StringComparison]::OrdinalIgnoreCase)
     }
-    if (Test-Inside $PWD.Path $gone) { Set-Location $HOME }
-    if (Test-Inside ([Environment]::CurrentDirectory) $gone) { [Environment]::CurrentDirectory = $HOME }
-    $emptyLeft = $false
-    if (Test-Path $gone) {
-        try { Remove-Item $gone -Recurse -Force }
+    function Remove-Folder($gone) {     # $true when gone; an empty folder a terminal is in counts
+        if (Test-Inside $PWD.Path $gone) { Set-Location $HOME }
+        if (Test-Inside ([Environment]::CurrentDirectory) $gone) { [Environment]::CurrentDirectory = $HOME }
+        if (-not (Test-Path $gone)) { return $true }
+        try { Remove-Item $gone -Recurse -Force; return $true }
         catch {
             # Everything inside went, but a terminal whose current folder is this one (the update
             # route leaves people there) keeps the empty folder itself.
-            if (-not (Get-ChildItem $gone -Force -ErrorAction SilentlyContinue)) { $emptyLeft = $true }
-            else { $failed += $gone }
+            if (-not (Get-ChildItem $gone -Force -ErrorAction SilentlyContinue)) {
+                Warn "$gone is empty now, but a terminal is still in it; delete the folder once you have left it (cd ~)"
+                return $true
+            }
+            return $false
         }
     }
+    if (-not (Remove-Folder $venv)) { $failed += $venv }
     foreach ($c in $caches) { try { Remove-Item $c -Recurse -Force } catch { $failed += $c } }
-    if ($emptyLeft) {
-        Warn "$gone is empty now, but a terminal is still in it; delete the folder once you have left it (cd ~)"
+    if ($folder) {
+        if (Ask "Also delete the whole folder $Root? Everything in it goes, its git history too.") {
+            if (-not (Remove-Folder $Root)) { $failed += $Root }
+        } else {
+            "Kept $Root. To delete it yourself:  Remove-Item -Recurse -Force '$Root'"
+        }
     }
     if ($failed) {
         Warn "could not remove: $($failed -join ', '). Close any program or terminal using them (a terminal whose current folder is inside), then delete them."
@@ -261,9 +323,9 @@ if ($Here) {
     } else {
         Say "Downloading PyRoOrb into $Dir"
         Run git clone --depth 1 $RepoUrl $Dir
+        $Cloned = $true      # only a folder this run downloaded is marked; an update is the user's
     }
     $Root = $Dir
-    $Cloned = $true
 }
 Set-Location $Root
 $Root = $PWD.Path      # a relative -Dir, made absolute: the commands on PATH name it

@@ -13,7 +13,8 @@ the versions cannot be checked, only the behaviour.
 So the behaviour is checked: a short ASSIST integration runs in a child process (a crash there
 costs nothing), once per (REBOUND, ASSIST library) pair, and the verdict is stamped in the
 cache directory (about 0.3 s, once). Only the two signatures of the mismatch raise -- the child
-dying on a signal, or an integration that left the state unchanged. Any other failure of the
+dying on a signal (on Windows: exiting with an NTSTATUS error code), or an integration that
+left the state unchanged. Any other failure of the
 check (no kernel, no subprocess) is not evidence of a mismatch and lets the fit go on.
 ``PYROORB_SKIP_ABI_CHECK=1`` turns the check off.
 """
@@ -26,6 +27,16 @@ from pathlib import Path
 SKIP_ENV = "PYROORB_SKIP_ABI_CHECK"
 _UNCHANGED = 3                      # the child's exit code for "integrated, but nothing moved"
 _verified = False
+# Windows reports a native crash as the process's positive exit code, the NTSTATUS of the
+# exception: 0xC0000005 access violation, 0xC0000374 heap corruption, 0xC0000409 fail-fast.
+# Every NTSTATUS error has the top two bits set; a POSIX exit code never exceeds 255.
+_NTSTATUS_ERROR = 0xC0000000
+
+
+def _crashed(returncode):
+    """True when the canary died natively: a POSIX signal (negative), bash's 128+SIGABRT, or
+    a Windows exception code."""
+    return returncode < 0 or returncode == 134 or returncode >= _NTSTATUS_ERROR
 
 _CANARY = r"""
 import sys, rebound, assist
@@ -104,7 +115,7 @@ def verify(planets_kernel):
                              timeout=120)
     except Exception:
         return                      # cannot run the check here: not evidence of a mismatch
-    if run.returncode < 0 or run.returncode == 134 or run.returncode == _UNCHANGED \
+    if _crashed(run.returncode) or run.returncode == _UNCHANGED \
             or "corrupted" in run.stderr or "free(): invalid" in run.stderr:
         reason = ("the test integration left the state unchanged" if run.returncode == _UNCHANGED
                   else "the test integration crashed")
