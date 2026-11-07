@@ -35,11 +35,13 @@ the profile's likelihood:
   tiny-NEO solution would get no prior at all -- the imminent-impactor case starved by a table
   edge.
 
-DISPLAY ONLY (by design). The prior answers "where is the typical object with this
-astrometry", which is the right question for choosing WHICH orbit to draw when the user asks to
-see one, and the wrong question for anything that asks whether this object is unusual: hazard,
-MOID, PHA, impact, ITF corridors, NEOCP ranking. Those keep the likelihood-only family. An NEO at
-low elongation near the ecliptic is exactly the object this prior files under "main belt".
+It may choose WHERE TO LOOK, never what is decided. The prior answers "where is the typical object
+with this astrometry", which is the right question for choosing which orbit to draw when the user
+asks to see one, and for the one extra variant an ITF search tries first (itf.lov_variants.
+prior_variant, which adds to the scan and replaces nothing). It is the wrong question for anything
+that asks whether this object is unusual: hazard, MOID, PHA, impact, NEOCP ranking, and any
+acceptance of a linkage. Those keep the likelihood-only family. An NEO at low elongation near the
+ecliptic is exactly the object this prior files under "main belt".
 """
 import math
 import threading
@@ -58,6 +60,12 @@ H_SLOPE_CLIP = (0.0, 0.7)
 H_FIRST_LO = 3.0           # the model's first H bin is "< 6"; give it a finite width
 E_CAP = 0.99               # the e bin straddling 1 is integrated to here (V6 diverges at e -> 1)
 N_S = 41                   # radial-velocity samples per profile node
+# Past one night the prior reads the line of variations, and only for a delivered orbit a real
+# object rarely has: see most_probable_lov_fit for what each of these was measured to do.
+LOV_E_FLOOR = 0.9          # delivered eccentricity from which the prior may replace the orbit
+LOV_RMS_MAX = 1.5          # the replacement may fit this much worse than the delivered orbit
+LOV_K_MAX = 3.0            # LOV sigmas scanned either side of the delivered orbit
+LOV_K_STEP = 0.0005        # one peak was 0.015 sigma wide; a coarse step can step over it
 
 
 def _edges(upper, first_lo):
@@ -267,15 +275,17 @@ def most_probable_fit(fit):
     """The orbit to show when the user asks for one on a tracklet that does not determine it:
     the range profile's own solution at the POSTERIOR-MEDIAN distance, as a FittedOrbit on the
     fit's own evaluator (so its residuals, covariance, H and every export are computed exactly
-    as for any fit). None off the single-tracklet regime, or when no posterior can be formed --
-    the caller then shows the delivered orbit.
+    as for any fit). Past one night, most_probable_lov_fit's orbit. None when no posterior can
+    be formed -- the caller then shows the delivered orbit.
 
     The returned orbit carries `most_probable` = {rho_med, rho_pct, vmag}: the distance it was
     chosen at and the posterior's 5-95% span, which the page states beside it."""
     from pyroorb import constraint
     from pyroorb import rangescan
     rv = constraint._range_verdict(fit)
-    if rv is None or not rv.get("profiled"):
+    if rv is None:
+        return most_probable_lov_fit(fit)
+    if not rv.get("profiled"):
         return None
     # "No orbit fits this arc at any distance": a mislinked tracklet, typically, where the
     # posterior is a tight answer to a meaningless question (all three PAIR fixtures that
@@ -304,6 +314,83 @@ def most_probable_fit(fit):
     mp = fo._build_orbit(ctx, st, mask, res, getattr(fit, "_history", []))
     mp.most_probable = {"rho_med": post["rho_med"], "rho_pct": post["rho_pct"],
                         "vmag": post["vmag"]}
+    return mp
+
+
+def lov_weights(fit, obscodes=None):
+    """The population's weight along a fit's line of variations, or None without a LOV or any
+    weight: Gaussian(k) x density x rho^4, the Jacobian from sky coordinates to Cartesian, read
+    off the LINEAR LOV so it costs no fit. Returns {k, w, rho, R, vmag, k_peak}."""
+    from pyroorb import obs_sources
+    u, sigma, _refit = fit.lov_refit()
+    if u is None:
+        return None
+    s0 = np.asarray(fit._state, float)[:6]
+    k = np.arange(-LOV_K_MAX, LOV_K_MAX, LOV_K_STEP)
+    states = s0[None, :] + (k * sigma)[:, None] * np.asarray(u, float)[None, :6]
+    R = np.asarray(obs_sources.observer_positions_batch(
+        np.array([fit.epoch_tdb]), ["500"], obscodes or obs_sources.load_obscodes()))[0]
+    vmag = tracklet_vmag(fit.included_observations())
+    rho = np.linalg.norm(states[:, :3] - R[None, :], axis=1)
+    w = density(states, R, vmag) * np.exp(-0.5 * k * k) * rho ** 4
+    if not w.sum() > 0:
+        return None
+    return {"k": k, "w": w, "rho": rho, "R": R, "vmag": vmag, "k_peak": float(k[int(np.argmax(w))])}
+
+
+def lov_peak_state(fit, k_peak):
+    """The orbit at LOV offset `k_peak`, re-corrected on the LOV hyperplane, or None."""
+    u, sigma, refit = fit.lov_refit()
+    if u is None:
+        return None
+    s0 = np.asarray(fit._state, float)[:6]
+    st = np.asarray(refit(s0 + k_peak * sigma * np.asarray(u, float), u, sigma, k_peak), float)[:6]
+    return st if np.all(np.isfinite(st)) else None
+
+
+def most_probable_lov_fit(fit):
+    """The orbit to show on a multi-night arc whose delivered orbit is near-parabolic or unbound:
+    the peak of the population along the line of variations, re-corrected on the LOV hyperplane.
+    None -- show the delivered orbit -- anywhere else.
+
+    A short arc of a distant object often fits a parabola: 2008 SZ347 (a 5.20, e 0.14) seeded on
+    3 nights delivers a 12134, e 0.9999. The orbit it really has lies 0.06 sigma away, and fits as
+    well (rms 0.129" -> 0.132", a 5.27, e 0.12). The LOV is the valley the data leave open, so
+    moving along it is the one move the observations do not refuse; the range profile with a
+    chosen radial velocity leaves that valley, and fitted a median 2x worse on the same arcs.
+
+    Scored against the full-arc truth on 111 suppressed 2-3 night arcs, the three gates are what
+    make it worth showing. Replacing every orbit improved a on 62 and worsened it on 40, and put
+    the distance 2x off on 16 arcs against 4; a delivered orbit under e = 0.9 is usually a fair
+    one (median a error 3%). With the gates it fires on 13: a improves on 11 (median error x2817
+    -> x1.29), worsens on 2, and no distance goes 2x off. A pinned re-correction can slip off the
+    bound strip the linear LOV crossed, or stay near-parabolic, hence the test after it.
+
+    The returned orbit carries the same `most_probable` as most_probable_fit, plus `k`, the LOV
+    offset in sigmas; `rho_med` is the shown orbit's own distance, `rho_pct` the weighted span."""
+    import pyroorb.fit_object as fo
+    delivered = fit.elements()
+    if not delivered or not delivered.get("e", 0.0) >= LOV_E_FLOOR:
+        return None
+    lov = lov_weights(fit)
+    if lov is None:
+        return None
+    k_peak, w, rho, R, vmag = lov["k_peak"], lov["w"], lov["rho"], lov["R"], lov["vmag"]
+    st = lov_peak_state(fit, k_peak)
+    if st is None:
+        return None
+    ctx = fit._ctx
+    mask = np.asarray(fit._mask, bool)
+    mp = fo._build_orbit(ctx, st, mask, ctx["ev"].evaluate(st, mask), getattr(fit, "_history", []))
+    shown = mp.elements()
+    if not (shown and shown["a"] > 0 and shown["e"] < LOV_E_FLOOR
+            and mp.rms_residual() <= LOV_RMS_MAX * fit.rms_residual()):
+        return None
+    order = np.argsort(rho)
+    cdf = np.cumsum(w[order]) / w.sum()
+    span = {str(p): float(rho[order][np.searchsorted(cdf, p / 100.0)]) for p in (5, 50, 95)}
+    mp.most_probable = {"rho_med": float(np.linalg.norm(st[:3] - R)), "rho_pct": span,
+                        "vmag": vmag, "k": k_peak}
     return mp
 
 

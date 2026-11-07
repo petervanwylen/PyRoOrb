@@ -420,6 +420,12 @@ class ItfConfig:
     # without a floor the greedy loop would spend the whole budget shaving
     # slivers off the core where the corridors already overlap.
     variant_refine_min_gain: float = 0.005
+    # A seed at U >= this first scans ONE variant at the population model's peak on the
+    # LOV (lov_variants.prior_variant), before the fan's union sweep; a link there ends
+    # the search, anything else leaves the fan to run as it would have.  Below U 9 the
+    # peak is the nominal on nearly every seed measured, which the fan tries anyway.
+    # 0 disables.
+    variant_prior_min_U: float = 9.0
     # Price a hole with the pre-floor 0.426 k-rescale instead of the honest
     # Phi(k) (variants._lov_prob_scale explains why that factor was wrong and
     # why it used to cancel).  A/B switch only.

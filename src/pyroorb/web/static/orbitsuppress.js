@@ -125,7 +125,8 @@
   // "Show an orbit anyway". The banner keeps saying the arc does not
   // determine an orbit; this bar offers the one-click way past it, and once taken says WHICH
   // orbit is on screen and how to go back. POST /api/nominal (engine_api.nominal_optin): on a
-  // single tracklet the most probable orbit given the known population, else the nominal fit.
+  // single tracklet, or a longer arc delivered near-parabolic or unbound, the most probable orbit
+  // given the known population, else the nominal fit.
   // The request is per orbit -- any re-solve returns the page to the ranges by itself.
   function ensureBar() {
     let bar = document.getElementById("optinBar");
@@ -178,8 +179,9 @@
       bar.innerHTML =
         `<div class="cw-detail">Want an orbit to look at anyway? ` +
         `<button type="button" id="optinOn">Show an orbit anyway</button> ` +
-        `<span class="os-hint">— on a single night, the most probable one given the known ` +
-        `asteroid population; the warning stays and the values are marked ≈.</span> ` +
+        `<span class="os-hint">— on a single night, or where the fit is near-parabolic, the most ` +
+        `probable one given the known asteroid population; the warning stays and the values ` +
+        `are marked ≈.</span> ` +
         `<span id="optinStatus"></span></div>`;
       const b = document.getElementById("optinOn");
       if (b) b.addEventListener("click", () => request(true));

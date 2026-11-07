@@ -8,7 +8,7 @@ on:
   push:
   pull_request:
   schedule:
-    - cron: "17 4 * * *"          # nightly: the full offline suite
+    - cron: "17 4 * * *"          # nightly: the same fast suite, against that day's newest packages
   workflow_dispatch:
 
 env:
@@ -105,20 +105,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PYROORB_CACHE_DIR }}
-          # The nightly full suite also needs the 616 MB asteroid kernel: the goldens of
-          # multi-opposition fixtures were recorded with the 16 perturbers on (944 Hidalgo picks
-          # another nongrav model without them). Its own key, so a cache saved by a push run
-          # without the kernel is never the one the nightly run restores.
-          key: pyroorb-tables-v1-${{ runner.os }}${{ github.event_name == 'schedule' && '-ast' || '' }}
-      - run: pyroorb-fetch-data ${{ github.event_name == 'schedule' && '--asteroids' || '' }}
+          key: pyroorb-tables-v1-${{ runner.os }}
+      - run: pyroorb-fetch-data
+      # CI catches incompatibilities: installs, platforms, new package releases. The slow tests
+      # are run locally: they pin the outcomes of whole fits, and on a sensitive orbit those move
+      # with the last bits of the arithmetic, which differ between platforms and package versions.
       - name: tests (offline; the timing guard is off under CI)
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            python -m pytest -n 4
-          else
-            python -m pytest -m "not slow" -n 4
-          fi
+        run: python -m pytest -m "not slow" -n 4
 
   install-script:
     # install.sh, the README's recommended install, run end to end on fresh runners: it installs

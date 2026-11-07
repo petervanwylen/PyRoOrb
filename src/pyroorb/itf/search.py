@@ -4460,7 +4460,7 @@ class _CachedSource:
 
 
 def _variant_scan(ctx, eph_trial, prior_linkage_used, extrawidth, depth,
-                  hypothesis_obs80):
+                  hypothesis_obs80, fan=None, prior_done=False):
     """Scan LOV variant orbits for an UNDER-DETERMINED seed (itf/lov_variants.py).
 
     Samples orbits along the Line of Variations central-out, each with a thin
@@ -4472,10 +4472,13 @@ def _variant_scan(ctx, eph_trial, prior_linkage_used, extrawidth, depth,
     Returns the linked/possible/no-match :class:`ItfSearchResult`, or ``None``
     when the variant machinery can't run (degenerate LOV, nongrav-augmented
     state) so the caller falls back to the linear corridor.
+
+    ``fan`` scans those ``(states, ks)`` alone, with no refinement and no retry: the
+    population variant's pre-pass, run here before the fan unless ``prior_done``.
     """
     cfg = ctx.cfg
     from .lov_variants import (variant_states, variant_windows,
-                           refine_variant_fan)
+                           refine_variant_fan, prior_variant)
     from .lov_profile import build_lov_profiles
     # Budget already spent?  Do not pay for the union sweep only to stop at
     # variant #1.
@@ -4488,16 +4491,39 @@ def _variant_scan(ctx, eph_trial, prior_linkage_used, extrawidth, depth,
                       f"({ctx.budget.why()}) -- skipping the scan entirely "
                       f"rather than paying for its union sweep")
         return out
+    if (fan is None and not prior_done and cfg.variant_prior_min_U
+            and eph_trial.U >= cfg.variant_prior_min_U):
+        prior = prior_variant(eph_trial.fit, ctx.obscodes)
+        if prior[0] is not None:
+            if _ctx_tracer(ctx).enabled:
+                _ctx_tracer(ctx).head(f"[depth {depth}] variant corridor: the population's "
+                                      f"orbit first, LOV offset {prior[1][0]:+.4f} sigma")
+            first = _variant_scan(ctx, eph_trial, prior_linkage_used, extrawidth, depth,
+                                  hypothesis_obs80, fan=prior)
+            if first is not None and first.verdict is SearchVerdict.LINKED:
+                return first
+            # A possible stands: the fan below will not repeat a fit this search has
+            # made, so it could not find it again (2006 RY118).
+            rest = _variant_scan(ctx, eph_trial, prior_linkage_used, extrawidth, depth,
+                                 hypothesis_obs80, prior_done=True)
+            if first is not None and (rest is None
+                                      or _verdict_rank(first) > _verdict_rank(rest)):
+                return first
+            return rest
     _t = time.perf_counter()
-    states, lov_sigmas = variant_states(eph_trial.fit, cfg)
-    if states is None:
-        return None
-    # Densify the fan where its corridors leave a hole (see
-    # lov_variants.refine_variant_fan).  Its tracks are handed on, saving
-    # variant_windows a second integration.
-    states, lov_sigmas, tracks, n_extra = refine_variant_fan(eph_trial.fit,
-                                                     ctx.obscodes, cfg,
-                                                     states, lov_sigmas)
+    if fan is not None:
+        states, lov_sigmas = fan
+        tracks, n_extra = None, 0
+    else:
+        states, lov_sigmas = variant_states(eph_trial.fit, cfg)
+        if states is None:
+            return None
+        # Densify the fan where its corridors leave a hole (see
+        # lov_variants.refine_variant_fan).  Its tracks are handed on, saving
+        # variant_windows a second integration.
+        states, lov_sigmas, tracks, n_extra = refine_variant_fan(eph_trial.fit,
+                                                         ctx.obscodes, cfg,
+                                                         states, lov_sigmas)
     try:
         pervar = variant_windows(eph_trial.fit, ctx.obscodes, cfg,
                                  ctx.max_uncert_deg, states, lov_sigmas, tracks=tracks)
@@ -4725,7 +4751,7 @@ def _variant_scan(ctx, eph_trial, prior_linkage_used, extrawidth, depth,
     # reordering, even trials at the back of a queue) linked foreign tracklets
     # on 2021 SA70.  Deferred, an object that links never reaches this code.
     # The rows are still cached, so this costs no second sweep.
-    if cfg.lov_refine and (best_possible is not None or hit_budget
+    if cfg.lov_refine and fan is None and (best_possible is not None or hit_budget
                       or n_done >= n_scan):
         _tk = time.perf_counter()
         try:

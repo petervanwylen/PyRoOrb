@@ -127,3 +127,64 @@ def test_the_most_probable_orbit_fits_its_own_tracklet():
     assert mp is not None
     assert mp.rms_normalized() <= max(1.5 * fit.rms_normalized(), fit.rms_normalized() + 0.3)
     assert mp.geocentric_range() == pytest.approx(mp.most_probable["rho_med"], rel=1e-3)
+
+
+def _first_nights(label, n):
+    """The fit to a fixture's first `n` nights (a night ends at a gap over 0.5 d)."""
+    import os
+    import _fixtures as FX
+    import pyroorb.fit_object as fo; from pyroorb import obs_sources
+    fx = FX.load_fixture(os.path.join(FX.FIX, label + ".json"))
+    obs = sorted(fx["obs"], key=lambda o: o["jd_utc"])
+    nights = 1 + sum(b["jd_utc"] - a["jd_utc"] > 0.5 for a, b in zip(obs, obs[1:]))
+    assert nights > n
+    last, seen = 0, 1
+    for i in range(1, len(obs)):
+        if obs[i]["jd_utc"] - obs[i - 1]["jd_utc"] > 0.5:
+            seen += 1
+            if seen > n:
+                break
+        last = i
+    return fo.fit_orbit(obs[:last + 1], obs_sources.load_obscodes(),
+                        desig=fx["meta"]["designation"], meta=fx["meta"])
+
+
+@pytest.mark.slow
+def test_a_near_parabolic_two_night_fit_is_replaced_by_the_population_orbit():
+    """Two nights of a main-belt object (a 2.58) deliver a ~ 9700: the prior reads the LOV."""
+    fit = _first_nights("PAIR_2014HH101", 2)
+    assert fit.elements()["e"] >= popprior.LOV_E_FLOOR
+    mp = popprior.most_probable_fit(fit)
+    assert mp is not None
+    el = mp.elements()
+    assert 2.0 < el["a"] < 3.2 and el["e"] < 0.5, el
+    assert mp.rms_residual() <= popprior.LOV_RMS_MAX * fit.rms_residual()
+    info = mp.most_probable
+    assert abs(info["k"]) <= popprior.LOV_K_MAX
+    assert 0 < info["rho_pct"]["5"] <= info["rho_pct"]["95"]
+    assert fit.elements()["e"] >= popprior.LOV_E_FLOOR, "the delivered fit must stay untouched"
+
+
+@pytest.mark.slow
+def test_an_ordinary_multi_night_orbit_is_left_alone():
+    """Under e = 0.9 the delivered orbit is usually fair, and the prior's gain does not pay."""
+    fit = _first_nights("107474", 2)
+    assert fit.elements()["e"] < popprior.LOV_E_FLOOR
+    assert popprior.most_probable_fit(fit) is None
+
+
+@pytest.mark.slow
+def test_a_re_correction_that_leaves_the_bound_orbits_is_refused(monkeypatch):
+    """The pinned fit can slip off the strip the linear LOV crossed: the fit then stands."""
+    fit = _first_nights("PAIR_2014HH101", 2)
+    u, sigma, _refit = fit.lov_refit()
+    monkeypatch.setattr(type(fit), "lov_refit",
+                        lambda self: (u, sigma, lambda *a: np.asarray(fit._state, float)[:6]))
+    assert popprior.most_probable_lov_fit(fit) is None
+
+
+@pytest.mark.slow
+def test_a_replacement_that_misfits_is_refused(monkeypatch):
+    fit = _first_nights("PAIR_2014HH101", 2)
+    monkeypatch.setattr(popprior, "LOV_RMS_MAX", 1e-6)
+    assert popprior.most_probable_lov_fit(fit) is None

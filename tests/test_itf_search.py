@@ -4219,6 +4219,62 @@ def test_variant_states_central_out_and_fallback():
     assert list(np.abs(kk)) == sorted(np.abs(kk)), kk
 
 
+def _prior_scan(monkeypatch, U, first, rest):
+    """Run the population pre-pass with both scans stubbed; returns (result, scans made)."""
+    import pyroorb.itf.search as S
+    import pyroorb.itf.lov_variants as V
+    from types import SimpleNamespace
+    calls = []
+    real = S._variant_scan
+
+    def scan(ctx, trial, used, width, depth, hyp, fan=None, prior_done=False):
+        if fan is None and not prior_done and not calls:
+            calls.append("entry")
+            return real(ctx, trial, used, width, depth, hyp)
+        calls.append("prior" if fan is not None else "fan")
+        return first if fan is not None else rest
+
+    monkeypatch.setattr(S, "_variant_scan", scan)
+    monkeypatch.setattr(V, "prior_variant", lambda fit, oc: (np.zeros((1, 6)), np.array([0.06])))
+    monkeypatch.setattr(V, "variant_states", lambda fit, cfg: (None, None))
+    ctx = SimpleNamespace(cfg=ItfConfig(), budget=None, obscodes={}, trace=None)
+    trial = SimpleNamespace(U=U, fit=object())
+    return S._variant_scan(ctx, trial, 11, 0, 0, ""), calls[1:]
+
+
+def test_population_variant_is_tried_first_and_a_link_ends_the_search(monkeypatch):
+    from pyroorb.itf.search import ItfSearchResult
+    from pyroorb.itf.verdict import SearchVerdict
+    linked = ItfSearchResult(); linked.verdict = SearchVerdict.LINKED
+    out, calls = _prior_scan(monkeypatch, 11.2, linked, ItfSearchResult())
+    assert out is linked and calls == ["prior"]
+
+
+def test_population_variant_keeps_a_possible_the_fan_cannot_refind(monkeypatch):
+    # The fan does not repeat a fit this search already made, so a possible the
+    # pre-pass threw away was lost for good: 2006 RY118 went 0/1.
+    from pyroorb.itf.search import ItfSearchResult
+    from pyroorb.itf.verdict import SearchVerdict
+    possible = ItfSearchResult(); possible.verdict = SearchVerdict.POSSIBLE
+    nothing = ItfSearchResult()
+    out, calls = _prior_scan(monkeypatch, 11.2, possible, nothing)
+    assert out is possible and calls == ["prior", "fan"]
+
+
+def test_population_variant_leaves_a_better_fan_result_alone(monkeypatch):
+    from pyroorb.itf.search import ItfSearchResult
+    from pyroorb.itf.verdict import SearchVerdict
+    linked = ItfSearchResult(); linked.verdict = SearchVerdict.LINKED
+    out, calls = _prior_scan(monkeypatch, 11.2, ItfSearchResult(), linked)
+    assert out is linked and calls == ["prior", "fan"]
+
+
+def test_population_variant_skips_seeds_under_its_gate(monkeypatch):
+    from pyroorb.itf.search import ItfSearchResult
+    out, calls = _prior_scan(monkeypatch, 6.0, ItfSearchResult(), ItfSearchResult())
+    assert out is None and calls == []          # straight to the fan (stubbed: no LOV)
+
+
 def test_itf_cli_runs_from_any_directory():
     # The ITF CLI is the package's `python -m pyroorb.itf` (installed as `pyroorb-itf`): it must
     # run from ANY working directory, not only the repo's. --help exercises the whole import

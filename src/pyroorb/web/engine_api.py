@@ -576,7 +576,9 @@ def serialise_fit(fit):
     # orbit's scale (a, e, Q, P) almost free -- the linear sigmas are then misleading
     # (huge), so we describe the honest non-linear spread. None for a determined orbit.
     try:
-        constraint_warning = constraint.assess(fit)
+        # An asked-for orbit answers for its ARC: judged alone, a bound orbit picked by the prior
+        # can pass the covariance gate and come back as a determined orbit with hazard figures.
+        constraint_warning = constraint.assess(getattr(fit, "optin_source", None) or fit)
     except Exception:
         constraint_warning = None
 
@@ -733,7 +735,8 @@ def serialise_fit(fit):
         "stage_residuals": _stage_snapshots(fit),
         # The orbits the arc ADMITS, drawn faintly by both 3D views whenever the banner is up
         # (orbitfan.js) -- in place of nothing, and behind the asked-for orbit when there is one.
-        "orbit_family": _orbit_family_block(fit) if constraint_warning else None,
+        "orbit_family": (_orbit_family_block(getattr(fit, "optin_source", None) or fit)
+                         if constraint_warning else None),
         "nominal_optin": optin or None,
         # digest2 for every single tracklet, determined or not, and every suppressed banner
         # (the note used to appear only under the banner, so a tracklet whose
@@ -834,8 +837,10 @@ def nominal_optin(sid, on=True):
     """"Show me an orbit anyway" on an arc that does not determine one.
 
     On a single tracklet the orbit shown is the MOST PROBABLE one (popprior.most_probable_fit:
-    the range profile's own solution at the population-posterior median distance); elsewhere,
-    or when no posterior can be formed, the delivered fit. It becomes the session's displayed
+    the range profile's own solution at the population-posterior median distance); on a longer
+    arc delivered near-parabolic or unbound, the population's peak along the line of variations
+    (popprior.most_probable_lov_fit); elsewhere, or when no posterior can be formed, the
+    delivered fit. It becomes the session's displayed
     orbit, flagged on the FittedOrbit itself, so the exports that resolve this session publish
     it (all exports, once asked) and the next re-solve -- a new FittedOrbit -- quietly
     returns the page to the ranges. ``on=False`` is the page's "back to the ranges": the orbit
@@ -869,6 +874,7 @@ def nominal_optin(sid, on=True):
         info = {"source": "population", **{k: (_safe(v) if isinstance(v, float) else v)
                                             for k, v in mp.most_probable.items()}}
     chosen.nominal_optin = info
+    chosen.optin_source = fit
     s["fit_before_optin"] = fit
     s["fit"] = chosen
     return _session_payload(s, sid, chosen)

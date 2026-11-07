@@ -72,6 +72,27 @@ def variant_states(fit, cfg):
     return states[order], lov_sigmas[order]
 
 
+def prior_variant(fit, obscodes):
+    """The orbit digest2's population model expects on this LOV, as a one-variant fan
+    ``(states, ks)``, or ``(None, None)``.  See :func:`pyroorb.popprior.lov_weights`.
+
+    A short arc can fit a parabola with the truth a sliver of the LOV away, where the
+    equal-probability fan cannot land: 2008 SZ347 (a 5.2 au, seed e 0.9999) has its truth at
+    k 0.063, the peak here, between fan samples at 0 and 0.19, and a variant 2 deg off
+    leaves its tracklets at P 0.000 below 280 live candidates.
+    """
+    from pyroorb import popprior
+    if getattr(fit, "lov_refit", None) is None:
+        return None, None
+    lov = popprior.lov_weights(fit, obscodes)
+    if lov is None:
+        return None, None
+    state = popprior.lov_peak_state(fit, lov["k_peak"])
+    if state is None:
+        return None, None
+    return state[None, :], np.array([lov["k_peak"]])
+
+
 def _states_without_elements(fit, cfg):
     """LOV states for a seed too weak for ``lov_uncertainty`` to report on.
 

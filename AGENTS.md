@@ -13,7 +13,7 @@ only with a measurement, and update its line here when you do.
 - `weights.py` / `debias.py` / `photometry.py` / `hazard.py` — σ, EFCC18 debias, H/band, MOID/class/U.
   `healpix.py` — numpy HEALPix (pixel lookup + inclusive NESTED disc), byte-identical to healpy.
 - `hyperbolic.py`, `boundbridge.py`, `nightmodel.py` — the unbound-orbit gate.
-- `constraint.py`, `rangescan.py`, `popprior.py`, `d2score.py` + `digest2/` — determinacy, range profile, display-only population prior, digest2.
+- `constraint.py`, `rangescan.py`, `popprior.py`, `d2score.py` + `digest2/` — determinacy, range profile, population prior (display and where ITF looks, never a decision), digest2.
 - `radar.py`, `impact.py` / `bplane.py` / `keyholes.py`, `egress.py` — radar, impact products, export formats.
 - `products.py` / `ensemble.py` — the public propagation, close-approach, radar-prediction and
   orbit-ensemble products (implementations behind `__init__.py`).
@@ -94,6 +94,7 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   searches derived in `web/capacity.py` (`PYROORB_ITF_MAX_RUNNING`); slots released by
   worker liveness (`_itf_reap`). Capacity messages never join `warnings`.
 - **Corridor cap `max_uncert_deg` 40 deg** (measured; was an arbitrary 19.44); the carry pool ranks a re-swept tracklet by its fresh score (`_carried_pool`).
+- **A seed at U >= 9 scans the population's orbit first** (`lov_variants.prior_variant`, `popprior.lov_weights`): one variant before the fan's union sweep; a link ends the search, a possible is kept against the fan's result, and the fan otherwise runs as it would have.
 - **Flat field** (`search.flat_field`: best likely P < 0.15, linear corridor): 30 singles and barren-take backtracking at ANY depth, not only depth 0. A take reached by resuming after a barren one never restarts the no-progress clock (`TrialQueue.resumed`).
 - **Terminal LOV fan** (`ItfConfig.terminal_fan`): a linear recursion ending on an orbit still at U >= `variant_corridor_U` scans the LOV fan from it, once per search, only from a take the vet calls reviewable (`_terminal_fan_due`), never inside a variant round (`SearchContext.terminal_fan_done`). A link the take's vet accepts is transmitted only if the fan does not supersede it (`_release_held`).
 - Faint cut `ItfConfig.mag_limit` 23.5 (`--mag-limit`/`--thorough`); UI fetches defaults
@@ -142,12 +143,18 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   > 230 d before extension; any length on a single apparition.
 - **No nominal orbit when undetermined** (`constraint.assess`; single tracklets decided by
   the range profile `rangescan.py`, never by U or tracklet count): elements blanked,
-  intervals shown, exports refused except ephemeris. "Show anyway" uses the DISPLAY-ONLY
-  population prior (`popprior.py`) — never feed it to hazard/ITF/NEOCP/classification.
+  intervals shown, exports refused except ephemeris. "Show anyway" uses the
+  population prior (`popprior.py`), which may choose where to look, never what is decided: no
+  hazard, NEOCP, classification or linkage acceptance. Past one
+  night it moves along the LOV, only for a delivered e >= 0.9, kept if bound and within 1.5x the
+  rms (`popprior.most_probable_lov_fit`); an asked-for orbit is judged by its ARC (`optin_source`).
 - **Asteroid nongrav discovery gates on q < 1.4 au**, not a (`NONGRAV_Q_MAX_AU`; drift is earned at perihelion).
 - **Nongrav discovery by BIC** (`_ng_choice`, `NONGRAV_BIC_MARGIN` 15; comet ladder
   `_comet_step_justified`); negative A1 refused; exact 0.0 = stall; marginal models
   jackknife-verified (`nongrav_jackknife_detail`, by tracklets, never warm-started).
+- **A sub-model floor compares one evaluation path** (`_floor_sub_models`): a richer trial's
+  restricted orbit against the sub-model's own solution, never against the delivered chi2 (the two
+  integrations differ by 0.04-0.4% on 2008 NA, which broke the nesting of the records).
 - **Ephemeris sigma rides a 0.01-sigma Jacobian step** (`ephemerides._jacobian_steps`, capped,
   never larger than the fitter's 1.49e-8): the fixed step went non-linear through Apophis's
   2029 pass (ellipse 265" vs a clone cloud's 3.7"); orbits looser than the step are unchanged.

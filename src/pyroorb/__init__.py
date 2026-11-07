@@ -766,21 +766,28 @@ def most_probable_orbit(fit):
     differs is which of the many equally good orbits it is: the most typical one, rather than
     wherever the fit happened to stop. This is the orbit the web UI draws on "show anyway".
 
+    Past one night the arc constrains the radial velocity, so the prior moves only along the
+    line of variations, and only when the delivered orbit is near-parabolic or unbound (e >= 0.9):
+    the population's peak there, re-corrected, kept if it is bound and fits within 1.5x the
+    delivered rms. An orbit under e = 0.9 is usually a fair one, and the result is None.
+
     Every caveat of :func:`range_posterior` applies: it is a statement about the population,
     not evidence about this object, and must never feed a hazard or follow-up decision.
 
     Parameters
     ----------
     fit : FittedOrbit
-        A fit to a single tracklet (where the range profile decides determinacy).
+        A fit to a single tracklet (where the range profile decides determinacy), or to a
+        longer arc delivered near-parabolic or unbound.
 
     Returns
     -------
     FittedOrbit or None
         A fitted orbit (all methods work) carrying ``most_probable`` =
-        ``{"rho_med": au, "rho_pct": {"5": , "50": , "95": }, "vmag": }``; None off the
-        single-tracklet regime, when the arc fits no orbit at any distance, or when no
-        posterior can be formed.
+        ``{"rho_med": au, "rho_pct": {"5": , "50": , "95": }, "vmag": }`` (past one night also
+        ``"k"``, the offset along the line of variations in sigmas); None when the arc fits no
+        orbit at any distance, when no posterior can be formed, or past one night when the
+        delivered orbit stands.
     """
     from pyroorb import ensemble as _e
     return _e.most_probable_orbit(fit)

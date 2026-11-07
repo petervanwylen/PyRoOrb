@@ -82,3 +82,42 @@ def test_a_determined_orbit_has_nothing_to_ask_for():
     p = E.nominal_optin(sid)
     assert not p["ok"] and "already determined" in p["error"]
     assert E.serialise_fit(fit)["orbit_family"] is None
+
+
+def _two_night_session():
+    """The first two nights of a main-belt object, which fit a near-parabola (a ~ 9700)."""
+    fx = FX.load_fixture(os.path.join(FX.FIX, "PAIR_2014HH101.json"))
+    obs = sorted(fx["obs"], key=lambda o: o["jd_utc"])
+    gaps = [i for i in range(1, len(obs)) if obs[i]["jd_utc"] - obs[i - 1]["jd_utc"] > 0.5]
+    fit = fo.fit_orbit(obs[:gaps[1]], obs_sources.load_obscodes(),
+                       desig=fx["meta"]["designation"], meta=fx["meta"])
+    return fit, E._store_session(fit)
+
+
+def test_a_near_parabolic_multi_night_arc_shows_the_population_orbit_and_its_residuals():
+    fit, sid = _two_night_session()
+    before = E.serialise_fit(fit)
+    assert before["orbit_suppressed"]
+    p = E.nominal_optin(sid)
+    assert p["ok"] and not p["orbit_suppressed"] and p["constraint"], "the banner must stay"
+    assert p["nominal_optin"]["source"] == "population"
+    a = next(r for r in p["elements"] if r["name"] == "a")
+    assert 2.0 < a["value"] < 3.2, a
+    assert p["physical"]["pha"] is None and p["physical"]["moid_earth_au"] is None
+    moved = [abs(x["d_ra_arcsec"] - y["d_ra_arcsec"]) for x, y in
+             zip(before["residuals"], p["residuals"])]
+    assert max(moved) > 1e-3, "the obs pane must follow the orbit on screen"
+    back = E.nominal_optin(sid, on=False)
+    assert back["orbit_suppressed"] and E.session_fit(sid) is fit
+
+
+def test_an_asked_for_orbit_is_judged_by_its_arc_never_by_itself(monkeypatch):
+    """A prior-chosen orbit can pass the covariance gate alone; the arc still determines nothing,
+    so the banner stays and no hazard figure appears."""
+    fit, sid = _two_night_session()
+    real = E.constraint.assess
+    monkeypatch.setattr(E.constraint, "assess", lambda f, *a, **k: real(f, *a, **k) if f is fit else None)
+    p = E.nominal_optin(sid)
+    assert p["constraint"] and p["nominal_optin"]
+    assert p["physical"]["pha"] is None and p["physical"]["moid_earth_au"] is None
+    assert p["orbit_family"]

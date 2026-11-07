@@ -1,0 +1,726 @@
+{
+ "designation": "2008 SZ347",
+ "note": "a seed that fits a PARABOLA: 3 nights of an a 5.2 au object give e 0.9999 (U 11.2), the truth is at k 0.063 between fan samples at 0 and 0.19, and the fan never lands near it (0/15).  The population's peak on the LOV is k 0.0635: the search tries that orbit first and links 15/15, live too",
+ "obs80": "     K08SY7Z* C2008 09 20.30028 00 16 37.16 +00 56 29.1          21.2 Vr~4YxjG96\n     K08SY7Z  C2008 09 20.30517 00 16 36.94 +00 56 28.8          22.1 Vr~4YxjG96\n     K08SY7Z  C2008 09 20.31012 00 16 36.76 +00 56 28.1          20.7 Vr~4YxjG96\n     K08SY7Z  C2008 09 20.31502 00 16 36.58 +00 56 28.1          20.9 Vr~4YxjG96\n     K08SY7Z  C2008 09 29.27553 00 11 19.93 +00 44 08.9          21.0 Vr~4YxjG96\n     K08SY7Z  C2008 09 29.28155 00 11 19.75 +00 44 08.2          21.6 Vr~4YxjG96\n     K08SY7Z  C2008 09 29.28770 00 11 19.53 +00 44 07.6          21.0 Vr~4YxjG96\n     K08SY7Z  C2008 09 29.29421 00 11 19.28 +00 44 06.9          22.1 Vr~4YxjG96\n     K08SY7Z 5C2015 04 18.02327 12 38 28.80 -07 31 38.6          23.3 V ~5VHhW84\n     K08SY7Z 5C2015 04 18.03866 12 38 28.37 -07 31 36.8                 ~5VHhW84\n     K08SY7Z 5C2015 04 18.04190 12 38 28.27 -07 31 36.3                 ~5VHhW84\n     K08SY7Z 5C2015 04 18.04516 12 38 28.18 -07 31 36.0                 ~5VHhW84\n     K08SY7Z 5C2015 04 20.02740 12 37 32.58 -07 27 59.6          23.0 V ~5VHhW84\n     K08SY7Z 5C2015 04 20.03087 12 37 32.47 -07 27 59.4                 ~5VHhW84\n     K08SY7Z 5C2015 04 20.03781 12 37 32.28 -07 27 58.7                 ~5VHhW84\n     K08SY7Z 5C2015 04 20.04132 12 37 32.19 -07 27 58.2                 ~5VHhW84\n     K08SY7Z 5C2015 04 21.02247 12 37 05.11 -07 26 13.0          23.1 V ~5VHhW84\n     K08SY7Z 5C2015 04 21.03210 12 37 04.85 -07 26 11.6                 ~5VHhW84\n     K08SY7Z 5C2015 04 21.03533 12 37 04.74 -07 26 11.0                 ~5VHhW84\n     K08SY7Z  C2019 07 25.51169 22 25 45.517-23 41 14.88         21.7 iU~4YxjF51\n     K08SY7Z  C2019 07 25.52254 22 25 45.217-23 41 16.61         21.3 iU~4YxjF51\n     K08SY7Z  C2019 07 25.53342 22 25 44.927-23 41 18.16         21.2 iU~4YxjF51\n     K08SY7Z  C2019 07 25.54429 22 25 44.630-23 41 19.59         21.3 iU~4YxjF51\n     K08SY7Z  C2019 09 19.29327 21 54 36.160-24 37 48.82         21.5 wU~4YxjF51\n     K08SY7Z  C2019 09 19.30414 21 54 35.851-24 37 48.13         21.7 wU~4YxjF51\n     K08SY7Z  C2019 09 19.31501 21 54 35.533-24 37 47.33         21.4 wU~4YxjF51\n     K08SY7Z  C2020 09 13.44849 00 44 10.663+05 48 22.74         21.2 wU~4YxjF51\n     K08SY7Z  C2020 09 13.45443 00 44 10.470+05 48 22.51         21.3 wU~4YxjF51\n     K08SY7Z  C2020 09 13.46049 00 44 10.265+05 48 22.21         21.2 wU~4YxjF51\n     K08SY7Z  C2020 09 13.46643 00 44 10.082+05 48 22.03         21.2 wU~4YxjF51\n     K08SY7Z  C2020 09 13.47250 00 44 09.889+05 48 21.65         21.3 wU~4YxjF51\n     K08SY7Z  C2020 09 13.47841 00 44 09.692+05 48 21.38         21.2 wU~4YxjF51\n     K08SY7Z  C2020 09 13.48454 00 44 09.499+05 48 21.18         21.1 wU~4YxjF51\n     K08SY7Z  C2020 09 13.49048 00 44 09.304+05 48 20.94         21.3 wU~4YxjF51\n     K08SY7Z  C2020 09 16.51882 00 42 32.598+05 45 41.49         21.2 wU~4YxjF51\n     K08SY7Z  C2020 09 16.53671 00 42 31.993+05 45 40.50         21.4 wU~4YxjF51\n     K08SY7Z  C2020 09 16.55480 00 42 31.393+05 45 39.39         21.6 wU~4YxjF51\n     K08SY7Z  C2020 09 16.57313 00 42 30.783+05 45 38.43         21.6 wU~4YxjF51\n     K08SY7Z  C2020 10 10.36256 00 28 42.055+05 15 24.08         21.2 wU~4YxjF52\n     K08SY7Z  C2020 10 10.37354 00 28 41.657+05 15 23.20         20.9 wU~4YxjF52\n     K08SY7Z  C2020 10 10.38460 00 28 41.258+05 15 22.19         21.2 wU~4YxjF52\n     K08SY7Z  C2020 10 10.39564 00 28 40.887+05 15 21.24         21.4 wU~4YxjF52\n     K08SY7Z  C2020 10 15.34974 00 25 52.667+05 08 35.96         21.2 wU~4YxjF51\n     K08SY7Z  C2020 10 15.36084 00 25 52.291+05 08 34.98         21.3 wU~4YxjF51\n     K08SY7Z  C2020 10 15.37199 00 25 51.922+05 08 34.34         21.3 wU~4YxjF51\n     K08SY7Z  C2020 10 16.21216600 25 24.265+05 07 26.80         21.33GV~4YxjG96\n     K08SY7Z  C2020 10 16.21782700 25 23.984+05 07 26.51         22.4 GV~4YxjG96\n     K08SY7Z  C2020 10 16.22349400 25 23.812+05 07 26.40         21.36GV~4YxjG96\n     K08SY7Z  C2020 10 16.22914700 25 23.574+05 07 25.79         22.43GV~4YxjG96\n     K08SY7Z  C2021 01 05.22511 00 20 18.448+06 32 14.89         22.4 wU~4YxjF51\n     K08SY7Z  C2021 01 05.23700 00 20 18.783+06 32 17.43         22.3 wU~4YxjF51\n     K08SY7Z  C2021 01 05.24896 00 20 19.117+06 32 20.72         22.0 wU~4YxjF51\n     K08SY7Z  C2021 09 08.52578603 26 24.833+30 08 21.66         22.33wU~52JtF52\n     K08SY7Z  C2021 09 08.53731003 26 24.874+30 08 24.63         21.99wU~52JtF52\n     K08SY7Z  C2021 09 08.54882803 26 24.886+30 08 27.78         22.38wU~52JtF52\n     K08SY7Z  C2021 09 08.56036903 26 24.957+30 08 30.17         22.23wU~52JtF52\n     K08SY7Z  C2021 10 03.44808003 22 47.285+31 27 18.24         21.86wU~55BQF52\n     K08SY7Z  C2021 10 03.46012203 22 47.027+31 27 20.06         21.81wU~55BQF52\n     K08SY7Z  C2021 10 03.47210303 22 46.753+31 27 21.86         22.0 wU~55BQF52\n     K08SY7Z  C2021 10 03.48411003 22 46.512+31 27 23.60         21.97wU~55BQF52\n     K08SY7Z  C2021 11 06.36295603 04 24.966+31 57 57.11         21.78wU~5BENF52\n     K08SY7Z  C2021 11 06.37435403 04 24.509+31 57 56.99         21.64wU~5BENF52\n     K08SY7Z  C2021 11 06.38576203 04 24.031+31 57 56.35         21.82wU~5BENF52\n     K08SY7Z  C2021 11 24.27733302 52 41.319+31 34 02.95         21.77wU~5H7cF51\n     K08SY7Z  C2021 11 24.28831802 52 40.886+31 34 01.78         21.49wU~5H7cF51\n     K08SY7Z  C2021 11 24.29933702 52 40.475+31 34 00.37         21.21wU~5H7cF51\n     K08SY7Z  C2021 11 24.31194202 52 39.992+31 33 59.13         21.43wU~5H7cF51\n     K08SY7Z  C2021 11 28.17335502 50 21.192+31 26 08.88         21.28GV~5H7cG96\n     K08SY7Z  C2021 11 28.17904802 50 20.994+31 26 07.98         21.27GV~5H7cG96\n     K08SY7Z  C2021 11 28.18476602 50 20.807+31 26 07.19         21.91GV~5H7cG96\n     K08SY7Z  C2021 11 28.19047902 50 20.591+31 26 06.86         21.64GV~5H7cG96\n",
+ "ades": {
+  "     K08SY7Z* C2008 09 20.30028 00 16 37.16 +00 56 29.1          21.2 Vr~4YxjG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KCJIo50000005WMa010000086",
+   "trksub": "8S94C7B",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z  C2008 09 20.30517 00 16 36.94 +00 56 28.8          22.1 Vr~4YxjG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KCJIo50000005WMa010000087",
+   "trksub": "8S94C7B",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z  C2008 09 20.31012 00 16 36.76 +00 56 28.1          20.7 Vr~4YxjG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KCJIo50000005WMa010000088",
+   "trksub": "8S94C7B",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z  C2008 09 20.31502 00 16 36.58 +00 56 28.1          20.9 Vr~4YxjG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KCJIo50000005WMa010000089",
+   "trksub": "8S94C7B",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z  C2008 09 29.27553 00 11 19.93 +00 44 08.9          21.0 Vr~4YxjG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KCSDU90000004ESg0100000BS",
+   "trksub": "8SA1693",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z  C2008 09 29.28155 00 11 19.75 +00 44 08.2          21.6 Vr~4YxjG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KCSDU90000004ESg0100000BT",
+   "trksub": "8SA1693",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z  C2008 09 29.28770 00 11 19.53 +00 44 07.6          21.0 Vr~4YxjG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KCSDU90000004ESg0100000BU",
+   "trksub": "8SA1693",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z  C2008 09 29.29421 00 11 19.28 +00 44 06.9          22.1 Vr~4YxjG96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KCSDU90000004ESg0100000BV",
+   "trksub": "8SA1693",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z 5C2015 04 18.02327 12 38 28.80 -07 31 38.6          23.3 V ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtk0100001sA",
+   "trksub": "N227090",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z 5C2015 04 18.03866 12 38 28.37 -07 31 36.8                 ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtk0100001sB",
+   "trksub": "N227090",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K08SY7Z 5C2015 04 18.04190 12 38 28.27 -07 31 36.3                 ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtk0100001sC",
+   "trksub": "N227090",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K08SY7Z 5C2015 04 18.04516 12 38 28.18 -07 31 36.0                 ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtk0100001sD",
+   "trksub": "N227090",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K08SY7Z 5C2015 04 20.02740 12 37 32.58 -07 27 59.6          23.0 V ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtl01000016r",
+   "trksub": "N222300",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z 5C2015 04 20.03087 12 37 32.47 -07 27 59.4                 ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtl01000016s",
+   "trksub": "N222300",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K08SY7Z 5C2015 04 20.03781 12 37 32.28 -07 27 58.7                 ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtl01000016t",
+   "trksub": "N222300",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K08SY7Z 5C2015 04 20.04132 12 37 32.19 -07 27 58.2                 ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtl01000016u",
+   "trksub": "N222300",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K08SY7Z 5C2015 04 21.02247 12 37 05.11 -07 26 13.0          23.1 V ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtn0100002bI",
+   "trksub": "N225092",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K08SY7Z 5C2015 04 21.03210 12 37 04.85 -07 26 11.6                 ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtn0100002bJ",
+   "trksub": "N225092",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K08SY7Z 5C2015 04 21.03533 12 37 04.74 -07 26 11.0                 ~5VHhW84": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "L1UJng000000Crtn0100002bK",
+   "trksub": "N225092",
+   "mode": "CCD",
+   "band": " "
+  },
+  "     K08SY7Z  C2019 07 25.51169 22 25 45.517-23 41 14.88         21.7 iU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LFOH9A000000DDX2010000058",
+   "trksub": "P10PT8s",
+   "mode": "CCD",
+   "band": "i"
+  },
+  "     K08SY7Z  C2019 07 25.52254 22 25 45.217-23 41 16.61         21.3 iU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LFOH9A000000DDX2010000059",
+   "trksub": "P10PT8s",
+   "mode": "CCD",
+   "band": "i"
+  },
+  "     K08SY7Z  C2019 07 25.53342 22 25 44.927-23 41 18.16         21.2 iU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LFOH9A000000DDX201000005A",
+   "trksub": "P10PT8s",
+   "mode": "CCD",
+   "band": "i"
+  },
+  "     K08SY7Z  C2019 07 25.54429 22 25 44.630-23 41 19.59         21.3 iU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LFOH9A000000DDX201000005B",
+   "trksub": "P10PT8s",
+   "mode": "CCD",
+   "band": "i"
+  },
+  "     K08SY7Z  C2019 09 19.29327 21 54 36.160-24 37 48.82         21.5 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LGI8Cm000000DGNp01000003v",
+   "trksub": "P10RC7X",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2019 09 19.30414 21 54 35.851-24 37 48.13         21.7 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LGI8Cm000000DGNp01000003w",
+   "trksub": "P10RC7X",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2019 09 19.31501 21 54 35.533-24 37 47.33         21.4 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LGI8Cm000000DGNp01000003x",
+   "trksub": "P10RC7X",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 13.44849 00 44 10.663+05 48 22.74         21.2 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMCIKY000000Dqc00100000BX",
+   "trksub": "P115QBw",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 13.45443 00 44 10.470+05 48 22.51         21.3 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMCIKY000000Dqc001000009T",
+   "trksub": "P115QB0",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 13.46049 00 44 10.265+05 48 22.21         21.2 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMCIKY000000Dqc00100000BY",
+   "trksub": "P115QBw",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 13.46643 00 44 10.082+05 48 22.03         21.2 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMCIKY000000Dqc001000009U",
+   "trksub": "P115QB0",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 13.47250 00 44 09.889+05 48 21.65         21.3 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMCIKY000000Dqc00100000BZ",
+   "trksub": "P115QBw",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 13.47841 00 44 09.692+05 48 21.38         21.2 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMCIKY000000Dqc001000009V",
+   "trksub": "P115QB0",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 13.48454 00 44 09.499+05 48 21.18         21.1 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMCIKY000000Dqc00100000Ba",
+   "trksub": "P115QBw",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 13.49048 00 44 09.304+05 48 20.94         21.3 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMCIKY000000Dqc001000009W",
+   "trksub": "P115QB0",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 16.51882 00 42 32.598+05 45 41.49         21.2 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMFI17010000DrAA01000000q",
+   "trksub": "P116kbF",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 16.53671 00 42 31.993+05 45 40.50         21.4 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMFI17010000DrAA01000000r",
+   "trksub": "P116kbF",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 16.55480 00 42 31.393+05 45 39.39         21.6 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMFI17010000DrAA01000000s",
+   "trksub": "P116kbF",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 09 16.57313 00 42 30.783+05 45 38.43         21.6 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMFI17010000DrAA01000000t",
+   "trksub": "P116kbF",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 10 10.36256 00 28 42.055+05 15 24.08         21.2 wU~4YxjF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMeH1C010000Dtif01000001E",
+   "trksub": "P217z9W",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 10 10.37354 00 28 41.657+05 15 23.20         20.9 wU~4YxjF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMeH1C010000Dtif01000001F",
+   "trksub": "P217z9W",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 10 10.38460 00 28 41.258+05 15 22.19         21.2 wU~4YxjF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMeH1C010000Dtif01000001G",
+   "trksub": "P217z9W",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 10 10.39564 00 28 40.887+05 15 21.24         21.4 wU~4YxjF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMeH1C010000Dtif01000001H",
+   "trksub": "P217z9W",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 10 15.34974 00 25 52.667+05 08 35.96         21.2 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMjIpi010000DuHV01000002v",
+   "trksub": "P117WUM",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 10 15.36084 00 25 52.291+05 08 34.98         21.3 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMjIpi010000DuHV01000002w",
+   "trksub": "P117WUM",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 10 15.37199 00 25 51.922+05 08 34.34         21.3 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LMjIpi010000DuHV01000002x",
+   "trksub": "P117WUM",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2020 10 16.21216600 25 24.265+05 07 26.80         21.33GV~4YxjG96": {
+   "sigma_ra": 0.513,
+   "sigma_dec": 0.514,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.513,
+   "ades_rms_dec": 0.514,
+   "mag_sigma": 0.397,
+   "log_snr": 0.444,
+   "obs_id": "LMkCCK9i0000DuPg0100006e0",
+   "trksub": "C3J6FM2",
+   "mode": "CCD",
+   "band": "G"
+  },
+  "     K08SY7Z  C2020 10 16.21782700 25 23.984+05 07 26.51         22.4 GV~4YxjG96": {
+   "sigma_ra": 0.37,
+   "sigma_dec": 0.3,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.37,
+   "ades_rms_dec": 0.3,
+   "mag_sigma": 0.385,
+   "log_snr": 0.467,
+   "obs_id": "LMkCCK9i0000DuPg0100006e1",
+   "trksub": "C3J6FM2",
+   "mode": "CCD",
+   "band": "G"
+  },
+  "     K08SY7Z  C2020 10 16.22349400 25 23.812+05 07 26.40         21.36GV~4YxjG96": {
+   "sigma_ra": 0.297,
+   "sigma_dec": 0.314,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.297,
+   "ades_rms_dec": 0.314,
+   "mag_sigma": 0.334,
+   "log_snr": 0.571,
+   "obs_id": "LMkCCK9i0000DuPg0100006e2",
+   "trksub": "C3J6FM2",
+   "mode": "CCD",
+   "band": "G"
+  },
+  "     K08SY7Z  C2020 10 16.22914700 25 23.574+05 07 25.79         22.43GV~4YxjG96": {
+   "sigma_ra": 0.397,
+   "sigma_dec": 0.38,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.397,
+   "ades_rms_dec": 0.38,
+   "mag_sigma": 0.374,
+   "log_snr": 0.482,
+   "obs_id": "LMkCCK9i0000DuPg0100006e3",
+   "trksub": "C3J6FM2",
+   "mode": "CCD",
+   "band": "G"
+  },
+  "     K08SY7Z  C2021 01 05.22511 00 20 18.448+06 32 14.89         22.4 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LO473p010000E0uU01000000U",
+   "trksub": "P11bqx1",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2021 01 05.23700 00 20 18.783+06 32 17.43         22.3 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LO473p010000E0uU01000000V",
+   "trksub": "P11bqx1",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2021 01 05.24896 00 20 19.117+06 32 20.72         22.0 wU~4YxjF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LO473p010000E0uU01000000W",
+   "trksub": "P11bqx1",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2021 09 08.52578603 26 24.833+30 08 21.66         22.33wU~52JtF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.22,
+   "log_snr": 0.7,
+   "obs_id": "LS7EImF50000EJPB0100000Aj",
+   "trksub": "P21kwNC",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 09 08.53731003 26 24.874+30 08 24.63         21.99wU~52JtF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.16,
+   "log_snr": 0.86,
+   "obs_id": "LS7EImF50000EJPB0100000Ak",
+   "trksub": "P21kwNC",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 09 08.54882803 26 24.886+30 08 27.78         22.38wU~52JtF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.25,
+   "log_snr": 0.64,
+   "obs_id": "LS7EImF50000EJPB0100000Al",
+   "trksub": "P21kwNC",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 09 08.56036903 26 24.957+30 08 30.17         22.23wU~52JtF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.23,
+   "log_snr": 0.69,
+   "obs_id": "LS7EImF50000EJPB0100000Am",
+   "trksub": "P21kwNC",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 10 03.44808003 22 47.285+31 27 18.24         21.86wU~55BQF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.09,
+   "log_snr": 1.11,
+   "obs_id": "LSXKwXEm0000EM17010000030",
+   "trksub": "P21maVu",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 10 03.46012203 22 47.027+31 27 20.06         21.81wU~55BQF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.1,
+   "log_snr": 1.07,
+   "obs_id": "LSXKwXEm0000EM17010000031",
+   "trksub": "P21maVu",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 10 03.47210303 22 46.753+31 27 21.86         22.0 wU~55BQF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.11,
+   "log_snr": 1.03,
+   "obs_id": "LSXKwXEm0000EM17010000032",
+   "trksub": "P21maVu",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 10 03.48411003 22 46.512+31 27 23.60         21.97wU~55BQF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.17,
+   "log_snr": 0.84,
+   "obs_id": "LSXKwXEm0000EM17010000033",
+   "trksub": "P21maVu",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 11 06.36295603 04 24.966+31 57 57.11         21.78wU~5BENF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LT59VbBu0000EPfx01000007V",
+   "trksub": "P21oalt",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2021 11 06.37435403 04 24.509+31 57 56.99         21.64wU~5BENF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LT59VbBu0000EPfx01000007W",
+   "trksub": "P21oalt",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2021 11 06.38576203 04 24.031+31 57 56.35         21.82wU~5BENF52": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "obs_id": "LT59VbBu0000EPfx01000007X",
+   "trksub": "P21oalt",
+   "mode": "CCD",
+   "band": "w"
+  },
+  "     K08SY7Z  C2021 11 24.27733302 52 41.319+31 34 02.95         21.77wU~5H7cF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.26,
+   "log_snr": 0.64,
+   "obs_id": "LTN8Ad6X0000ERZ401000002V",
+   "trksub": "P11phZ1",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 11 24.28831802 52 40.886+31 34 01.78         21.49wU~5H7cF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.19,
+   "log_snr": 0.77,
+   "obs_id": "LTN8Ad6X0000ERZ401000002W",
+   "trksub": "P11phZ1",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 11 24.29933702 52 40.475+31 34 00.37         21.21wU~5H7cF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.2,
+   "log_snr": 0.75,
+   "obs_id": "LTN8Ad6X0000ERZ401000002X",
+   "trksub": "P11phZ1",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 11 24.31194202 52 39.992+31 33 59.13         21.43wU~5H7cF51": {
+   "sigma_ra": 0.2,
+   "sigma_dec": 0.2,
+   "uncert_src": "Veres2017",
+   "mag_sigma": 0.24,
+   "log_snr": 0.67,
+   "obs_id": "LTN8Ad6X0000ERZ401000002Y",
+   "trksub": "P11phZ1",
+   "mode": "CCD",
+   "band": "Pw"
+  },
+  "     K08SY7Z  C2021 11 28.17335502 50 21.192+31 26 08.88         21.28GV~5H7cG96": {
+   "sigma_ra": 0.347,
+   "sigma_dec": 0.361,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.347,
+   "ades_rms_dec": 0.361,
+   "mag_sigma": 0.29,
+   "log_snr": 0.658,
+   "obs_id": "LTRCZO6m0000ES7f010000IoG",
+   "trksub": "C6Q0GG2",
+   "mode": "CCD",
+   "band": "G"
+  },
+  "     K08SY7Z  C2021 11 28.17904802 50 20.994+31 26 07.98         21.27GV~5H7cG96": {
+   "sigma_ra": 0.308,
+   "sigma_dec": 0.319,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.308,
+   "ades_rms_dec": 0.319,
+   "mag_sigma": 0.344,
+   "log_snr": 0.521,
+   "obs_id": "LTRCZO6m0000ES7f010000IoH",
+   "trksub": "C6Q0GG2",
+   "mode": "CCD",
+   "band": "G"
+  },
+  "     K08SY7Z  C2021 11 28.18476602 50 20.807+31 26 07.19         21.91GV~5H7cG96": {
+   "sigma_ra": 0.332,
+   "sigma_dec": 0.36,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.332,
+   "ades_rms_dec": 0.36,
+   "mag_sigma": 0.309,
+   "log_snr": 0.601,
+   "obs_id": "LTRCZO6m0000ES7f010000IoI",
+   "trksub": "C6Q0GG2",
+   "mode": "CCD",
+   "band": "G"
+  },
+  "     K08SY7Z  C2021 11 28.19047902 50 20.591+31 26 06.86         21.64GV~5H7cG96": {
+   "sigma_ra": 0.295,
+   "sigma_dec": 0.29,
+   "uncert_src": "ADES",
+   "ades_rms_ra": 0.295,
+   "ades_rms_dec": 0.29,
+   "mag_sigma": 0.303,
+   "log_snr": 0.617,
+   "obs_id": "LTRCZO6m0000ES7f010000IoJ",
+   "trksub": "C6Q0GG2",
+   "mode": "CCD",
+   "band": "G"
+  }
+ },
+ "n_obs": 71,
+ "n_apparitions": 4,
+ "seed_apparition": 1,
+ "seed_nights": 3,
+ "compact_seed": true,
+ "max_planted": 25,
+ "seed_U": 11.2,
+ "planted_apparitions": [
+  0,
+  1,
+  2
+ ],
+ "n_fake_tracklets": 15,
+ "expect": {
+  "full_recovery": true,
+  "recovered_apparitions": [
+   0,
+   1,
+   2
+  ],
+  "recovered_tracklets": 15,
+  "rms_max": 0.6,
+  "max_dropped_seed_obs": 0
+ }
+}

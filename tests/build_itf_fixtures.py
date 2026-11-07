@@ -237,6 +237,12 @@ ITF_OBJECTS = [
      "and the rescue is refused on a one-apparition arc: 5/5, 25/25 in the miss "
      "scan's 25-plant shape",
      3, "compact", {"max_planted": 25}),
+    ("2008_SZ347", "2008 SZ347",
+     "a seed that fits a PARABOLA: 3 nights of an a 5.2 au object give e 0.9999 (U 11.2), the "
+     "truth is at k 0.063 between fan samples at 0 and 0.19, and the fan never lands near it "
+     "(0/15).  The population's peak on the LOV is k 0.0635: the search tries that orbit first "
+     "and links 15/15, live too",
+     3, "compact", {"max_planted": 25}),
 ]
 
 # Astrometry the MPC does not (yet) publish for an object, appended verbatim to

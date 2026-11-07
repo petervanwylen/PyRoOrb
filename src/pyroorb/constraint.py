@@ -195,7 +195,8 @@ def assess(fit, n_mc=300, rng_seed=0):
 
 # The population prior is SAID, and credited, by design: one sentence on the banner
 # wherever it is used. On a single tracklet it weighs the fitting orbits (popprior.py: the fan's
-# shading and the "show an orbit anyway" choice); elsewhere it supplies the class scores only.
+# shading and the "show an orbit anyway" choice); elsewhere it supplies the class scores, and
+# "show an orbit anyway" states its own use on the page when it replaces a near-parabolic orbit.
 POPULATION_SENTENCE = (" PyRoOrb goes further than the astrometry alone: it weighs the orbits that "
                        "fit by a population prior -- digest2's model of the Solar System (Keys et "
                        "al. 2019, via PyDigest2) -- to find the most probable one.")

@@ -2825,6 +2825,44 @@ def _ng_eval_as(ctx, ev, mask, src, sub_key):
     return float(np.sum(r ** 2))
 
 
+def _floor_sub_models(models, eval_as):
+    """Floor each fitted sub-model's chi2 by every richer trial's solution restricted to it, so
+    extra axes cannot take credit in the nested comparisons. `eval_as(fit, sub_key)` is that
+    restricted chi2; `models` is updated in place; returns whether any chi2 moved.
+
+    A restricted evaluation is compared only with the sub-model's OWN solution evaluated the same
+    way, and only the difference is applied. The trial chi2 comes from the delivered residual
+    rebuild, `eval_as` from the variational sweep: two integrations of one orbit, and on a
+    sensitive one they disagree. 2008 NA's srp2 settled exactly on the yarkovsky solution (A1 = 0,
+    same A2) at chi2 227.83, and that same point evaluated at 227.75 here: compared directly, the
+    gap floored yarkovsky below the model that contains it."""
+    import pyroorb.nongrav as ng
+    trial = {k: d["chi2"] for k, d in models.items()}
+    own = {}
+    moved = False
+    for kM, dM in models.items():
+        if dM["fit"] is None:
+            continue
+        pM = set(ng.model(kM)["params"])
+        for kS, dS in models.items():
+            if dS["fit"] is None or kS == kM:
+                continue
+            if not (set(ng.model(kS)["params"]) < pM
+                    and ng.model(kS)["gr"] is ng.model(kM)["gr"]):
+                continue
+            try:
+                if kS not in own:
+                    own[kS] = eval_as(dS["fit"], kS)
+                c = trial[kS] + (eval_as(dM["fit"], kS) - own[kS])
+            except Exception:
+                continue
+            if c < dS["chi2"]:
+                dS["chi2"] = c
+                dS["chi2_floored_by"] = kM
+                moved = True
+    return moved
+
+
 # The delivered verification's revert is a keep-the-better net, not a second verdict: it only
 # refuses a CATASTROPHIC rebuild (the wrong-basin rms_n-6.0 class), not the ~1% of noise between
 # two orbits that are the same orbit. See _verification_outcome.
@@ -3334,7 +3372,7 @@ def _ng_evaluate(ctx, seed_state, history, mask, max_nfev, verbose, warm_fits=No
     # (_keep_better_gravity). The same floor runs one step down: each fitted sub-model's
     # chi2 is floored by every richer trial's solution restricted to it (shared axes at the
     # richer values, extras zeroed), so extra axes cannot take credit in the nested
-    # comparisons (_beats, the srp2/srp3 upgrade clauses). Scope, measured on 2012 VP6:
+    # comparisons (_beats, the srp2/srp3 upgrade clauses; _floor_sub_models). Scope, measured on 2012 VP6:
     # these TRIAL-level floors fire only when the axes are already cosmetic AT the trial --
     # a basin escape usually hides inside a CO-ADAPTED (6-state, A) pair (the A-vs-orbit
     # degeneracy: VP6's trial states evaluate to chi2 8e3-3e7 at A=0 yet 35-49 with A), and
@@ -3365,24 +3403,7 @@ def _ng_evaluate(ctx, seed_state, history, mask, max_nfev, verbose, warm_fits=No
             except Exception:
                 pass
             floored = True
-    for kM, dM in m.items():
-        if dM["fit"] is None:
-            continue
-        pM = set(ng.model(kM)["params"])
-        for kS, dS in m.items():
-            if dS["fit"] is None or kS == kM:
-                continue
-            if not (set(ng.model(kS)["params"]) < pM
-                    and ng.model(kS)["gr"] is ng.model(kM)["gr"]):
-                continue
-            try:
-                c = _ng_eval_as(ctx, ev, mask, dM["fit"], kS)
-            except Exception:
-                continue
-            if c < dS["chi2"]:
-                dS["chi2"] = c
-                dS["chi2_floored_by"] = kM
-                floored = True
+    floored = _floor_sub_models(m, lambda src, sub_key: _ng_eval_as(ctx, ev, mask, src, sub_key)) or floored
     if floored:
         for key, d in m.items():
             if d["fit"] is None:
