@@ -177,6 +177,48 @@ def test_a_forced_model_is_the_notebooks_pipeline(monkeypatch):
     assert seen == [("fit", False), ("ng", "comet2", False), ("radar", 1)]
 
 
+def test_refit_holds_the_observation_set_and_swaps_the_model(monkeypatch):
+    """refit = the web page's include/exclude re-solve: the caller's set exactly (no
+    rejection), the fit's own force model, gravity really gravity, a model the fit carries
+    seeded from its coefficients, and no silent loss of radar."""
+    import numpy as np
+    from pyroorb import fit_object, products
+    seen = []
+
+    class _Fit:
+        _obs = [{}] * 5
+        _mask = np.array([True, True, True, True, False])
+        _state = np.arange(7.0)
+        nongrav_model = "srp"
+        nongrav_params = {"A1": 1e-9}
+        radar = {"applied": True}
+
+    monkeypatch.setattr(products, "fit_asteroids", lambda f: True)
+    monkeypatch.setattr(fit_object, "refit_force_model",
+                        lambda f, ast, mask, seed, drop_nongrav: seen.append(
+                            ("grav", ast, mask.tolist(), len(seed), drop_nongrav)) or "g")
+    monkeypatch.setattr(fit_object, "refine_nongrav",
+                        lambda f, model, mask, revert_if_worse, seed_state, asteroids: seen.append(
+                            ("ng", model, mask.tolist(), revert_if_worse, seed_state is not None,
+                             asteroids)) or "n")
+    fit = _Fit()
+    with pytest.warns(UserWarning, match="optical only"):
+        assert pyroorb.refit(fit) == "n"                     # its own model, its own set
+    assert seen[-1] == ("ng", "srp", [True] * 4 + [False], False, True, True)
+    with pytest.warns(UserWarning):
+        pyroorb.refit(fit, [True, False, True, True, True], nongrav="none")
+    assert seen[-1] == ("grav", True, [True, False, True, True, True], 6, True)
+    fit.nongrav_model, fit.radar = None, None
+    pyroorb.refit(fit, nongrav="comet2")                     # gravity fit: the profile seed
+    assert seen[-1][:2] == ("ng", "comet2") and seen[-1][4] is False
+    with pytest.raises(ValueError, match="entries"):
+        pyroorb.refit(fit, [True, True])
+    with pytest.raises(ValueError, match="nongrav"):
+        pyroorb.refit(fit, nongrav="outgassing")
+    with pytest.raises(ValueError, match="cannot determine"):
+        pyroorb.refit(fit, [True, True, False, False, False], nongrav="comet3")
+
+
 def test_asteroid_perturbers_switch_restores_and_refuses_without_kernel(monkeypatch):
     import pyroorb.force_assist as fa
     monkeypatch.setattr(fa, "ASTEROIDS_PATH", None)
@@ -349,18 +391,23 @@ def test_every_exported_name_is_documented():
         assert name in documented, f"pyroorb.{name} is exported but not in docs/api.rst"
 
 
-def test_notebooks_mark_every_internal_import():
-    """notebooks/README.md: cells that reach into internal modules say so. A notebook cell that
-    imports a pyroorb submodule must carry the 'internal API, may change' comment."""
+def test_notebooks_use_only_the_public_api():
+    """notebooks/README.md: the notebooks are written against the published API alone. A cell
+    that imports a pyroorb submodule, or reads a private member (``fit._state``) or one of the
+    fit's undocumented records, breaks the first time the engine moves; what a notebook needs
+    beyond the API it computes itself, or takes from another library."""
     import json
     import re
     nbdir = os.path.join(os.path.dirname(_DOCS), "notebooks")
-    pat = re.compile(r"^\s*(from pyroorb(\.\S+)?\s+import|import pyroorb\.)", re.M)
+    imports = re.compile(r"^\s*(from pyroorb(\.\S+)?\s+import|import pyroorb\.)", re.M)
+    private = re.compile(r"\.(_[a-z]\w*|unbound_check|nongrav_discovery|nongrav_diag)\b")
     for name in sorted(os.listdir(nbdir)):
         if not name.endswith(".ipynb"):
             continue
         nb = json.load(open(os.path.join(nbdir, name), encoding="utf-8"))
         for k, cell in enumerate(nb["cells"]):
             src = "".join(cell["source"])
-            if cell["cell_type"] == "code" and pat.search(src):
-                assert "internal API, may change" in src, f"{name} cell {k} imports an internal module unmarked"
+            if cell["cell_type"] != "code":
+                continue
+            assert not imports.search(src), f"{name} cell {k} imports a pyroorb submodule"
+            assert not private.search(src), f"{name} cell {k} reads an internal member"

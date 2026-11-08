@@ -5148,7 +5148,7 @@ def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
     return fit2
 
 
-def refit_force_model(fit, asteroids, mask=None, seed=None, max_nfev=200):
+def refit_force_model(fit, asteroids, mask=None, seed=None, max_nfev=200, drop_nongrav=False):
     """Re-fit on a FIXED observation set with or without the 16 asteroid perturbers -- a
     PURE force-model swap: NO redemption, NO rejection, the obs set is held exactly as `mask`.
     Unlike refine_asteroids (which redeems/re-rejects to find the asteroid orbit's natural obs
@@ -5158,8 +5158,10 @@ def refit_force_model(fit, asteroids, mask=None, seed=None, max_nfev=200):
     unavailable). `seed` overrides the starting state -- IMPORTANT for an object whose obs set
     only makes sense with the perturbers (e.g. 2009 HV119): the asteroid fit on those obs has a
     spurious near-gravity local minimum, so turning asteroids ON must be seeded from a good
-    asteroid state (the cached load-time polish), not the gravity orbit. Returns a NEW
-    FittedOrbit on `mask`."""
+    asteroid state (the cached load-time polish), not the gravity orbit. `drop_nongrav` solves
+    gravity only even when `fit` carries a non-gravitational model (pyroorb.refit's
+    nongrav="none"); without it a planets-only swap keeps the evaluator's force, which the
+    web's sessions rely on. Returns a NEW FittedOrbit on `mask`."""
     import functools, copy as _copy
     ctx = getattr(fit, "_ctx", None)
     if ctx is None:
@@ -5178,8 +5180,13 @@ def refit_force_model(fit, asteroids, mask=None, seed=None, max_nfev=200):
     # evaluator and only relabel it, so a fit made with the perturbers on stayed perturbed under
     # a gravity label.
     ev2, ctx2 = with_force_model(ctx, use_ast, fit)
-    if use_ast:
+    if use_ast or drop_nongrav:
         ev2.nongrav = None
+    if drop_nongrav:
+        # the orbit is built, labelled and later propagated from the ctx, not the evaluator
+        ctx2["nongrav"] = None
+        ctx2["meta"] = {k: v for k, v in (ctx2.get("meta") or {}).items()
+                        if not k.startswith("nongrav")}
     # (An identification fit's ctx carries the forcing _AsteroidForce; re-pinning it False
     # unwraps it, so its gravity side is really gravity.)
     state, result = ev2.fit(seed, mask, thin=False, max_nfev=max_nfev)
@@ -7067,7 +7074,10 @@ class FittedOrbit:
     def eccentricity(self):
         """``(value, 1-sigma)`` of the eccentricity."""
         return self._val("e"), self._sig("e")
-    def perihelion_distance(self):      return self._val("q"), self._sig("q")          # au
+    def perihelion_distance(self):
+        """``(value, 1-sigma)`` of the perihelion distance q, au (defined for every orbit,
+        bound or not)."""
+        return self._val("q"), self._sig("q")
     def aphelion_distance(self):        return self._val("Q"), self._sig("Q")          # au
     def inclination(self):              return self._val("i"), self._sig("i")          # deg
     def ascending_node(self):           return self._val("asc_node"), self._sig("asc_node")

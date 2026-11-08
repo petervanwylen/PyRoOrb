@@ -45,6 +45,7 @@
 | Is the orbit determined at all? Range profile, non-linear intervals | [03](03_short_arc_neo.ipynb), [06](06_interstellar_unbound.ipynb) (`bound_fraction`), [10](10_population_prior_short_arc.ipynb), [19](19_lost_and_found_hermes.ipynb) |
 | Choosing a force model: non-gravitational forces (`nongrav=`) | [02](02_apophis_2029_flyby.ipynb), [05](05_comet_nongrav_tempel2.ipynb), [06](06_interstellar_unbound.ipynb), [17](17_rocket_stage_or_rock.ipynb) (radiation pressure), [18](18_earth_companions.ipynb), [20](20_yarkovsky_survey.ipynb) (Yarkovsky) |
 | Asteroid perturbers (`asteroid_perturbers`) | [01](01_asteroid_close_approach.ipynb), [12](12_ceres_encounter_perturbers.ipynb), [16](16_same_object_identification.ipynb) |
+| Refitting on a fixed set of observations or with another force model, no rejection (`refit`) | [05](05_comet_nongrav_tempel2.ipynb) (the model ladder, rung by rung), [06](06_interstellar_unbound.ipynb) (the free fit behind a bound orbit), [16](16_same_object_identification.ipynb), [17](17_rocket_stage_or_rock.ipynb) (your own outlier rule) |
 | Joint fits of several designations (`is_combined`, the identification penalty) | [16](16_same_object_identification.ipynb) |
 | Radar delay and Doppler (`radar_residuals`) | [07](07_radar_leverage.ipynb) |
 | Osculating and planet-centred elements (`osculating_elements`) | [02](02_apophis_2029_flyby.ipynb), [09](09_planetary_satellite.ipynb) |
@@ -155,8 +156,9 @@ and JPL differ, the notebook says by how much and why.
 
 They are demonstrations, not a test suite or a tutorial on every option. The supported Python
 API is listed in [`docs/api.rst`](../docs/api.rst) (units and time scales:
-[`docs/conventions.rst`](../docs/conventions.rst)). A few notebooks reach into internal
-modules to go further; those cells are marked *internal API, may change* (a test enforces it).
+[`docs/conventions.rst`](../docs/conventions.rst)). The notebooks use that API and nothing
+else (a test enforces it): what they need beyond it they compute in a few lines themselves, or
+take from numpy, astropy and JPL's services.
 
 | Notebook | The question |
 |---|---|

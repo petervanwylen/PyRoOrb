@@ -5,8 +5,8 @@ API reference
 
 Everything on this page is importable from the top-level package (``import pyroorb``).
 Anything not listed here -- other ``FittedOrbit`` methods, the record keys not named under
-:class:`Observations`, every submodule -- is internal and may change in any release, even
-when a notebook uses it (those cells are marked *internal API, may change*).
+:class:`Observations`, every submodule -- is internal and may change in any release. The
+example notebooks use nothing else (a test enforces it).
 
 Stability
 ---------
@@ -38,6 +38,8 @@ Fitting
 -------
 
 .. autofunction:: fit_orbit
+
+.. autofunction:: refit
 
 .. autoclass:: asteroid_perturbers
 
@@ -112,6 +114,7 @@ The solution
 .. automethod:: FittedOrbit.epoch_iso
 .. automethod:: FittedOrbit.semimajor_axis
 .. automethod:: FittedOrbit.eccentricity
+.. automethod:: FittedOrbit.perihelion_distance
 .. automethod:: FittedOrbit.state
 .. automethod:: FittedOrbit.state_vector
 .. automethod:: FittedOrbit.covariance_matrix

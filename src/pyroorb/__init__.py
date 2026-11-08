@@ -330,6 +330,80 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
     return fit
 
 
+def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None):
+    """The same orbit solved again on exactly the observations you choose, with no rejection.
+
+    :func:`fit_orbit` decides for itself which observations to reject. This holds the set
+    fixed, the way the web page's include/exclude boxes do: it is the tool for comparing two
+    force models on the same observations (a fair chi^2 or BIC), for applying your own
+    outlier rule, and for leave-out or bootstrap experiments without the rejection step
+    changing the set behind your back. The solve starts from ``fit``'s orbit and keeps its
+    force model (planets, relativity, and the asteroid perturbers if it used them).
+
+    Parameters
+    ----------
+    fit : FittedOrbit
+    include : sequence of bool, optional
+        One entry per observation, in the order of ``fit.residuals()`` (the order given to
+        :func:`fit_orbit`): True to fit it. Default: the observations ``fit`` kept.
+    nongrav : str, optional
+        The non-gravitational model to solve with: ``"none"`` (gravity only) or one of the
+        names :func:`fit_orbit` accepts (``"comet1"`` ... ``"srp3"``). Default: ``fit``'s own
+        model. The coefficients are always re-solved; a model ``fit`` already carries starts
+        from its values.
+    radar : list of dict, optional
+        Radar astrometry to solve jointly with the optical observations, e.g.
+        ``observations.meta["radar"]``. Without it the refit is optical only, and a warning
+        says so when ``fit`` itself had used radar.
+    obscodes : dict, optional
+        An observatory table for the radar stations, as in :func:`fit_orbit`.
+
+    Returns
+    -------
+    FittedOrbit
+        A new fit; ``fit`` is unchanged. Rejected observations stay in its residuals with
+        ``included`` False, exactly as you marked them.
+
+    Raises
+    ------
+    ValueError
+        ``include`` does not have one entry per observation, keeps fewer observations than
+        the model has parameters, or ``nongrav`` is unknown.
+    """
+    import numpy as _np
+    from pyroorb import fit_object as _fo
+    from pyroorb import products as _p
+    model = (fit.nongrav_model or "none") if nongrav is None else str(nongrav).lower()
+    if model not in _FORCED_NONGRAV and model != "none":
+        raise ValueError(f"nongrav must be 'none' or one of {list(_FORCED_NONGRAV)}, "
+                         f"not {nongrav!r}")
+    mask = _fo._caller_mask(fit, include)
+    from pyroorb import nongrav as _ng
+    n_params = 6 + (0 if model == "none" else len(_ng.free_indices(model)))
+    if 2 * int(mask.sum()) < n_params:
+        raise ValueError(f"{int(mask.sum())} observations cannot determine {n_params} "
+                         f"parameters")
+    asteroids = bool(_p.fit_asteroids(fit))
+    if model == "none":
+        out = _fo.refit_force_model(fit, asteroids, mask=mask,
+                                    seed=_np.asarray(fit._state, float)[:6], drop_nongrav=True)
+    else:
+        # Seed from the fit's own coefficients when it carries the same or a nested model
+        # (absent axes start at 0); a gravity fit takes the engine's profile seed, which keeps
+        # a weak radial term from sliding back to zero along its degenerate valley.
+        seed = _fo._lift_nongrav_state(fit, model) if fit.nongrav_model else None
+        out = _fo.refine_nongrav(fit, model=model, mask=mask, revert_if_worse=False,
+                                 seed_state=seed, asteroids=asteroids)
+    if radar:
+        from pyroorb import radar as _radar
+        out = _radar.refine_radar(out, radar, _table(obscodes))
+    elif (getattr(fit, "radar", None) or {}).get("applied"):
+        _warnings.warn("refit is optical only: pass radar=observations.meta['radar'] to keep "
+                       "the radar measurements the original fit used", UserWarning,
+                       stacklevel=2)
+    return out
+
+
 # Not `digest2`: that name is the vendored subpackage (pyroorb/digest2/), and importing it
 # would rebind the package attribute over the function.
 def digest2_scores(observations, *, per_tracklet=False):
@@ -924,7 +998,7 @@ def _fetch_data():
     return main()
 
 
-__all__ = ["load_settings", "read_observations", "fetch_observations", "fit_orbit",
+__all__ = ["load_settings", "read_observations", "fetch_observations", "fit_orbit", "refit",
            "asteroid_perturbers", "ephemeris", "export", "digest2_scores", "propagate",
            "osculating_elements", "close_approaches", "body_states", "radar_residuals",
            "radar_prediction",

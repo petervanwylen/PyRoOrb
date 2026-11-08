@@ -26,7 +26,7 @@ only with a measurement, and update its line here when you do.
   own SBN database. `pyroorb-itf` / `python -m pyroorb.itf`; see `itf/README.md`.
 - `web/` — server, fit pool, ITF jobs, static UI, add-ons (`web/README.md`).
 - `__init__.py` — the supported Python API (`load_settings`, `read_observations`,
-  `fetch_observations`, `Observations.select`, `fit_orbit`, `asteroid_perturbers`, `ephemeris`,
+  `fetch_observations`, `Observations.select`, `fit_orbit`, `refit` (a fixed observation set and force model, no rejection: the web include/exclude re-solve), `asteroid_perturbers`, `ephemeris`,
   `export`, `digest2_scores`, and the wrappers over `products.py` -- `propagate`,
   `osculating_elements`, `close_approaches`, `radar_residuals`, `radar_prediction`: the fit's
   own force model, linear sigma from one sweep over the state AND any free A coefficients
