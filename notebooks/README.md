@@ -4,6 +4,63 @@
 > starting points for playing with PyRoOrb and learning its Python API. They have **not yet been
 > fully audited for scientific accuracy**, but I've looked at them and fixed a few things that needed attention. Treat their numbers and interpretations as preliminary, while also using them to determine how close PyRoOrb gets to certain published values on worthwhile topics.
 
+## Find your notebook
+
+**By what you are interested in.** The first notebook in each row is the best place to start.
+
+| If you are interested in... | Start with | Then |
+|---|---|---|
+| **Planetary defence**: how close, how sure, could it hit | [15](15_yr4_impact_probability.ipynb) 2024 YR4's impact probability, rising and vanishing | [02](02_apophis_2029_flyby.ipynb) Apophis 2029; [04](04_apophis_remeasured_2004.ipynb) how one arcsecond moved the 2029 prediction |
+| **Asteroids that hit the Earth**: when and where | [14](14_impact_location.ipynb) 2008 TC3, 2024 BX1 and 2023 CX1 | [15](15_yr4_impact_probability.ipynb) 2024 YR4 and the Moon |
+| **New discoveries, short arcs**: what a night or two of data tells you | [03](03_short_arc_neo.ipynb) 2024 MK night by night | [10](10_population_prior_short_arc.ipynb) the most likely orbit from a single tracklet; [14](14_impact_location.ipynb) hours of arc before an impact |
+| **Comets and outgassing** | [05](05_comet_nongrav_tempel2.ipynb) 10P/Tempel 2 | [11](11_young_asteroid_pairs.ipynb) §3, where an asteroid pair's age needs comet-like forces |
+| **Interstellar objects, unbound orbits** | [06](06_interstellar_unbound.ipynb) 1I, 2I, 3I and a near-parabolic comet | |
+| **Identifications**: are two designations the same object? | [16](16_same_object_identification.ipynb) a real pair and its look-alike decoys | [19](19_lost_and_found_hermes.ipynb) linking a lost asteroid across 66 years |
+| **Lost asteroids, recovery, long-range prediction** | [19](19_lost_and_found_hermes.ipynb) Hermes, lost 1937–2003 | [16](16_same_object_identification.ipynb) predicting one apparition from another |
+| **The Yarkovsky effect** (thermal drift of asteroids) | [20](20_yarkovsky_survey.ipynb) a survey of near-Earth asteroids against JPL | [02](02_apophis_2029_flyby.ipynb) Apophis; [18](18_earth_companions.ipynb) Kamoʻoalewa; [19](19_lost_and_found_hermes.ipynb) Hermes |
+| **Radiation pressure, artificial objects** | [17](17_rocket_stage_or_rock.ipynb) 2020 SO, a 1966 rocket stage | |
+| **Radar astrometry** | [07](07_radar_leverage.ipynb) 2017 BQ6, with and without radar | [02](02_apophis_2029_flyby.ipynb) an orbit fitted with optical and radar data together |
+| **Gravitational encounters between asteroids, asteroid masses** | [12](12_ceres_encounter_perturbers.ipynb) a pass through Ceres' Hill sphere | [01](01_asteroid_close_approach.ipynb) Vesta and Arete meet every 18 years |
+| **Asteroid families, pairs, breakups, backward integration** | [11](11_young_asteroid_pairs.ipynb) two young pairs | |
+| **Moons of the planets** | [09](09_planetary_satellite.ipynb) a Jovian moon against a Trojan | |
+| **Earth's companions**: quasi-satellites, mini-moons | [18](18_earth_companions.ipynb) Kamoʻoalewa and 2024 PT5 | [17](17_rocket_stage_or_rock.ipynb) 2020 SO and the mini-moon 2020 CD3 |
+| **Photometry**: brightness, H, phase curves, size | [08](08_photometry_h_phase.ipynb) (1036) Ganymed | [21](21_activity_in_archived_magnitudes.ipynb) outbursts in the same magnitudes |
+| **Active asteroids**: an asteroid that starts behaving like a comet | [21](21_activity_in_archived_magnitudes.ipynb) (6478) Gault and 433P | [05](05_comet_nongrav_tempel2.ipynb) a comet's outgassing seen in its orbit |
+| **Astrometric quality**: star-catalogue bias, remeasurement, weighting | [13](13_debias_tables.ipynb) the debias tables | [04](04_apophis_remeasured_2004.ipynb) a remeasurement that changed the orbit; [19](19_lost_and_found_hermes.ipynb) weighting 1937 photographic plates |
+| **Testing a model**: what changes when one force or one data set is removed | [12](12_ceres_encounter_perturbers.ipynb) asteroid perturbers on/off | [05](05_comet_nongrav_tempel2.ipynb) outgassing on/off; [07](07_radar_leverage.ipynb) radar on/off; [13](13_debias_tables.ipynb) debias on/off; [17](17_rocket_stage_or_rock.ipynb) radiation pressure on/off |
+
+**By what you want to learn to do.** Each technique is shown in these notebooks.
+
+| Technique | Where |
+|---|---|
+| Fetch observations and fit an orbit (the basics) | every notebook; [09](09_planetary_satellite.ipynb) §1 fits two objects in two lines each, and [07](07_radar_leverage.ipynb) is one of the shortest |
+| Edit the observations before fitting: cut the arc at a date, drop or replace observations, read your own file | [03](03_short_arc_neo.ipynb), [04](04_apophis_remeasured_2004.ipynb) (`read_observations`), [05](05_comet_nongrav_tempel2.ipynb), [10](10_population_prior_short_arc.ipynb), [13](13_debias_tables.ipynb), [15](15_yr4_impact_probability.ipynb), [16](16_same_object_identification.ipynb) (split one object into two), [17](17_rocket_stage_or_rock.ipynb) (astrometry read from a web page), [19](19_lost_and_found_hermes.ipynb) (re-weight old plates) |
+| Residuals: plot them, split them by station, catalogue or apparition | [01](01_asteroid_close_approach.ipynb), [07](07_radar_leverage.ipynb), [12](12_ceres_encounter_perturbers.ipynb), [13](13_debias_tables.ipynb), [16](16_same_object_identification.ipynb) |
+| Ephemerides with error ellipses; predicting future observations | [02](02_apophis_2029_flyby.ipynb), [07](07_radar_leverage.ipynb), [13](13_debias_tables.ipynb), [16](16_same_object_identification.ipynb), [19](19_lost_and_found_hermes.ipynb) |
+| Close approaches (`close_approaches`) | [02](02_apophis_2029_flyby.ipynb), [04](04_apophis_remeasured_2004.ipynb), [12](12_ceres_encounter_perturbers.ipynb), [15](15_yr4_impact_probability.ipynb), [19](19_lost_and_found_hermes.ipynb) |
+| Impact probability, impact time and place, from a clone cloud | [15](15_yr4_impact_probability.ipynb) (Earth and Moon), [14](14_impact_location.ipynb) (entry point on the ground, Earth-fixed coordinates) |
+| Propagating an orbit; positions of planets and large asteroids (`propagate`, `body_states`) | [01](01_asteroid_close_approach.ipynb), [09](09_planetary_satellite.ipynb), [11](11_young_asteroid_pairs.ipynb), [12](12_ceres_encounter_perturbers.ipynb), [18](18_earth_companions.ipynb) (the Sun–Earth rotating frame) |
+| Uncertainty as a cloud of orbit clones (`sample_orbits`) | [01](01_asteroid_close_approach.ipynb), [04](04_apophis_remeasured_2004.ipynb), [11](11_young_asteroid_pairs.ipynb), [12](12_ceres_encounter_perturbers.ipynb), [14](14_impact_location.ipynb), [15](15_yr4_impact_probability.ipynb), [18](18_earth_companions.ipynb) |
+| The line of variations and statistical ranging (`lov_uncertainty`, `sr_uncertainty`) | [19](19_lost_and_found_hermes.ipynb) |
+| Is the orbit determined at all? Range profile, non-linear intervals | [03](03_short_arc_neo.ipynb), [06](06_interstellar_unbound.ipynb) (`bound_fraction`), [10](10_population_prior_short_arc.ipynb), [19](19_lost_and_found_hermes.ipynb) |
+| Choosing a force model: non-gravitational forces (`nongrav=`) | [02](02_apophis_2029_flyby.ipynb), [05](05_comet_nongrav_tempel2.ipynb), [06](06_interstellar_unbound.ipynb), [17](17_rocket_stage_or_rock.ipynb) (radiation pressure), [18](18_earth_companions.ipynb), [20](20_yarkovsky_survey.ipynb) (Yarkovsky) |
+| Asteroid perturbers (`asteroid_perturbers`) | [01](01_asteroid_close_approach.ipynb), [12](12_ceres_encounter_perturbers.ipynb), [16](16_same_object_identification.ipynb) |
+| Joint fits of several designations (`is_combined`, the identification penalty) | [16](16_same_object_identification.ipynb) |
+| Radar delay and Doppler (`radar_residuals`) | [07](07_radar_leverage.ipynb) |
+| Osculating and planet-centred elements (`osculating_elements`) | [02](02_apophis_2029_flyby.ipynb), [09](09_planetary_satellite.ipynb) |
+| digest2 scores, population prior (`digest2_scores`, `range_posterior`, `most_probable_orbit`) | [03](03_short_arc_neo.ipynb), [10](10_population_prior_short_arc.ipynb) |
+| Magnitudes and the H, G fit | [08](08_photometry_h_phase.ipynb), [21](21_activity_in_archived_magnitudes.ipynb) (magnitude residuals as a light curve) |
+| Live checks against JPL (Horizons, SBDB, Sentry, close-approach and fireball data) | most notebooks; [14](14_impact_location.ipynb) (fireballs), [15](15_yr4_impact_probability.ipynb) (Sentry), [18](18_earth_companions.ipynb) (Horizons) |
+
+**Quick picks.** Ten minutes and no large download: [03](03_short_arc_neo.ipynb),
+[05](05_comet_nongrav_tempel2.ipynb), [07](07_radar_leverage.ipynb) or
+[09](09_planetary_satellite.ipynb), [14](14_impact_location.ipynb), [17](17_rocket_stage_or_rock.ipynb),
+[18](18_earth_companions.ipynb) or [21](21_activity_in_archived_magnitudes.ipynb). The most dramatic
+stories: [04](04_apophis_remeasured_2004.ipynb), [14](14_impact_location.ipynb) and
+[15](15_yr4_impact_probability.ipynb). The longest run: [13](13_debias_tables.ipynb), half an hour or
+more. Notebooks 01, 02, 04, 11, 12, 16 and 20 need the asteroid perturber kernel
+([Running them](#running-them)).
+
 ## The point: from raw observations to conclusions, all in Python
 
 You can already do a lot of small-body science in Python without PyRoOrb. ASSIST and REBOUND
@@ -116,12 +173,20 @@ modules to go further; those cells are marked *internal API, may change* (a test
 | [11 Young asteroid pairs](11_young_asteroid_pairs.ipynb) | (458271) 2010 UM26 + 2010 RN221 split in 2003, 2019 PR2 + 2019 QR6 ~300 years ago: can clone clouds integrated backwards reproduce the published ages? |
 | [12 A brush with Ceres](12_ceres_encounter_perturbers.ipynb) | (613383) 2022 KX28 flew through Ceres' Hill sphere in 2013: why a planets-only orbit discards three apparitions, and how the asteroid perturbers are switched on automatically |
 | [13 Debias tables](13_debias_tables.ipynb) | Do the EFCC18 star-catalogue corrections help? They remove the old catalogues' 0.3" systematics in declination; the RA means and the prediction test on four well-observed NEAs, and why they don't show a gain |
+| [14 Where did it hit?](14_impact_location.ipynb) | 2008 TC3, 2024 BX1 and 2023 CX1, from their pre-impact astrometry: when and where did each enter the atmosphere, and how many hours of arc did it take to know? (Entry points within 0.1–0.7 km and 0.2 s of JPL Horizons; 8 h of TC3's arc already put it over Sudan) |
+| [15 2024 YR4](15_yr4_impact_probability.ipynb) | Replaying 2024 YR4's discovery: how a 2032 impact probability climbed and then vanished, and why the Moon's took its place. Our peak is 1.6% against Sentry's 3.1%, and late-published precoveries explain most of the gap |
+| [16 Same object?](16_same_object_identification.ipynb) | Is 2014 DF66 the same asteroid as 2009 BH41? One arc predicts the other within 0.5σ and the joint fit keeps every observation; real look-alike neighbours miss by 24–73σ, and with one night on one side the test comes close to its limit |
+| [17 Rock or rocket stage?](17_rocket_stage_or_rock.ipynb) | 2020 SO: sunlight pushes it with an area-to-mass ratio of 0.012–0.020 m²/kg, an empty Centaur stage, about 25 times the natural mini-moon 2020 CD3 |
+| [18 Earth's companions](18_earth_companions.ipynb) | Kamoʻoalewa, a quasi-satellite (about 1919–2325) whose Yarkovsky drift the fit finds on its own, and 2024 PT5, bound to the Earth from 29 September to 25 November 2024 without ever entering its Hill sphere |
+| [19 Lost and found: Hermes](19_lost_and_found_hermes.ipynb) | Could the 1937 orbit of Hermes have found it again in 2003? No: five nights pin the orbit but leave ±3.5 revolutions by 2003, and a 1942 pass through a narrow keyhole scrambles it further; only a sky survey could find it, and one did |
+| [20 A Yarkovsky survey](20_yarkovsky_survey.ipynb) | Does the fit find the thermal drift JPL finds on twelve near-Earth asteroids, and only there? A2 agrees with JPL within 2σ on 10 of 12; the automatic choice finds it on 7 and on none of 3 controls, missing only objects whose case rests on radar; the drift follows 1/D, and scaled from Bennu, Ryugu's drift gives its density within 2% |
+| [21 Activity in archived magnitudes](21_activity_in_archived_magnitudes.ipynb) | Do routine astrometric magnitudes show an asteroid turning active? Gault's 2018 outburst peaks at −2.4 mag (published: 2.4) in Catalina data six weeks before it was reported; 433P shows too, a same-orbit control stays clean, and outbursts under ~0.4 mag go unseen |
 
 ## Running them
 
 The notebooks need a few packages the engine does not: matplotlib, pandas and JupyterLab.
 The `notebooks` extra installs them. With the install script, which also downloads the reference
-tables (`--asteroids` adds the 16-asteroid perturber kernel, ~600 MB, used by 01, 02, 04, 11 and 12):
+tables (`--asteroids` adds the 16-asteroid perturber kernel, ~600 MB, used by 01, 02, 04, 11, 12, 16 and 20):
 
 ```bash
 ./install.sh --extras notebooks --asteroids
@@ -143,8 +208,10 @@ Already installed? Re-run the script with `--extras notebooks`, or run
 [`docs/INSTALL.md`](../docs/INSTALL.md#the-notebooks-extra).
 
 The notebooks need network access: observations come from the Minor Planet Center, and the
-comparisons query JPL's public APIs (SBDB, close-approach data, Horizons). Most run in a few
-minutes (up to about ten) on a laptop; 13 fits sixteen orbits to multi-thousand-observation arcs
+comparisons query JPL's public APIs (SBDB, close-approach data, Horizons, Sentry, fireballs). One
+exception: the MPC has withdrawn 2020 SO's observations, so 17 reads them from Project Pluto's
+archived pseudo-MPEC page. Most run in a few minutes (up to about ten) on a laptop; 15, 19 and 20
+take ten to fifteen, and 13 fits sixteen orbits to multi-thousand-observation arcs
 and takes half an hour or more (37 minutes on the machine that last ran it). The committed copies include their outputs, so you can read them
 without running anything. Re-running them later uses newer observations, so the numbers can
 shift a little.

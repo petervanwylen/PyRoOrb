@@ -139,6 +139,9 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   error model (`nightmodel.py`) plus the night bar or BIC
   refusal; long-gap arcs searched by Lambert bridges (`boundbridge.py`); unsearched cases
   labelled, never silently earned.
+- **The multi-revolution bridge keeps its lowest-chi2 gluing candidate**, never the first that
+  glues (`arc_extend._bridge_far_multirev`): a wrong revolution solution can glue under
+  `LINK_NEW_TOL` and rejection then hides it (2008 VC46, `tests/test_multirev_best_candidate.py`).
 - **IOD long-window rescue** (`iod.rescue_window`): re-seed a catastrophic gap-free window
   > 230 d before extension; any length on a single apparition.
 - **No nominal orbit when undetermined** (`constraint.assess`; single tracklets decided by
@@ -146,8 +149,9 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   intervals shown, exports refused except ephemeris. "Show anyway" uses the
   population prior (`popprior.py`), which may choose where to look, never what is decided: no
   hazard, NEOCP, classification or linkage acceptance. Past one
-  night it moves along the LOV, only for a delivered e >= 0.9, kept if bound and within 1.5x the
-  rms (`popprior.most_probable_lov_fit`); an asked-for orbit is judged by its ARC (`optin_source`).
+  night it moves along the LOV, only when the delivered orbit's weight is <= 1% of the peak's
+  (`LOV_W0_MAX`, two holdouts), kept if bound, e < 0.9 and within 1.5x the rms
+  (`popprior.most_probable_lov_fit`); an asked-for orbit is judged by its ARC (`optin_source`).
 - **Asteroid nongrav discovery gates on q < 1.4 au**, not a (`NONGRAV_Q_MAX_AU`; drift is earned at perihelion).
 - **Nongrav discovery by BIC** (`_ng_choice`, `NONGRAV_BIC_MARGIN` 15; comet ladder
   `_comet_step_justified`); negative A1 refused; exact 0.0 = stall; marginal models

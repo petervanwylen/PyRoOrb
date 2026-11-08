@@ -424,6 +424,10 @@ class ItfConfig:
     # LOV (lov_variants.prior_variant), before the fan's union sweep; a link there ends
     # the search, anything else leaves the fan to run as it would have.  Below U 9 the
     # peak is the nominal on nearly every seed measured, which the fan tries anyway.
+    # Measured against 0 on the 43 ITF recovery fixtures: the variant forms on 7, links
+    # first on 2 (2008 SZ347 0/15 -> 15/15; 2005 UD562 the fan's own link, 4.6x sooner
+    # against the live ITF), and leaves the other 5 unchanged in tracklets and rms, live
+    # distractors included, at 0-15% more time; no foreign tracklet either way.
     # 0 disables.
     variant_prior_min_U: float = 9.0
     # Price a hole with the pre-floor 0.426 k-rescale instead of the honest

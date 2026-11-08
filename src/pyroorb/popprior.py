@@ -62,7 +62,9 @@ E_CAP = 0.99               # the e bin straddling 1 is integrated to here (V6 di
 N_S = 41                   # radial-velocity samples per profile node
 # Past one night the prior reads the line of variations, and only for a delivered orbit a real
 # object rarely has: see most_probable_lov_fit for what each of these was measured to do.
-LOV_E_FLOOR = 0.9          # delivered eccentricity from which the prior may replace the orbit
+LOV_W0_MAX = 0.01          # the delivered orbit's weight, as a fraction of the peak's, below
+                           # which the prior may replace it
+LOV_SHOWN_E_MAX = 0.9      # a replacement must itself be clear of near-parabolic
 LOV_RMS_MAX = 1.5          # the replacement may fit this much worse than the delivered orbit
 LOV_K_MAX = 3.0            # LOV sigmas scanned either side of the delivered orbit
 LOV_K_STEP = 0.0005        # one peak was 0.015 sigma wide; a coarse step can step over it
@@ -349,9 +351,9 @@ def lov_peak_state(fit, k_peak):
 
 
 def most_probable_lov_fit(fit):
-    """The orbit to show on a multi-night arc whose delivered orbit is near-parabolic or unbound:
-    the peak of the population along the line of variations, re-corrected on the LOV hyperplane.
-    None -- show the delivered orbit -- anywhere else.
+    """The orbit to show on a multi-night arc whose delivered orbit the population all but rules
+    out: the peak of the population along the line of variations, re-corrected on the LOV
+    hyperplane. None -- show the delivered orbit -- anywhere else.
 
     A short arc of a distant object often fits a parabola: 2008 SZ347 (a 5.20, e 0.14) seeded on
     3 nights delivers a 12134, e 0.9999. The orbit it really has lies 0.06 sigma away, and fits as
@@ -359,23 +361,27 @@ def most_probable_lov_fit(fit):
     moving along it is the one move the observations do not refuse; the range profile with a
     chosen radial velocity leaves that valley, and fitted a median 2x worse on the same arcs.
 
-    Scored against the full-arc truth on 111 suppressed 2-3 night arcs, the three gates are what
-    make it worth showing. Replacing every orbit improved a on 62 and worsened it on 40, and put
-    the distance 2x off on 16 arcs against 4; a delivered orbit under e = 0.9 is usually a fair
-    one (median a error 3%). With the gates it fires on 13: a improves on 11 (median error x2817
-    -> x1.29), worsens on 2, and no distance goes 2x off. A pinned re-correction can slip off the
-    bound strip the linear LOV crossed, or stay near-parabolic, hence the test after it.
+    WHEN to replace is the delivered orbit's own weight on the LOV: at most 1% of the peak's
+    (LOV_W0_MAX), i.e. the population holds almost nothing where the fit stopped. A near-parabolic
+    or unbound orbit has none, so this covers them, and also ordinary-looking fits stranded off
+    the population (2014 EJ64, a Trojan seeded on 2 nights: a 6.87 -> 5.79, truth 5.15). Scored on
+    suppressed 2-5 night arcs against the full-arc truth, the threshold chosen on 106 and read on
+    two holdouts -- 180 new arcs of the same objects, 41 arcs of 43 objects never used: a better
+    on 19 / 51 / 8 of 21 / 57 / 9 fired, worse on 0 / 2 / 1, the distance newly 2x off on 0 / 2 / 0.
+    Replacing every orbit is a coin flip (a delivered orbit is usually fair: median a error 3%),
+    and an earlier rule on e >= 0.9 alone also replaced real long-period orbits the population
+    does hold. A pinned re-correction can slip off the bound strip the linear LOV crossed, or stay
+    near-parabolic, hence the test after it.
 
     The returned orbit carries the same `most_probable` as most_probable_fit, plus `k`, the LOV
     offset in sigmas; `rho_med` is the shown orbit's own distance, `rho_pct` the weighted span."""
     import pyroorb.fit_object as fo
-    delivered = fit.elements()
-    if not delivered or not delivered.get("e", 0.0) >= LOV_E_FLOOR:
-        return None
     lov = lov_weights(fit)
     if lov is None:
         return None
     k_peak, w, rho, R, vmag = lov["k_peak"], lov["w"], lov["rho"], lov["R"], lov["vmag"]
+    if w[int(np.argmin(np.abs(lov["k"])))] > LOV_W0_MAX * w.max():
+        return None
     st = lov_peak_state(fit, k_peak)
     if st is None:
         return None
@@ -383,7 +389,7 @@ def most_probable_lov_fit(fit):
     mask = np.asarray(fit._mask, bool)
     mp = fo._build_orbit(ctx, st, mask, ctx["ev"].evaluate(st, mask), getattr(fit, "_history", []))
     shown = mp.elements()
-    if not (shown and shown["a"] > 0 and shown["e"] < LOV_E_FLOOR
+    if not (shown and shown["a"] > 0 and shown["e"] < LOV_SHOWN_E_MAX
             and mp.rms_residual() <= LOV_RMS_MAX * fit.rms_residual()):
         return None
     order = np.argsort(rho)

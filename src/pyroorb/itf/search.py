@@ -4493,7 +4493,14 @@ def _variant_scan(ctx, eph_trial, prior_linkage_used, extrawidth, depth,
         return out
     if (fan is None and not prior_done and cfg.variant_prior_min_U
             and eph_trial.U >= cfg.variant_prior_min_U):
-        prior = prior_variant(eph_trial.fit, ctx.obscodes)
+        # The pre-pass only adds a variant, so a failure in it (the population table, the
+        # pinned re-correction) leaves the fan to run as it would have, never ends the scan.
+        try:
+            prior = prior_variant(eph_trial.fit, ctx.obscodes)
+        except Exception as e:
+            ctx.log(f"population variant failed ({type(e).__name__}: {e}); "
+                    f"scanning the fan without it")
+            prior = (None, None)
         if prior[0] is not None:
             if _ctx_tracer(ctx).enabled:
                 _ctx_tracer(ctx).head(f"[depth {depth}] variant corridor: the population's "

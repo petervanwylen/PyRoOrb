@@ -64,7 +64,10 @@ def test_assist_is_built_against_the_rebound_it_runs_with():
 
 # --- --uninstall, in a sandbox: a fake install under a fake HOME, so nothing real is touched ---
 COMMANDS = ("pyroorb", "pyroorb-web", "pyroorb-itf", "pyroorb-fetch-data")
-GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@example.org"]
+# No automatic maintenance: git runs it detached after a commit or fetch, and its
+# objects/maintenance.lock appearing and vanishing mid-rmtree failed a macOS run.
+GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@example.org",
+       "-c", "maintenance.auto=false", "-c", "gc.auto=0"]
 GIT_WT = "work" "tree"      # the git subcommand; the public-code scan reserves that word
 
 

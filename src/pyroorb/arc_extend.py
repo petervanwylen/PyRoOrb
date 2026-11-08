@@ -1715,18 +1715,26 @@ def _bridge_far_multirev(ev, state, mask, nbm, nb, off, anchor0, full, verbose):
         if verbose:
             print(f"   link apparition obs[{nb[0]}..{nb[1]}]: off={off:.1f}\" -> reject (no candidate)")
         return False, state
-    best_cur, best_a, best_n = None, None, None
+    # Glue EVERY candidate and keep the one with the lowest joint chi2 over anchor + new
+    # apparition -- not the first that passes the glue test. A wrong solution can glue: 2008
+    # VC46's 2008 arc + one 4-obs 2012 F51 tracklet offered 8 candidates; the first to glue put
+    # the tracklet at 1.45" (about 7 sigma at F51's 0.2") with chi2 141.7 over the 15 obs, and
+    # rejection then dropped 3 of the 4 obs to hide it (sigma_a 4e-5 au, 242 sigma from the
+    # full-arc a, a 2-degree miss at the next apparition). The eighth candidate fits all 15 at
+    # chi2 10.3. Measured over the 203 regression fixtures: the bridge runs in 16, and fitting
+    # every candidate adds 7.5 s to 1169 s of fit CPU (0.6%); 2002 CC26 and 2015 VZ1 also take
+    # a better candidate (chi2 245 -> 35 and 1061 -> 530).
+    best_cur, best_a, best_n, best_chi2 = None, None, None, np.inf
     for c in cands:
         jl, _ = ev.fit(c, full, max_nfev=BRIDGE_CAND_MAX_NFEV)
         if not np.all(np.isfinite(jl)):
             continue
         a_rms, n_rms = _rms_sub(ev, jl, mask), _rms_sub(ev, jl, nbm)
         if a_rms < anchor0 + LINK_ANCHOR_TOL and n_rms < LINK_NEW_TOL:
-            # candidates are ordered closest-period first, and a WRONG-period clone
-            # can't glue (its anchor balloons), so the FIRST that glues is the true
-            # solution -- stop rather than full-LM the remaining (up to 7) candidates.
-            best_cur, best_a, best_n = jl, a_rms, n_rms
-            break
+            r = np.asarray(ev.evaluate(jl, full).fun, float)
+            chi2 = float(np.sum(r ** 2)) if np.all(np.isfinite(r)) else np.inf
+            if chi2 < best_chi2:
+                best_cur, best_a, best_n, best_chi2 = jl, a_rms, n_rms, chi2
     if best_cur is None:
         # the coarse sweep couldn't resolve the period (a SHORT anchor barely constrains
         # it): root-find the right period directly by sliding the pinned semi-major axis

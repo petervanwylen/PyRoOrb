@@ -4269,6 +4269,37 @@ def test_population_variant_leaves_a_better_fan_result_alone(monkeypatch):
     assert out is linked and calls == ["prior", "fan"]
 
 
+def test_population_variant_failure_leaves_the_fan_to_run(monkeypatch):
+    # The pre-pass adds a variant and replaces nothing: if it raises, the fan scans as it
+    # would have without it, rather than the error ending the variant scan.
+    import pyroorb.itf.search as S
+    import pyroorb.itf.lov_variants as V
+    from types import SimpleNamespace
+    from pyroorb.itf.search import ItfSearchResult
+    rest = ItfSearchResult()
+    calls, logged = [], []
+    real = S._variant_scan
+
+    def scan(ctx, trial, used, width, depth, hyp, fan=None, prior_done=False):
+        if fan is None and not prior_done and not calls:
+            calls.append("entry")
+            return real(ctx, trial, used, width, depth, hyp)
+        calls.append("prior" if fan is not None else "fan")
+        return rest
+
+    def boom(fit, oc):
+        raise ValueError("no population table")
+
+    monkeypatch.setattr(S, "_variant_scan", scan)
+    monkeypatch.setattr(V, "prior_variant", boom)
+    monkeypatch.setattr(V, "variant_states", lambda fit, cfg: (None, None))
+    ctx = SimpleNamespace(cfg=ItfConfig(), budget=None, obscodes={}, trace=None,
+                          log=logged.append)
+    out = S._variant_scan(ctx, SimpleNamespace(U=11.2, fit=object()), 11, 0, 0, "")
+    assert out is None and calls == ["entry"]      # the fan's own path (stubbed: no LOV)
+    assert any("population variant failed" in m for m in logged), logged
+
+
 def test_population_variant_skips_seeds_under_its_gate(monkeypatch):
     from pyroorb.itf.search import ItfSearchResult
     out, calls = _prior_scan(monkeypatch, 6.0, ItfSearchResult(), ItfSearchResult())

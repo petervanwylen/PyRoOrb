@@ -838,7 +838,7 @@ def nominal_optin(sid, on=True):
 
     On a single tracklet the orbit shown is the MOST PROBABLE one (popprior.most_probable_fit:
     the range profile's own solution at the population-posterior median distance); on a longer
-    arc delivered near-parabolic or unbound, the population's peak along the line of variations
+    arc whose delivered orbit the population all but rules out, its peak along the line of variations
     (popprior.most_probable_lov_fit); elsewhere, or when no posterior can be formed, the
     delivered fit. It becomes the session's displayed
     orbit, flagged on the FittedOrbit itself, so the exports that resolve this session publish

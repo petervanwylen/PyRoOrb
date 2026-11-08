@@ -767,9 +767,10 @@ def most_probable_orbit(fit):
     wherever the fit happened to stop. This is the orbit the web UI draws on "show anyway".
 
     Past one night the arc constrains the radial velocity, so the prior moves only along the
-    line of variations, and only when the delivered orbit is near-parabolic or unbound (e >= 0.9):
-    the population's peak there, re-corrected, kept if it is bound and fits within 1.5x the
-    delivered rms. An orbit under e = 0.9 is usually a fair one, and the result is None.
+    line of variations, and only when the population holds almost nothing at the delivered orbit
+    (its weight at most 1% of the peak's: every near-parabolic or unbound fit, and ordinary-looking
+    ones stranded off the population): the peak, re-corrected, kept if it is bound, clear of
+    e = 0.9 and fits within 1.5x the delivered rms. Elsewhere the result is None.
 
     Every caveat of :func:`range_posterior` applies: it is a statement about the population,
     not evidence about this object, and must never feed a hazard or follow-up decision.
@@ -778,7 +779,7 @@ def most_probable_orbit(fit):
     ----------
     fit : FittedOrbit
         A fit to a single tracklet (where the range profile decides determinacy), or to a
-        longer arc delivered near-parabolic or unbound.
+        longer arc.
 
     Returns
     -------

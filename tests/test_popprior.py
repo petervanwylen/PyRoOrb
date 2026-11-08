@@ -129,23 +129,21 @@ def test_the_most_probable_orbit_fits_its_own_tracklet():
     assert mp.geocentric_range() == pytest.approx(mp.most_probable["rho_med"], rel=1e-3)
 
 
-def _first_nights(label, n):
-    """The fit to a fixture's first `n` nights (a night ends at a gap over 0.5 d)."""
+def _first_nights(label, n, start=0):
+    """The fit to nights [start, n) of a fixture (a night ends at a gap over 0.5 d)."""
     import os
     import _fixtures as FX
     import pyroorb.fit_object as fo; from pyroorb import obs_sources
     fx = FX.load_fixture(os.path.join(FX.FIX, label + ".json"))
     obs = sorted(fx["obs"], key=lambda o: o["jd_utc"])
-    nights = 1 + sum(b["jd_utc"] - a["jd_utc"] > 0.5 for a, b in zip(obs, obs[1:]))
-    assert nights > n
-    last, seen = 0, 1
-    for i in range(1, len(obs)):
-        if obs[i]["jd_utc"] - obs[i - 1]["jd_utc"] > 0.5:
-            seen += 1
-            if seen > n:
-                break
-        last = i
-    return fo.fit_orbit(obs[:last + 1], obs_sources.load_obscodes(),
+    night, nights = 0, []
+    for i, o in enumerate(obs):
+        if i and o["jd_utc"] - obs[i - 1]["jd_utc"] > 0.5:
+            night += 1
+        nights.append(night)
+    assert night >= n
+    sub = [o for o, k in zip(obs, nights) if start <= k < n]
+    return fo.fit_orbit(sub, obs_sources.load_obscodes(),
                         desig=fx["meta"]["designation"], meta=fx["meta"])
 
 
@@ -153,7 +151,7 @@ def _first_nights(label, n):
 def test_a_near_parabolic_two_night_fit_is_replaced_by_the_population_orbit():
     """Two nights of a main-belt object (a 2.58) deliver a ~ 9700: the prior reads the LOV."""
     fit = _first_nights("PAIR_2014HH101", 2)
-    assert fit.elements()["e"] >= popprior.LOV_E_FLOOR
+    assert fit.elements()["e"] >= 0.9
     mp = popprior.most_probable_fit(fit)
     assert mp is not None
     el = mp.elements()
@@ -162,14 +160,29 @@ def test_a_near_parabolic_two_night_fit_is_replaced_by_the_population_orbit():
     info = mp.most_probable
     assert abs(info["k"]) <= popprior.LOV_K_MAX
     assert 0 < info["rho_pct"]["5"] <= info["rho_pct"]["95"]
-    assert fit.elements()["e"] >= popprior.LOV_E_FLOOR, "the delivered fit must stay untouched"
+    assert fit.elements()["e"] >= 0.9, "the delivered fit must stay untouched"
+
+
+@pytest.mark.slow
+def test_an_ordinary_looking_fit_off_the_population_is_replaced_too():
+    """Nights 1-3 of a main-belt object (a 2.70) deliver a 5.75, e 0.80: no parabola, but the
+    population holds under 1% of its peak there, so the prior shows its orbit."""
+    fit = _first_nights("PAIR_2015HP527", 3, start=1)
+    assert fit.elements()["e"] < 0.9
+    lov = popprior.lov_weights(fit)
+    w0 = lov["w"][int(np.argmin(np.abs(lov["k"])))]
+    assert w0 <= popprior.LOV_W0_MAX * lov["w"].max()
+    mp = popprior.most_probable_fit(fit)
+    assert mp is not None and 2.3 < mp.elements()["a"] < 3.1, mp and mp.elements()
 
 
 @pytest.mark.slow
 def test_an_ordinary_multi_night_orbit_is_left_alone():
-    """Under e = 0.9 the delivered orbit is usually fair, and the prior's gain does not pay."""
+    """Where the population holds real weight at the delivered orbit it is usually fair (median a
+    error 3%), and replacing it is a coin flip."""
     fit = _first_nights("107474", 2)
-    assert fit.elements()["e"] < popprior.LOV_E_FLOOR
+    lov = popprior.lov_weights(fit)
+    assert lov["w"][int(np.argmin(np.abs(lov["k"])))] > popprior.LOV_W0_MAX * lov["w"].max()
     assert popprior.most_probable_fit(fit) is None
 
 

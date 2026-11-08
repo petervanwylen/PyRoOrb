@@ -21,7 +21,7 @@ PRIVATE = (
     # private modules, at the path each will have when it is released
     "src/pyroorb/neocpmon/", "src/pyroorb/idqueue/", "src/pyroorb/hyperlinc/",
     "src/pyroorb/visweeks/", "src/pyroorb/mislink/", "src/pyroorb/itfprio/",
-    "src/pyroorb/photcal.py",
+    "src/pyroorb/photcal.py", "src/pyroorb/rubin/",
     "src/pyroorb/itf/heliolinc.py", "src/pyroorb/itf/exitf.py", "src/pyroorb/itf/batch.py",
     "src/pyroorb/itf/collect.py", "src/pyroorb/itf/sampling.py", "src/pyroorb/itf/backup/",
     "src/pyroorb/itf/clustering-idea.md", "src/pyroorb/itf/itf_maint.md",
