@@ -103,7 +103,8 @@ def _meta_for(obs, fmt="OBS80"):
 
 
 def fit_astrometry(obs80_text, obscodes, verbose=False, registry=None,
-                   nongrav=False, max_sec=None, identification=False, nongrav_ref=None):
+                   nongrav=False, max_sec=None, identification=False, nongrav_ref=None,
+                   perturbers=None):
     """Fit an OBS80 blob (published + candidate ITF lines mixed) with the
     PyRoOrb engine.  Never raises: engine failures come back ``ok=False``
     (the search treats that like the old "fo died").
@@ -131,7 +132,12 @@ def fit_astrometry(obs80_text, obscodes, verbose=False, registry=None,
     already established: the observations are fitted under that force held
     fixed, warm-started from its orbit (:func:`fit_object.fit_under_known_nongrav`),
     instead of a full fit that re-discovers the model.  Falls back to the full
-    fit when that path cannot seed."""
+    fit when that path cannot seed.
+
+    ``perturbers`` (a :class:`perturbers.Field`, the 16 plus extra asteroids) fits under that
+    asteroid field: the search passes the field its seed needed (:func:`seed_perturbers`), so
+    every trial is judged in the force model the seed is -- a tracklet across a deflection
+    (2016 RM33's 2005 night, past (19) Fortuna's 2011 pass) fits only there.  None = as before."""
     from pyroorb.obs_sources import read_obs_file
     from pyroorb.fit_object import fit_orbit, fit_under_known_nongrav
     from pyroorb import deadline
@@ -173,7 +179,11 @@ def fit_astrometry(obs80_text, obscodes, verbose=False, registry=None,
         # (see search._nongrav_rescue).  Everything above still applies to the
         # default path -- and the corridor now tolerates the 7-element state it
         # produces (ephemeris._nongrav_pair).
-        with deadline.deadline(max_sec, label="ITF trial fit"):
+        import contextlib
+        from pyroorb import force_assist as _fa
+        field_ctx = (_fa.perturbers_on_for("itf", perturbers) if perturbers
+                     else contextlib.nullcontext())
+        with deadline.deadline(max_sec, label="ITF trial fit"), field_ctx:
             fit = (fit_under_known_nongrav(obs, obscodes, nongrav_ref, desig=primary,
                                            meta=meta)
                    if nongrav and nongrav_ref is not None else None)
@@ -190,6 +200,43 @@ def fit_astrometry(obs80_text, obscodes, verbose=False, registry=None,
     if fit is None:
         return TrialFit(ok=False, error="fit returned None")
     return trial_from_fit(fit)
+
+
+def seed_perturbers(trial):
+    """Screen a search's seed fit for asteroid perturbers beyond the 16.
+
+    Returns ``(field, trial)``: the perturbers.Field the seed's refit kept
+    (fit_object.refine_perturbers -- picks at dchi2 >= 1 on ALL its observations, kept only
+    on a same-obs chi2 gain) and the refined TrialFit, or ``(None, trial)`` unchanged when
+    there is none -- a seed that needs only the 16 stays gravity, as every trial fit is by
+    design. Never raises: a screen that cannot run leaves the search as it was."""
+    if trial is None or not getattr(trial, "ok", False) or getattr(trial, "fit", None) is None:
+        return None, trial
+    try:
+        from pyroorb.fit_object import refine_perturbers
+        g = refine_perturbers(trial.fit)
+    except Exception:
+        return None, trial
+    field = getattr(g, "asteroids", None)
+    if g is trial.fit or not (isinstance(field, frozenset) and field):
+        return None, trial
+    return field, trial_from_fit(g)
+
+
+def refine_trial(trial):
+    """An identification TrialFit with the asteroid perturbers its observations call for
+    (fit_object.refine_perturbers: the 16 and any extra body, kept only on a same-obs chi2
+    gain); the trial unchanged when nothing is added or the screen cannot run. What the
+    identification services (the queue's assessment, the NEOCP monitor's identification fit)
+    judge, as the web and the command line already do."""
+    if trial is None or not getattr(trial, "ok", False) or getattr(trial, "fit", None) is None:
+        return trial
+    try:
+        from pyroorb.fit_object import refine_perturbers
+        g = refine_perturbers(trial.fit)
+    except Exception:
+        return trial
+    return trial if g is trial.fit else trial_from_fit(g)
 
 
 def trial_from_fit(fit):

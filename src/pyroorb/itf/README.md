@@ -37,7 +37,12 @@ deliberately NOT taken from the database row — see the module docstring in
 
 ## Flow
 
-1. **Seed** — fetch the object's published astrometry (**ADES**) and fit it.
+1. **Seed** — fetch the object's published astrometry (**ADES**) and fit it. The seed fit is
+   screened once for asteroid perturbers beyond the 16 (`fitter.seed_perturbers`,
+   `ItfConfig.seed_perturber_screen`): when its refit keeps any, the search latches that field
+   (`SearchContext.perturbers`) and every trial fit runs in it — 2016 RM33's seed keeps (19)
+   Fortuna, and the 2005 night past Fortuna's 2011 pass then fits in a trial (in gravity it is
+   rejected). Trials themselves are never screened (thousands per search).
 2. **Corridor** — sweep a geocentric ephemeris across the ITF era
    (1997→now by default) and cut it into quadratic corridor windows
    (`ephem.py`), each gated by predicted sky uncertainty and magnitude.

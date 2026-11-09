@@ -145,7 +145,13 @@ def assess(fit, n_mc=300, rng_seed=0):
           "digest2":  {...} | None,      # d2score.scores: digest2 RAW class scores, display only
           "unconstrained": [...],        # internal; NOT rendered (kept for tests/debugging)
         }
+
+    An orbit chosen by the population prior (``optin_source`` set by popprior.most_probable_fit)
+    answers for its ARC: the verdict is the arc's own fit's, never the chosen point's.
     """
+    source = getattr(fit, "optin_source", None)
+    if source is not None:
+        fit = source
     rv = _range_verdict(fit)
     if rv is not None:
         # On a single tracklet the RANGE PROFILE is the whole verdict -- see _range_verdict.

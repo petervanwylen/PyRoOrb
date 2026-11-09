@@ -27,14 +27,26 @@ _NEG = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                      "itf_negative", "*.json")))
 
 
-@pytest.mark.parametrize("path", _NEG, ids=[os.path.basename(p)[:-5] for p in _NEG])
+def _case(path):
+    """A fixture whose falsehood the search still delivers carries ``known_defect`` (the
+    reason): a STRICT xfail, so the day a fix refuses it the test fails until the mark goes."""
+    with open(path, encoding="utf-8") as fh:
+        reason = json.load(fh).get("known_defect")
+    marks = [pytest.mark.xfail(strict=True, reason=reason)] if reason else []
+    return pytest.param(path, marks=marks, id=os.path.basename(path)[:-5])
+
+
+@pytest.mark.parametrize("path", [_case(p) for p in _NEG])
 def test_foreign_tracklets_are_not_submitted(path):
     with open(path, encoding="utf-8") as fh:
         fx = json.load(fh)
     oc = load_obscodes()
     obs, meta = load_obs(fx, oc)
+    # A foreign tracklet inside the seed's own apparition is planted by station: the harness
+    # would otherwise seed with it.
     rep = run_recovery(fx["designation"], cfg=ItfConfig(), base_source=None, obscodes=oc,
-                       obs_meta=(obs, meta), log=lambda *a: None)
+                       obs_meta=(obs, meta), log=lambda *a: None,
+                       hold_out_stations=tuple(fx.get("hold_out_stations", ())))
     assert rep.n_fake_tracklets >= 1, f"no foreign tracklet was planted: {rep.reason}"
     assert rep.status < 1.0, (
         f"{fx['designation']}: the search delivered status {rep.status} (submittable) on "

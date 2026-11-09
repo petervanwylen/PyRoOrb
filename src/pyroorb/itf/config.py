@@ -1004,6 +1004,10 @@ class ItfConfig:
     # 1 - this fraction of the object's OWN (published) observations is bending
     # the orbit away from the object -- refused regardless of rms.
     recurse_seed_retention: float = 0.8
+    # ...except for seed obs on ONE seed night that an independent trial (no UT
+    # date in common) clipped too: those are bad astrometry the short seed
+    # absorbed, not an orbit bending away (search._corroborated_seed_clips).
+    seed_clip_corroboration: bool = True
     # Trial queue: try the top-N tracklets together for each N here, then the
     # top singles one at a time (best-ranked first) -- each trial guarded above.
     recurse_batch_sizes: tuple = (10, 3)
@@ -1216,6 +1220,13 @@ class ItfConfig:
     # Measured on 520 MPC-resolved production new oppositions from
     # single-opposition seeds: the penalty alone refuses 9 correct links, the
     # leave-out alone 2; the pair refuses none (DF9: p 0.0033).
+    # The leave-out scores each left-out observation with its noise raised to the
+    # station floor (FittedOrbit.predict_without station_floor), the sigma the
+    # penalty already uses. Without it, survey sigmas far under one night's real
+    # accuracy (691 0.13", D29 0.14") made true tracklets 0.2-0.5" off read p < 0.005:
+    # over 120 compact-seed NEOs 10 complete true linkages were demoted to a
+    # possible; floored, all 10 link, and DF9 (8.5" off at 1.1" sigmas) reads the
+    # same p 0.0033.
     new_opposition_penalty_conf: float = 0.997
     new_opposition_leaveout_p: float = 0.01
     # ---- Yarkovsky rescue (search._nongrav_rescue) -------------------------
@@ -1231,6 +1242,13 @@ class ItfConfig:
     # radial A1 is not recoverable from optical astrometry at all).  0 disables.
     nongrav_rescue_q: float = 1.4
     nongrav_rescue_max: int = 3        # nongrav fits attempted per search
+    # Screen the SEED fit for asteroid perturbers beyond the 16 (perturbers.screen, once per
+    # search) and, when its refit keeps any, run every trial fit in that field: a tracklet
+    # across a deflection fits only there -- 2016 RM33's seed scores (19) Fortuna at dchi2 15
+    # on its own observations, and the 2005 night past Fortuna's 2011 pass links only with it.
+    # A seed whose field is just the 16 stays gravity (the search's trial fits are gravity by
+    # design: thousands per search). False disables.
+    seed_perturber_screen: bool = True
     # The NEO waiver of the opposition profile (see search._neo_orbit_waiver):
     # a linkage whose perihelion is under this may be accepted on a profile the
     # gate otherwise refuses -- a 1.5-opposition NEO identification is worth

@@ -201,3 +201,19 @@ def test_a_replacement_that_misfits_is_refused(monkeypatch):
     fit = _first_nights("PAIR_2014HH101", 2)
     monkeypatch.setattr(popprior, "LOV_RMS_MAX", 1e-6)
     assert popprior.most_probable_lov_fit(fit) is None
+
+
+@pytest.mark.slow
+def test_a_population_orbit_answers_for_its_arc():
+    """3552 Don Quixote on 3 nights: the population's orbit, judged alone, reads as determined
+    (U 11.8) with MOID and PHA answered; it carries its arc, and the verdict is the arc's."""
+    from pyroorb import constraint
+    import pyroorb
+    fit = _first_nights("3552_DonQuixote", 3)
+    assert constraint.assess(fit) is not None, "the arc itself does not determine an orbit"
+    mp = pyroorb.most_probable_orbit(fit)
+    assert mp is not None and mp.optin_source is fit
+    assert constraint.assess(mp) is not None
+    assert mp.is_determined is False, "the public surface reads the same verdict"
+    mp.optin_source = None
+    assert constraint.assess(mp) is None, "the case this guards: alone it reads as determined"

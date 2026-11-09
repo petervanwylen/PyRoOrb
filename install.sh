@@ -16,7 +16,8 @@
 #      a build constraint (rebound<5) pins that for the build;
 #   5. only with --extras itf (the ITF search, which needs your own SBN database): on macOS its
 #      ranker's xgboost needs the OpenMP runtime, installed with Homebrew (brew install libomp);
-#   6. downloads the reference tables (DE440, the debias tables; --asteroids adds the 616 MB
+#   6. downloads the reference tables (DE440, the debias tables, and builds the ~26 MB asteroid-
+#      perturber kernel from JPL; --asteroids adds the 616 MB
 #      asteroid ephemeris). --no-data skips this;
 #   7. puts the PyRoOrb commands on PATH: links them into ~/.local/bin, where uv installs itself.
 #

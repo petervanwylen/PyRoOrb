@@ -51,6 +51,13 @@ class UndeterminedOrbitWarning(UserWarning):
     """The observations leave the orbit undetermined; its elements are nominal only."""
 
 
+class PerturbersAddedWarning(UserWarning):
+    """The fit integrates asteroid perturbers beyond the 16 because these observations call
+    for them (``fit_orbit(perturbers="auto")``); ``fit.extra_perturbers`` lists each body with
+    the chi2 it removes and its closest approach. A notice, not a problem: silence it with
+    ``warnings.simplefilter("ignore", pyroorb.PerturbersAddedWarning)``."""
+
+
 class Observations(list):
     """A list of observation records, plus what their source said about them.
 
@@ -235,7 +242,7 @@ _FORCED_NONGRAV = ("comet1", "comet2", "comet3", "yarkovsky", "srp", "srp2", "sr
 
 
 def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
-              center=None, detect_satellite=True, mpc_seed=False):
+              center=None, detect_satellite=True, mpc_seed=False, perturbers="auto"):
     """Fit an orbit to observations.
 
     Parameters
@@ -268,6 +275,15 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
         determination. The ``pyroorb`` command and the web UI do this. It is faster, and on
         some long arcs it changes which observations end up rejected; without it the fit uses
         nothing but the observations given.
+    perturbers : str, default "auto"
+        ``"auto"``: after the fit, screen the massive asteroids (the 16 of JPL's sb441-n16
+        and the other 327 with DE440 masses) for the chi2 each would remove from these
+        observations, rejected ones included, and refit with every body worth at least 1 --
+        kept only if it lowers the chi2 on the same observations. ``fit.perturber_screen``
+        records the outcome; ``fit.asteroids`` is then True (the 16) or a set of the extra
+        bodies. Needs the extra-perturber kernel (``pyroorb-fetch-data --perturbers``) and an
+        arc within 1900-2100; otherwise, or with ``"off"`` (or ``PYROORB_PERTURBERS=off``),
+        the fit is returned as the engine made it.
 
     Returns
     -------
@@ -279,6 +295,9 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
         When the observations do not determine the orbit (``fit.is_determined`` is False).
         The nominal solution is still returned; :meth:`FittedOrbit.determinacy` says what the
         observations do constrain.
+    PerturbersAddedWarning
+        When ``perturbers="auto"`` added asteroids beyond the 16 to the force model; the
+        message names each one, and ``fit.extra_perturbers`` holds the details.
 
     Raises
     ------
@@ -286,6 +305,9 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
         Fewer than three observations, or an unknown ``nongrav`` or ``center``.
     """
     from pyroorb import fit_object as _fit_object
+    pkey = str(perturbers or "off").strip().lower()
+    if pkey not in ("auto", "off"):
+        raise ValueError(f"perturbers must be 'auto' or 'off', not {perturbers!r}")
     key = "auto" if nongrav is None else str(nongrav).lower()
     forced = key in _FORCED_NONGRAV
     if not (key in _NONGRAV or forced):
@@ -313,12 +335,20 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
                                 center=center,
                                 auto_center=None if detect_satellite else False,
                                 mpc_seed=seed)
+    if pkey == "auto" and center is None:
+        fit = _fit_object.refine_perturbers(fit)
+        extra = getattr(fit, "extra_perturbers", None)
+        if extra:
+            from pyroorb import perturbers as _pt
+            _warnings.warn(f"{designation}: integrated with asteroid perturbers beyond the 16 -- "
+                           f"{_pt.summary(extra)} (fit.extra_perturbers)",
+                           PerturbersAddedWarning, stacklevel=2)
     if forced:
         # What notebooks 05 and 06 did by hand: the model on the gravity fit's observation
         # set, kept whether or not it improves the fit, then the radar folded back in (the
         # joint state + A + radar solve).
         fit = _fit_object.refine_nongrav(fit, model=key, revert_if_worse=False,
-                                         asteroids=bool(getattr(fit, "asteroids", False)))
+                                         asteroids=getattr(fit, "asteroids", False) or False)
         radar_rows = (meta or {}).get("radar")
         if radar_rows:
             from pyroorb import radar as _radar
@@ -383,7 +413,7 @@ def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None):
     if 2 * int(mask.sum()) < n_params:
         raise ValueError(f"{int(mask.sum())} observations cannot determine {n_params} "
                          f"parameters")
-    asteroids = bool(_p.fit_asteroids(fit))
+    asteroids = _p.fit_asteroids(fit)        # False, True (the 16) or a Field (16 + extras)
     if model == "none":
         out = _fo.refit_force_model(fit, asteroids, mask=mask,
                                     seed=_np.asarray(fit._state, float)[:6], drop_nongrav=True)
@@ -847,7 +877,10 @@ def most_probable_orbit(fit):
     e = 0.9 and fits within 1.5x the delivered rms. Elsewhere the result is None.
 
     Every caveat of :func:`range_posterior` applies: it is a statement about the population,
-    not evidence about this object, and must never feed a hazard or follow-up decision.
+    not evidence about this object, and must never feed a hazard or follow-up decision. Its
+    :attr:`FittedOrbit.is_determined` and :meth:`FittedOrbit.determinacy` answer for the ARC
+    (the arc's own fit rides on it as ``optin_source``): a covariance read at the chosen point
+    can look tight where the arc's does not.
 
     Parameters
     ----------
@@ -1003,5 +1036,6 @@ __all__ = ["load_settings", "read_observations", "fetch_observations", "fit_orbi
            "osculating_elements", "close_approaches", "body_states", "radar_residuals",
            "radar_prediction",
            "sample_orbits", "range_posterior", "most_probable_orbit", "OrbitEnsemble",
-           "FittedOrbit", "Observations", "UndeterminedOrbitWarning", "obscodes",
+           "FittedOrbit", "Observations", "UndeterminedOrbitWarning", "PerturbersAddedWarning",
+           "obscodes",
            "FetchError", "__version__"]

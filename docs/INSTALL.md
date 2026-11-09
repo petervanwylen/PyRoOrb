@@ -245,9 +245,23 @@ A fit integrates against the JPL DE440 ephemeris (~102 MB) and debiases with the
 tables (~10 MB). Both download on first use; to fetch them ahead of time:
 
 ```bash
-pyroorb-fetch-data                 # DE440 + debias tables
-pyroorb-fetch-data --asteroids     # + the 16-asteroid perturber kernel (~616 MB, optional)
+pyroorb-fetch-data                   # DE440 + debias tables + the asteroid-perturber kernel
+pyroorb-fetch-data --asteroids       # + JPL's sb441-n16 (the 16 over DE441's span, ~616 MB, optional)
+pyroorb-fetch-data --no-perturbers   # skip the asteroid-perturber kernel
 ```
+
+The **asteroid-perturber kernel** (`pyroorb-perturbers-1900-2100-20km.bsp`, ~26 MB) holds the 343
+massive asteroids for 1900-2100 and lets every fit be screened for the ones its observations
+need (`fit_orbit(perturbers="auto")`, the default). Without it fits still run, without that
+screen; it also supplies the 16 used by identification fits when sb441-n16 is not installed.
+It is downloaded from the PyRoOrb release (checked against its SHA-256); if that fails it is
+built on your machine from JPL's small-body ephemeris sb441-n373 instead (about a minute; it
+reads ~165 MB of JPL's 15 GB file over range requests).
+
+It is a modified JPL kernel produced by the PyRoOrb project -- not a JPL product -- and is
+redistributed under JPL's data-use policy and NAIF's rules for modified kernels; its comment
+area (readable with any SPICE tool, e.g. `jplephem`'s `SPK.comments()`) states the source
+(sb441-n373, Park et al. 2021, Courtesy NASA/JPL-Caltech), the modifications and the validation.
 
 They go to your per-user cache directory (`~/.cache/pyroorb` on Linux,
 `~/Library/Caches/pyroorb` on macOS, `%LOCALAPPDATA%\pyroorb\Cache` on Windows).

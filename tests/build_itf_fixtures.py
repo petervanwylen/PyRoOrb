@@ -243,6 +243,31 @@ ITF_OBJECTS = [
      "(0/15).  The population's peak on the LOV is k 0.0635: the search tries that orbit first "
      "and links 15/15, live too",
      3, "compact", {"max_planted": 25}),
+    ("457768", "457768",
+     "BAD OBS INSIDE A SHORT SEED: 9 obs over 2 days from one station, two of its "
+     "last night's obs 3.9 sigma off the whole-arc orbit; every correct extension "
+     "clipped those same two and seed retention (8 of 9) refused each (1/8).  Seed "
+     "obs on one night clipped by independent trials no longer count against "
+     "retention: 8/8, the linkage dropping exactly those two",
+     3, "compact", {"max_planted": 25}),
+    ("2010_VB1", "2010 VB1",
+     "BAD SEED NIGHT, the same mechanism as 457768 a whole night deep: the 11-obs "
+     "seed's third night (703, 4 obs) is rejected outright by the whole-arc fit; "
+     "thirteen independent trials each clipped those four (1/3).  Conceded as "
+     "corroborated: 3/3, the linkage dropping that night",
+     3, "compact", {"max_planted": 25}),
+    ("876982", "876982",
+     "A TRUE NEW OPPOSITION THE LEAVE-OUT CALLED UNPREDICTED: every tracklet found, but the "
+     "2025 V00 tracklet left out of the warm refit read p 0.0000 at 0.38\" off -- scored "
+     "with V00's self-reported 0.25\" sigmas, under its 0.5\" station floor -- so the "
+     "linkage was demoted to a 0.6.  Floored as the penalty clause already floors it: "
+     "p 0.23, LINKED",
+     3, "compact", {"max_planted": 25}),
+    ("2008_HC2", "2008 HC2",
+     "the same leave-out defect at D29: a 2026 tracklet 0.34\" off its prediction, scored "
+     "with 0.23/0.14\" sigmas against D29's 0.75\" floor, read p 0.0000 and demoted a "
+     "complete linkage to a 0.6; floored, p 0.84, LINKED",
+     3, "compact", {"max_planted": 25}),
 ]
 
 # Astrometry the MPC does not (yet) publish for an object, appended verbatim to

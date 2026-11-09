@@ -281,7 +281,19 @@ def most_probable_fit(fit):
     be formed -- the caller then shows the delivered orbit.
 
     The returned orbit carries `most_probable` = {rho_med, rho_pct, vmag}: the distance it was
-    chosen at and the posterior's 5-95% span, which the page states beside it."""
+    chosen at and the posterior's 5-95% span, which the page states beside it. It also carries
+    `optin_source`, the arc's own fit, which constraint.assess judges in its place: the prior
+    chooses a point on the line of variations, and the covariance there can look tight where the
+    arc's does not (3552 Don Quixote on 3 nights: U 11.8, yet read as determined, MOID and PHA
+    answered, when judged alone)."""
+    mp = _most_probable_fit(fit)
+    if mp is not None:
+        mp.optin_source = fit
+    return mp
+
+
+def _most_probable_fit(fit):
+    """most_probable_fit's choice, before the orbit is tied to its arc."""
     from pyroorb import constraint
     from pyroorb import rangescan
     rv = constraint._range_verdict(fit)

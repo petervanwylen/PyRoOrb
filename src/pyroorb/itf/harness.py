@@ -399,8 +399,11 @@ class RecoveryReport:
     recovered_apparitions: set = field(default_factory=set)
     recovered_tracklets: int = 0
     # real-ITF tracklets that ended up in the linkage (live mode): each is a
-    # potential genuine find -- or a contamination to eyeball
+    # potential genuine find -- or a contamination
     foreign_tracklets: list = field(default_factory=list)
+    # each foreign tracklet judged against the object's own full-arc orbit
+    # (:func:`label_foreign`): trksub -> {"miss_arcsec", "label"}
+    foreign_labels: dict = field(default_factory=dict)
     seed_obs: int = 0
     linked_obs: int = 0
     seed_apparitions_used: int = 1
@@ -423,6 +426,11 @@ class RecoveryReport:
     telemetry: dict = field(default_factory=dict)
 
     @property
+    def false_foreign(self):
+        """Foreign tracklets the object's full-arc orbit rules out: a false link."""
+        return sorted(k for k, v in self.foreign_labels.items() if v["label"] == "false")
+
+    @property
     def full_recovery(self):
         return (self.ok and self.planted_apparitions
                 and self.recovered_apparitions == self.planted_apparitions)
@@ -430,6 +438,8 @@ class RecoveryReport:
     def summary(self):
         foreign = (f" foreign={len(self.foreign_tracklets)}"
                    if self.foreign_tracklets else "")
+        if self.false_foreign:
+            foreign += f" FALSE={len(self.false_foreign)}"
         return (f"{self.designation:>12}  status={self.status:<3} "
                 f"apps={len(self.recovered_apparitions)}/{len(self.planted_apparitions)} "
                 f"trk={self.recovered_tracklets}/{self.n_fake_tracklets}"
@@ -605,6 +615,50 @@ def thin_fakes(fakes, max_planted):
             kept.append(by_app[app].pop(0))
         i += 1
     return sorted(kept, key=lambda f: f["feat"]["epoch_start_sec"])
+
+
+#: A foreign tracklet whose every observation lies within this of the object's full-arc orbit is
+#: the object's own (a genuine find); one with any observation past FOREIGN_FALSE_ARCSEC is
+#: another body; between the two it is left "unclear" for a person.  Measured on live weak-seed
+#: scans: genuine finds missed by 0.3-2.4", false tracklets by 7,800-580,000", one case at 44".
+FOREIGN_GENUINE_ARCSEC = 5.0
+FOREIGN_FALSE_ARCSEC = 60.0
+
+
+def label_foreign(full_fit, itf_obs80, foreign, obscodes):
+    """Judge each foreign tracklet of a linkage against the object's own full-arc orbit.
+
+    ``itf_obs80`` is the linkage's ITF lines (``ItfSearchResult.itf_obs80``), ``foreign`` the
+    trksubs (columns 6-12) to judge.  Returns trksub -> ``{"miss_arcsec": the largest miss of
+    its observations, "label": "genuine" | "false" | "unclear"}``.  A recovery scan otherwise
+    only lists foreign tracklets, and a false link reads like a find until someone checks it.
+    """
+    import math
+    from pyroorb.ephemerides import compute_ephemeris
+    from pyroorb.obs_sources import read_obs_file
+    wanted = set(foreign)
+    miss = {}
+    for line in (itf_obs80 or "").splitlines():
+        sub = line[5:12].strip()
+        if not line.strip() or sub not in wanted:
+            continue
+        parsed, _ = read_obs_file(line + "\n", obscodes, in_format="obs80")
+        if not parsed:
+            continue
+        o = parsed[0]
+        rows = compute_ephemeris(full_fit, obscodes, o["jd_utc"], o["jd_utc"], 1.0,
+                                 site=o["obscode"], full=False)
+        if not rows:
+            continue
+        e = rows[0]
+        dra = ((o["ra_deg"] - e["ra_deg"] + 180.0) % 360.0 - 180.0) \
+            * math.cos(math.radians(o["dec_deg"])) * 3600.0
+        ddec = (o["dec_deg"] - e["dec_deg"]) * 3600.0
+        miss[sub] = max(miss.get(sub, 0.0), math.hypot(dra, ddec))
+    return {k: {"miss_arcsec": v,
+                "label": ("genuine" if v < FOREIGN_GENUINE_ARCSEC
+                          else "false" if v > FOREIGN_FALSE_ARCSEC else "unclear")}
+            for k, v in miss.items()}
 
 
 def run_recovery(desig, cfg=None, index_cfg=None, base_source=None, obscodes=None,
@@ -870,6 +924,16 @@ def run_recovery(desig, cfg=None, index_cfg=None, base_source=None, obscodes=Non
                 rep.recovered_tracklets += 1
                 rep.recovered_apparitions.add(fk["apparition"])
         rep.foreign_tracklets = sorted(got - fake_subs)
+        if rep.foreign_tracklets:
+            # The object's own observations, every apparition, are the truth to judge by.
+            try:
+                from pyroorb.fit_object import fit_orbit
+                full = fit_orbit(obs, obscodes, desig=meta.get("designation", str(desig)),
+                                 meta=meta)
+                rep.foreign_labels = label_foreign(full, result.itf_obs80,
+                                                   rep.foreign_tracklets, obscodes)
+            except Exception as e:                    # noqa: BLE001 -- a label, not a verdict
+                log(f"{desig}: foreign tracklets left unlabelled ({type(e).__name__}: {e})")
     return rep
 
 

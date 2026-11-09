@@ -95,7 +95,7 @@ needs your own SBN database, is left out; `--extras itf` adds it (~500 MB more).
 curl -LsSf https://astral.sh/uv/install.sh | sh     # if you don't have uv yet
 uv venv && uv pip install pyroorb
 source .venv/bin/activate   # in every new terminal, before the pyroorb commands
-pyroorb-fetch-data          # once: DE440 (~102 MB) + the debias tables (~10 MB)
+pyroorb-fetch-data          # once: DE440 (~102 MB), the debias tables (~10 MB) and the asteroid-perturber kernel (~26 MB, derived from JPL data)
 ```
 
 **From PyPI, for your own scripts and notebooks.** PyRoOrb is on [PyPI](https://pypi.org/project/pyroorb/),
@@ -103,7 +103,7 @@ so inside any Python environment you already use (a project venv, a Jupyter kern
 
 ```bash
 pip install pyroorb          # or: uv pip install pyroorb
-pyroorb-fetch-data           # once: DE440 (~102 MB) + the debias tables (~10 MB)
+pyroorb-fetch-data           # once: DE440 (~102 MB), the debias tables (~10 MB) and the asteroid-perturber kernel (~26 MB, derived from JPL data)
 ```
 
 ```python
@@ -273,6 +273,15 @@ deliberate: **REBOUND** grabs the rebound, **ASSIST** makes the pass, and
 - **[ASSIST](https://github.com/matthewholman/assist)** — ephemeris-quality forces (DE440, GR).
 - **[find_orb](https://github.com/Bill-Gray/find_orb)** (Bill Gray) — our reference oracle. Algorithms studied and some are **ported in pure Python; no source lines copied**.
 - **EFCC18** — star-catalog astrometric debiasing.
+- **[SiMDA](https://astro.kretlow.de/simda/)** (Mike Kretlow) — compiled asteroid masses, used for
+  the asteroid perturbers beyond the 16 (SiMDA rank A–C; the 16 and the rest keep DE440's).
+  Cite as Kretlow, M., 2020, EPSC Abstracts Vol. 14, EPSC2020-690; data set SiMDA v1.1,
+  [doi:10.5281/zenodo.4039774](https://doi.org/10.5281/zenodo.4039774) (CC-BY-4.0).
+- **JPL** — DE440 (Park et al. 2021, AJ 161, 105) and the small-body perturber ephemeris
+  sb441-n373 that the asteroid-perturber kernel is derived from (Courtesy NASA/JPL-Caltech).
+  That kernel is a modified kernel produced by PyRoOrb, not a JPL product; it is redistributed
+  under JPL's data-use policy and NAIF's rules for modified kernels, and no endorsement by
+  Caltech, JPL or NASA is claimed or implied.
 - **[Minor Planet Center](https://minorplanetcenter.net/)** — observations & observatory codes.
 - **astropy · numpy · scipy** — the scientific bedrock.
 

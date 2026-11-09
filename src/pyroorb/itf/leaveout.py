@@ -269,15 +269,18 @@ def measure(unit_lines, combined_obs80, obscodes, registry=None, max_sec=30.0):
 def warm_predictive(fit, obs_ids, max_nfev=200):
     """Was the tracklet ``obs_ids`` (``obs_unique_id`` strings) PREDICTED by the rest of
     ``fit``, or only fitted?  :meth:`FittedOrbit.predict_without` on those observations:
-    a warm leave-out, scored as a predictive chi2.  Returns its dict -- ``{"chi2", "dof",
-    "p", "miss"}`` or ``{"error": ...}`` -- and never raises."""
+    a warm leave-out, scored as a predictive chi2 with each left-out observation's noise
+    raised to its station floor -- the sigma the identification penalty beside it already
+    scores with (``fitter.subset_chi2``), so an over-tight self-reported sigma cannot make a
+    sub-arcsecond miss read as an outlier.  Returns its dict -- ``{"chi2", "dof", "p",
+    "miss"}`` or ``{"error": ...}`` -- and never raises."""
     if not hasattr(fit, "predict_without"):
         return {"error": "the fit cannot leave observations out"}
 
     def picked(o):
         line = o.get("obs80_line")
         return bool(line) and obs_unique_id(line) in obs_ids
-    return fit.predict_without(picked, max_nfev=max_nfev)
+    return fit.predict_without(picked, max_nfev=max_nfev, station_floor=True)
 
 
 def influence(unit_lines, full_fit, loo_fit, obscodes):

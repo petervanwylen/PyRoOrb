@@ -84,14 +84,14 @@ from .memory_sampler import RssSampler
 from .config import ItfConfig
 from .verdict import SearchVerdict
 from .ephem import sweep_nodes, corridor_windows, faint_cut
-from .fitter import (fit_astrometry, drop_offending, residuals_by_obs_id,
+from .fitter import (fit_astrometry, seed_perturbers, drop_offending, residuals_by_obs_id,
                      subset_rms, subset_sigma_floor, subset_chi2, sigma_map_for,
                      subset_included, worst_mag_residual, mag_outlier_tracklet,
                      screen_candidate, per_axis,
                      SCREEN_REJECT, SCREEN_PLAUSIBLE)
 from .linkage import (build_linkage, submit_linkage, collect_ids, db_trksubs,
                       line_designation, line_identifier, comet_refusal)
-from . import gatelog, gatestats, mpcrules
+from . import anchor, gatelog, gatestats, mpcrules
 from .obsreg import AdesRegistry
 from . import pickup
 from .residual_trend import TREND_NOTE, measure_trends, two_axis_trend_warning
@@ -419,6 +419,9 @@ class SearchContext:
     # ...and the rescued fit itself: later fits hold its force fixed and start
     # from its orbit (itf.fitter.fit_astrometry ``nongrav_ref``)
     nongrav_ref: object = None
+    # the asteroid field the seed needed beyond the 16 (a perturbers.Field), or None: every
+    # in-search fit runs in it (see fitter.seed_perturbers, cfg.seed_perturber_screen)
+    perturbers: object = None
     # obs ids of the PRIOR ACCEPTED state at the depth being vetted (seed +
     # shallower takes), the second seed-preservation reference (see
     # _accept_quality_ok); None outside a vetting
@@ -480,6 +483,11 @@ class SearchContext:
     # rebuilt per round and keyed by that round's candidate indices.  Needed
     # for 2006 UP17; without it, one tracklet was re-fitted once per variant.
     tried_hypotheses: dict = field(default_factory=dict)
+    # SEARCH-WIDE record of the seed obs each retention-refused trial clipped,
+    # ``[(clipped seed obs ids, UT dates of the trial's candidate obs), ...]``:
+    # the evidence :func:`_corroborated_seed_clips` reads.  Shared by every
+    # round, since dataclasses.replace copies the reference.
+    seed_clip_votes: list = field(default_factory=list)
 
 
 def _pub_obs80_from_fetch(designations, obscodes, cfg, log=print,
@@ -1056,7 +1064,8 @@ def _fit(ctx, text):
     return fit_astrometry(text, ctx.obscodes, registry=_ctx_registry(ctx),
                           nongrav=getattr(ctx, "nongrav", False),
                           nongrav_ref=getattr(ctx, "nongrav_ref", None),
-                          max_sec=_trial_max_sec(ctx))
+                          max_sec=_trial_max_sec(ctx),
+                          perturbers=getattr(ctx, "perturbers", None))
 
 
 def _trial_max_sec(ctx):
@@ -1853,11 +1862,71 @@ def _trial_rejection(ctx, tr, prior_used, single_candidate, seed_lvl, seed_keep,
                 f"existing obs degrade {p_pre:.3f}\"->{p_post:.3f}\"",
                 "seed-guard")
     if n_seed and n_seed < seed_keep:
+        conceded = _corroborated_seed_clips(ctx, tr, added_lines)
+        if n_seed + len(conceded) >= seed_keep:
+            trc = _ctx_tracer(ctx)
+            if trc.enabled:
+                trc.cont(f"seed retention {n_seed}/{ctx.pub.used} below {seed_keep}, but "
+                         f"{len(conceded)} of the clipped seed obs (one night) were clipped "
+                         f"by an independent trial too -- not counted against it")
+            return None
         return (f"SEED RETENTION tripped ({n_seed}/{ctx.pub.used} seed obs "
                 f"included, need >= {seed_keep})",
                 f"only {n_seed}/{ctx.pub.used} seed obs stay included",
                 "seed-retention")
     return None
+
+
+def _corroborated_seed_clips(ctx, tr, added_lines):
+    """The seed obs ``tr`` clips that an INDEPENDENT trial clipped as well: the
+    set seed retention does not count against ``tr``.  Empty unless
+    ``cfg.seed_clip_corroboration``.
+
+    Seed retention refuses a trial that clips more of the object's own obs than
+    ``recurse_seed_retention`` allows, because an orbit bending away from the
+    object sheds its astrometry.  On a short seed that rule cannot tell such an
+    orbit from a correct one exposing bad astrometry inside the seed, which a
+    2-day arc absorbs by bending: every correct extension then clips the SAME
+    seed obs and every one is refused.  Two trials whose candidate obs share no
+    UT date are independent evidence, and when they clip the same seed obs the
+    obs are what is wrong.  Two bounds keep it the clip ledger's exception
+    rather than a loosening: the corroborated obs must lie on ONE seed night
+    (the unit a linkage may drop, :func:`_clip_evidence_ok`), and the trial
+    still faces every other clause here and the whole verdict, which prices and
+    reports what the linkage clipped.
+
+    Measured on a 3-night compact seed: 457768 (a 9-obs seed, two obs of its
+    last night 3.9 sigma off the whole-arc orbit; eight different tracklets
+    each clipped those two) went from 1/8 apparitions to 8/8, and 2010 VB1 (an
+    11-obs seed whose 4-obs third night the whole-arc fit rejects outright)
+    from 1/3 to 3/3, each linkage dropping exactly the obs the whole-arc fit
+    rejects.
+
+    Records ``tr``'s clip for the trials after it; a trial without candidate
+    obs (a rival refit) is neither recorded nor corroborated."""
+    if not ctx.cfg.seed_clip_corroboration:
+        return set()
+    days = set()
+    for line in added_lines.splitlines():
+        try:
+            days.add(int(obs_night_ordinal(line)))
+        except ValueError:          # a line without a date cannot vouch
+            continue
+    days = frozenset(days)
+    if not days:
+        return set()
+    inc, _resid = subset_included(tr.fit, ctx.pub_ids)
+    clipped = frozenset(i for i in ctx.pub_ids if i not in inc)
+    corroborated = set()
+    for other_clipped, other_days in ctx.seed_clip_votes:
+        if other_days.isdisjoint(days):
+            corroborated |= clipped & other_clipped
+    ctx.seed_clip_votes.append((clipped, days))
+    if not corroborated:
+        return set()
+    lines = [l for l in ctx.pub_obs80.splitlines()
+             if l.strip() and obs_unique_id(l) in corroborated]
+    return corroborated if len(nights_of(lines)) == 1 else set()
 
 
 # Trial rejections meaning "this tracklet is CLOSE but disagrees" -- the shape
@@ -3281,7 +3350,7 @@ def _neo_orbit_waiver(cfg, trial):
     was accepted as a NEO link.  A NaN ``e`` fails the comparison, so an
     orbit we cannot check never skips the gate.
     """
-    return trial.q < cfg.neo_waiver_q and trial.e < cfg.neo_waiver_max_e
+    return anchor.is_neo(cfg, trial.q, trial.e)
 
 
 def _opp_profile_clause(cfg, trial, opp_profile_ok, initial_opp_profile):
@@ -3938,6 +4007,21 @@ def _document_arc(ctx, result, trial, combined, obs_out, vetting, pickups):
                                    + ". Find another night in that apparition "
                                    "to make it submittable.",
                                    f"linkage NOT submittable (status 0.6): {nights_why}")
+    # ...and our own floor: one apparition well observed in its own right
+    # (``anchor.anchor_problem``: 3+ tracklets; a non-NEO also 3+ nights).  An
+    # arc of thin apparitions pins no single orbit (2013 EZ43, a mislinkage of
+    # 1+2+1 nights), and the MPC rule above passes one at 5+ apparitions or on
+    # a single one.
+    anchor_why = anchor.anchor_problem(
+        doc_combined, neo=anchor.is_neo(ctx.cfg, getattr(trial, "q", None),
+                                        getattr(trial, "e", None)))
+    if anchor_why:
+        return None, None, _demote_to_possible(ctx, result, trial, obs_out, vetting,
+                                   "not_submittable_no_anchor", anchor_why,
+                                   "NOT SUBMITTABLE: " + anchor_why
+                                   + ". Find more of one apparition to make it "
+                                   "submittable.",
+                                   f"linkage NOT submittable (status 0.6): {anchor_why}")
 
     return doc_combined, doc_out, None
 
@@ -6052,6 +6136,12 @@ def itf_search(source, designations=None, *, seed_obs80=None,
                                telemetry=telemetry)
     log(f"seed fit: used {pub.used}/{pub.count}, rms {pub.rms:.3f}\", "
         f"U {pub.U:.2f}")
+    seed_field = None
+    if cfg.seed_perturber_screen:
+        seed_field, pub = seed_perturbers(pub)
+        if seed_field:
+            log(f"seed perturbers: {pub.fit.force_model} -- every trial fit runs in it "
+                f"(used {pub.used}/{pub.count}, rms {pub.rms:.3f}\")")
 
     # Memory cost of the SEARCH (started after the seed fit, so not the
     # fetch), for calibrating ItfConfig.sweep_min_free_mb.
@@ -6064,6 +6154,7 @@ def itf_search(source, designations=None, *, seed_obs80=None,
         own_desigs=own_designations(pub_obs80, primaries),
         registry=registry,
         pub=pub,
+        perturbers=seed_field,
         initial_opp_profile=opp_profile(pub_obs80),
         primary_desigs=primaries,
         max_uncert_deg=max_uncert_deg,

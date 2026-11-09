@@ -168,12 +168,17 @@ def asteroid_kernel_path():
     return None
 
 
-def ensure_asteroid_kernel(verbose=False):
+def ensure_asteroid_kernel(verbose=False, n16=False):
     """Return a usable asteroid-kernel path, downloading it to ephem/ on first use if
     absent. Returns None (caller falls back to gravity) when no kernel is present and the
     download fails -- offline, firewalled, or JPL unreachable. The ~616 MB fetch happens
-    at most once; thereafter asteroid_kernel_path() finds the cached file."""
-    p = asteroid_kernel_path()
+    at most once; thereafter asteroid_kernel_path() finds the cached file.
+
+    The extra-perturber kernel serves the 16 as well (sb441-n16's records verbatim inside
+    1900-2100), so when it is installed its path is returned and nothing is downloaded -- an
+    identification fit used to pull 616 MB mid-request. `n16=True` (pyroorb-fetch-data
+    --asteroids) asks for sb441-n16 itself."""
+    p = asteroid_kernel_path() or (None if n16 else _field_kernel())
     if p:
         return p
     dest = Path(ASTEROIDS_DEFAULT_PATH)
@@ -267,6 +272,7 @@ def perturbers_off_for(name):
 # self-perturber context still wins (see _use_asteroids), and obs_sources._force_backend turns
 # this into a durable fit_object._AsteroidForce on the fit's ctx.
 _FORCE_PERTURBERS = contextvars.ContextVar("pyroorb_force_perturbers", default=None)
+_FORCE_FIELD = contextvars.ContextVar("pyroorb_force_field", default=None)
 
 
 def forced_perturbers():
@@ -274,14 +280,24 @@ def forced_perturbers():
     return _FORCE_PERTURBERS.get()
 
 
+def forced_field():
+    """The field forced on in this context: a perturbers.Field (the 16 plus extra bodies) when
+    one was given to perturbers_on_for, else True (the 16)."""
+    return _FORCE_FIELD.get() or True
+
+
 @contextlib.contextmanager
-def perturbers_on_for(reason):
-    """Force the 16 asteroid perturbers ON for the duration of the block (unless the object
-    is itself one of them -- perturbers_off_for overrules). See _FORCE_PERTURBERS."""
+def perturbers_on_for(reason, field=None):
+    """Force the asteroid perturbers ON for the duration of the block (unless the object is
+    itself one of them -- perturbers_off_for overrules): the 16, or `field` (a perturbers.Field,
+    the 16 plus extra bodies -- an ITF search whose seed needed one keeps it in every trial fit).
+    See _FORCE_PERTURBERS."""
     token = _FORCE_PERTURBERS.set(reason)
+    ftoken = _FORCE_FIELD.set(field if isinstance(field, frozenset) and field else None)
     try:
         yield
     finally:
+        _FORCE_FIELD.reset(ftoken)
         _FORCE_PERTURBERS.reset(token)
 
 
@@ -324,12 +340,31 @@ def _use_asteroids(asteroids):
     the 16 is never integrated in a field that contains it, whoever asked.
     Inside perturbers_on_for (an identification fit) None means ON."""
     if asteroids is None and _FORCE_PERTURBERS.get() is not None:
-        asteroids = True
+        asteroids = forced_field()
     use = _asteroids_on() if asteroids is None else bool(asteroids)
-    if not (use and asteroid_kernel_path() is not None):
+    if not (use and asteroids_available()):
         return False
     n = _excluded_number()
-    return n is None or _masked_ephem(n) is not None
+    if n is None:
+        return True
+    if asteroid_kernel_path() is None:
+        # no sb441-n16: the field comes from the extra-perturber kernel, whose per-body-set
+        # ephemerides simply leave the object out of its own field
+        return True
+    return _masked_ephem(n) is not None
+
+
+def _field_kernel():
+    """The extra-perturber kernel (perturbers.kernel_path), or None."""
+    from pyroorb import perturbers as _pt
+    return _pt.kernel_path()
+
+
+def asteroids_available():
+    """True when an asteroid field can be integrated: sb441-n16, or the extra-perturber kernel
+    (which carries the 16 verbatim inside 1900-2100). A default install builds only the
+    latter; without this every asteroid field there silently integrated planets-only."""
+    return asteroid_kernel_path() is not None or _field_kernel() is not None
 
 
 def _epsilon(asteroids=None):
@@ -464,8 +499,25 @@ def get_ephem(asteroids=None):
     global _EPHEM, _EPHEM_AST
     # Double-checked: the cached read stays lock-free (this is on every sweep's
     # hot path), and only the one-time construction serialises. See _EPHEM_LOCK.
+    if asteroids is None and _FORCE_PERTURBERS.get() is not None:
+        asteroids = forced_field()           # the forced field, extras included
     if _use_asteroids(asteroids):
         n = _excluded_number()
+        if isinstance(asteroids, frozenset) and asteroids:
+            # a perturbers.Field: the 16 plus extra bodies, from the extra-perturber kernel
+            # (an object that is itself one of them is simply left out of its own set); without
+            # that kernel the 16 below
+            from pyroorb import perturbers as _pt
+            e = _pt.ephem_for(_pt.field_bodies(asteroids, n))
+            if e is not None:
+                return e
+        if asteroid_kernel_path() is None:
+            # the 16 from the extra-perturber kernel (sb441-n16's records verbatim)
+            from pyroorb import perturbers as _pt
+            e = _pt.ephem_for(_pt.field_bodies(True, n))
+            if e is not None:
+                return e
+            return get_ephem(False)
         if n is not None:
             return _masked_ephem(n)        # non-None: _use_asteroids checked it
         if _EPHEM_AST is None:
@@ -601,6 +653,18 @@ def _integrate_split(ephem, t0_tdb, states, times_tdb, epsilon, setup=None):
     step, so each leg must advance one way) AND it confines a far-apparition divergence to
     its own direction instead of NaN-poisoning every later obs in a single sweep. ASSIST
     double-buffers the particles, so read sim.particles / serialize FRESH after each yield."""
+    # The extra-perturber kernel covers a window (1900-2100); ASSIST refuses an epoch outside a
+    # perturber's coverage, so a sweep reaching past it runs in the 16 of sb441-n16 instead.
+    from pyroorb import perturbers as _pt
+    w = _pt.window(ephem)
+    if w is not None and len(times_tdb):
+        lo = min(float(np.min(times_tdb)), t0_tdb)
+        hi = max(float(np.max(times_tdb)), t0_tdb)
+        if lo < w[0] + 1.0 or hi > w[1] - 1.0:
+            ephem = get_ephem(True)
+            if _pt.window(ephem) is not None:
+                # no sb441-n16 to fall back to: outside the window the field is planets-only
+                ephem = get_ephem(False)
     sunp0, sunv0 = _sun_bary(ephem, t0_tdb)
     # The one place all ASSIST propagation passes through, so it is where a bounded
     # unit of work agrees to stop (see deadline.py -- Python cannot kill a thread,

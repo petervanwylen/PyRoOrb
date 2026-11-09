@@ -434,6 +434,12 @@ def _radar_block(fit):
     }
 
 
+def fit_asteroids_extras(fit):
+    """The extra perturbers (beyond the 16) a fit integrates, sorted; [] for none."""
+    a = getattr(fit, "asteroids", False)
+    return sorted(int(n) for n in a) if isinstance(a, frozenset) else []
+
+
 def serialise_fit(fit):
     """Turn a FittedOrbit into the single dict the browser consumes."""
     # The honest profile-likelihood nongrav sigma re-fits the orbit at many trial values -- seconds of
@@ -712,6 +718,10 @@ def serialise_fit(fit):
         "constraints": {k: _safe(v) for k, v in (d.get("constraints") or {}).items()},
         # True when the 16 massive-asteroid perturbers are active (precision polish).
         "asteroids": bool(d.get("asteroids")),
+        # Extra perturbers beyond the 16 (MP numbers) the orbit is integrated with, and what
+        # the screen found for each (name, dchi2, closest approach): the Force model panel's line.
+        "asteroid_extras": fit_asteroids_extras(fit),
+        "extra_perturbers": [dict(e) for e in getattr(fit, "extra_perturbers", None) or []],
         # Radar (delay/Doppler) rows folded into the fit, or None. The orbit is already
         # radar-refined (fit_orbit); this surfaces it for the UI. Mirrors the CLI radar report.
         "radar": _radar_block(fit),
@@ -948,6 +958,13 @@ def _store_session(fit, grav_pure=None):
                           # to switch back to. "asteroids" is the current toggle state.
                           "grav_pure": grav_pure if grav_pure is not None else fit,
                           "asteroids": bool(fit.asteroids),
+                          # the field the screen chose (the 16 + extras), so turning the
+                          # perturbers back on restores it rather than the bare 16
+                          "auto_field": (fit.asteroids if isinstance(fit.asteroids, frozenset)
+                                         else None),
+                          # and what the screen found for those bodies, re-attached on the way
+                          # back on (the toggle refits from the gravity baseline, which has none)
+                          "auto_detail": list(getattr(fit, "extra_perturbers", None) or []),
                           # a good asteroid STATE to seed the toggle from -- the asteroid fit on
                           # an obs set that needs the perturbers has a spurious near-gravity local
                           # min, so turning them ON must start from here, not the gravity orbit.
@@ -1936,6 +1953,20 @@ def _pending_verdict(s, pend, fit, live, doc):
     nights_ok, nights_why = submittable_nights("\n".join(live) + "\n")
     if not nights_ok:
         return False, nights_why, True
+    # ...and the search's anchor-apparition floor (one apparition with 3+ tracklets, 3+ nights
+    # for a non-NEO) on the same LIVE set: switching tracklets off can thin the one apparition
+    # that carried it.
+    from pyroorb.itf import anchor
+    from pyroorb.itf.config import ItfConfig
+    from pyroorb.itf.fitter import trial_from_fit
+    try:
+        _t = trial_from_fit(fit)
+        neo = anchor.is_neo(ItfConfig(), _t.q, _t.e)
+    except Exception:                             # unreadable elements: the stricter rule
+        neo = False
+    anchor_why = anchor.anchor_problem("\n".join(live) + "\n", neo=neo)
+    if anchor_why:
+        return False, anchor_why, True
     if pend.get("submittable", True):
         return True, "pending linkage (follows the current observation set)", False
     refusal = pend.get("reason") or "the search did not confirm this linkage"
@@ -1975,8 +2006,6 @@ def _pending_verdict(s, pend, fit, live, doc):
                 f"the search filed this as a possible ({refusal}), and re-solving the same "
                 f"observations does not change that",
                 True)
-    from pyroorb.itf.config import ItfConfig
-    from pyroorb.itf.fitter import trial_from_fit
     from pyroorb.itf.search import opp_profile_acceptable
     from pyroorb.itf.opp_profile import OppProfile
     gate = pend.get("seed_gate") or {}
@@ -3169,7 +3198,12 @@ def set_asteroids(sid, on, mask_list=None):
                 s["ast_state"] = None
         seed = s.get("ast_state")
     try:
-        base = fo.refit_force_model(s["grav_pure"], bool(on), mask=mask, seed=seed)
+        want = (s.get("auto_field") or True) if bool(on) else False
+        base = fo.refit_force_model(s["grav_pure"], want, mask=mask, seed=seed)
+        if want and s.get("auto_detail") and isinstance(base.asteroids, frozenset):
+            detail = [e for e in s["auto_detail"] if int(e["number"]) in base.asteroids]
+            base._ctx["meta"] = {**(base._ctx.get("meta") or {}), "extra_perturbers": detail}
+            base.extra_perturbers = detail
     except Exception as ex:
         return {"ok": False, "error": f"asteroid toggle failed: {type(ex).__name__}: {ex}"}
     s["grav_fit"] = base                     # the new force-model baseline
@@ -3448,13 +3482,17 @@ def fit_obs_list(obs, meta, obscodes, force=False, meta_extra=None):
         return {"ok": False, "error": f"fit failed: {ex}"}
     finally:
         arc_extend.SNAPSHOTS = False
-    # Precision polish (UI default-on): for main-belt, multi-opposition objects refine with
-    # the 16 massive-asteroid perturbers -- auto-downloads the kernel on first use, falls back
-    # to gravity if unavailable, and is a gated no-op for objects it can't help. Stored as the
-    # session baseline, so interactive Full steps run with the perturbers too. Never fatal.
+    # Asteroid perturbers (UI default-on): the screen adds the 16 and any extra body the
+    # observations call for (fit_object.refine_perturbers); where it cannot run (no extra-perturber
+    # kernel, an arc outside 1900-2100, PYROORB_PERTURBERS=off) the gated +16 polish does instead.
+    # Stored as the session baseline, so interactive Full steps keep the field. Never fatal.
     grav = fit
     try:
-        fit = fo.refine_asteroids(fit)
+        fit = fo.refine_perturbers(fit)
+        if "skipped" in (fit.perturber_screen or {}):
+            info = fit.perturber_screen
+            fit = fo.refine_asteroids(grav)
+            fit.perturber_screen = info
     except Exception:
         fit = grav
     # Automatic non-gravitational discovery (the same two routines the CLI runs by default).
@@ -3494,8 +3532,11 @@ def fit_obs_list(obs, meta, obscodes, force=False, meta_extra=None):
     # end flashes a one-shot banner inviting the user to A/B the force model. A manual
     # +16-ast toggle (force=True) goes through serialise_fit without this flag, so it
     # never re-fires the banner.
-    payload["asteroids_auto"] = bool(getattr(fit, "asteroids", False)
-                                     and not getattr(grav, "asteroids", False))
+    payload["asteroids_auto"] = bool(getattr(fit, "asteroids", False)) and (
+        not getattr(grav, "asteroids", False)
+        or fit_asteroids_extras(fit) != fit_asteroids_extras(grav))
+    # What the perturber screen did, for the fit page: picks, top scores, whether kept.
+    payload["perturbers"] = getattr(fit, "perturber_screen", None)
     # If THIS object is one of the 16 +16ast perturbers, tell the front end so it can label
     # the +16ast toggle "the other 15" -- the object is excluded from its own field.
     sp = guards.self_perturber_name(fit=grav)

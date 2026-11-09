@@ -134,6 +134,7 @@
         </span>
       </div>
       <div class="bd">
+        <div id="astExtras" class="ngnote" hidden></div>
         <label class="ngrow"><span class="ngrowlbl">non-grav</span>
           <select id="ngSelect" class="ngselect" title="Re-solve the orbit with out-gassing / Yarkovsky terms"></select>
         </label>
@@ -273,6 +274,11 @@
           relativity, separate Earth &amp; Moon, and the optional 16 massive-asteroid perturbers.</li>
         <li><a href="https://github.com/hannorein/rebound" target="_blank" rel="noopener">REBOUND</a>
           (Rein &amp; Liu) — the python-based <b>IAS15</b> integrator, allowing PyRoOrb to run anywhere python runs.</li>
+        <li><a href="https://astro.kretlow.de/simda/" target="_blank" rel="noopener">SiMDA</a>
+          (M. Kretlow; Kretlow 2020, EPSC2020-690; data set v1.1,
+          <a href="https://doi.org/10.5281/zenodo.4039774" target="_blank" rel="noopener">doi:10.5281/zenodo.4039774</a>,
+          CC-BY-4.0) — compiled asteroid masses: the masses of
+          the asteroid perturbers beyond the 16 (rank A–C), where they fit observed deflections better than DE440's.</li>
         <li>Observations are fetched as ADES live from the MPC Observations API.</li>
       </ul>
       <p class="about-foot">CLI and PyPI hopefully coming soon. Created by Peter VanWylen; development significantly accelerated by Agentic AI.</p>

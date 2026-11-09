@@ -5,6 +5,10 @@
 const $ = (id) => document.getElementById(id);
 const fmt = (v, d = 4) => (v === null || v === undefined || Number.isNaN(v))
   ? "—" : Number(v).toFixed(d);
+// A close-approach distance in au: 4 decimals, or 2 significant figures under 0.001 au
+// (a 0.00006 au pass must not read as 0.0001).
+const fmtAu = (v) => (v === null || v === undefined || Number.isNaN(v)) ? "—"
+  : (Number(v) < 0.001 ? Number(Number(v).toPrecision(2)).toString() : Number(v).toFixed(4));
 
 // Minimal HTML escaping for free-text values (e.g. MPC observatory names) spliced
 // into innerHTML / attribute strings — keeps a stray &, <, or quote from breaking markup.
@@ -101,6 +105,7 @@ function flashBanner(message, kind = "info") {
 // One-shot banners keyed off a fresh fit payload. De-duped so re-renders of the
 // same fit (stage replay, obs edits) and interactive re-fits don't re-spam.
 let _astFlashKey = null, _sysFlashKey = null, _ngFlashKey = null, _ngWarnKey = null;
+let _ptFlashKey = null, _ptKernelNoted = false;
 const _NG_LABEL = { yarkovsky: "Yarkovsky (A2)", srp: "solar radiation pressure (A1)",
   srp2: "1/r² model, A1+A2 (SRP + Yarkovsky-type)", srp3: "1/r² model, A1+A2+A3",
   comet1: "comet out-gassing (A1, radial)",
@@ -143,8 +148,35 @@ function flashFitBanners(p) {
   // lowered the RMS (run_fit sets asteroids_auto; manual toggles never do).
   if (p.asteroids_auto && p.session && p.session !== _astFlashKey) {
     _astFlashKey = p.session;
-    flashBanner("The 16 asteroid perturbers improved this orbit — see the difference "
-      + "by turning on and off the 16 asteroid perturbers.", "info");
+    const ex = p.asteroid_extras || [];
+    const det = new Map((p.extra_perturbers || []).map((e) => [e.number, e]));
+    const named = ex.map((n) => {
+      const e = det.get(n);
+      return e ? `(${n}) ${e.name || ""} — Δχ² ${fmt(e.dchi2, 0)}, passed ${fmtAu(e.closest_au)} au `
+        + `on ${e.closest_date}` : `(${n})`;
+    });
+    const one = ex.length === 1;
+    flashBanner(ex.length
+      ? (one ? "An asteroid perturber beyond the 16 deflects this orbit: "
+             : `${ex.length} asteroid perturbers beyond the 16 deflect this orbit: `)
+        + named.join("; ")
+        + `. The fit now includes ${16 + ex.length} asteroidal perturbers (the 16 plus `
+        + (one ? "this one" : "these") + ") — compare by turning the perturbers off and on."
+      : "The 16 asteroid perturbers improved this orbit — see the difference "
+        + "by turning on and off the 16 asteroid perturbers.", "info");
+  }
+  // Amber: the asteroid-perturber screen could not run on this fit (an error, or no
+  // extra-perturber kernel installed) -- said once, so a missing piece is never silent.
+  const skip = p.perturbers && p.perturbers.skipped;
+  if (skip && p.session && p.session !== _ptFlashKey) {
+    _ptFlashKey = p.session;
+    if (/failed/.test(skip)) {
+      flashBanner("The asteroid-perturber screen did not run on this fit: " + skip, "warn");
+    } else if (/kernel/.test(skip) && !_ptKernelNoted) {
+      _ptKernelNoted = true;
+      flashBanner("The asteroid-perturber screen is not installed — run "
+        + "`pyroorb-fetch-data --perturbers` on the server to enable it.", "info");
+    }
   }
   // Green: an automatic non-gravitational model was detected and applied because the
   // gravity-only orbit left a systematic trend this inner, multi-apparition object.
@@ -1158,9 +1190,29 @@ function renderNongrav(p) {
   // If this object IS one of the 16 +16ast perturbers, the +16ast segment runs the OTHER 15:
   // it can't be perturbed by itself, so the engine excludes it from its own field.
   const sp = p.self_perturber;
+  // Extra perturbers beyond the 16 (the perturber screen's picks): named on the toggle and
+  // in a standing line under it, so the field the orbit lives in is never only in a tooltip.
+  const ex = p.asteroid_extras || [];
+  const det = p.extra_perturbers || [];
   $("astToggle").querySelectorAll("button[data-ast='1']").forEach((s) => {
-    s.title = sp ? `(${sp}) is one of the 16 perturbers — this uses the other 15` : "";
+    // numbered-asteroid style "+(324)": a WORD JOINER (U+2060, invisible) between "+" and "("
+    // so the browser never breaks there
+    s.textContent = "+16 ast" + ex.map((n) => ` +⁠(${n})`).join("");
+    s.title = (sp ? `(${sp}) is one of the 16 perturbers — this uses the other 15` : "")
+      + (ex.length ? `${sp ? "; " : ""}plus ${ex.map((n) => `(${n})`).join(", ")}` : "");
   });
+  const exNote = $("astExtras");
+  if (exNote) {
+    exNote.hidden = !det.length;
+    exNote.innerHTML = det.length
+      ? "<b>Beyond the 16:</b> " + det.map((e) =>
+          `(${e.number}) ${escHtml(e.name || "")} — Δχ² ${fmt(e.dchi2, 0)}, passed ` +
+          `${fmtAu(e.closest_au)} au on ${escHtml(e.closest_date || "")}` +
+          (e.mass_kg ? `, mass ${Number(e.mass_kg).toExponential(2)} kg (${escHtml(e.mass_source || "")})`
+                     : "")).join("; ") +
+        `. Added by the perturber screen: these observations need ${det.length === 1 ? "it" : "them"}.`
+      : "";
+  }
   if (!sel.options.length && NG_MODELS) {
     sel.innerHTML = NG_MODELS.map((m) => `<option value="${escAttr(m.value)}">${escHtml(m.label)}</option>`).join("");
   }

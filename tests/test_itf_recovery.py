@@ -118,6 +118,8 @@ def check_recovery(path, base_source, cfg_overrides=None):
         w for w, c in (("apps", apps_ok), ("tracklets", trk_ok),
                        ("rms", rms_ok), ("dropped-seed-obs", drop_ok)) if not c))
     foreign = f" foreign={len(rep.foreign_tracklets)}" if rep.foreign_tracklets else ""
+    if rep.false_foreign:
+        foreign += f" FALSE={','.join(rep.false_foreign)}"
     msg = (f"{fx['designation']} U={fx['seed_U']} "
            f"apps={sorted(recovered)}/{sorted(planted)} "
            f"trk={rep.recovered_tracklets}/{fx['n_fake_tracklets']} "

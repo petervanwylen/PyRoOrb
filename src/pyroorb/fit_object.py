@@ -1180,10 +1180,10 @@ def _build_orbit(ctx, state, mask, result, history):
     # whole-fit +16ast run says True, a toggle back to gravity says False
     meta = ctx["meta"]
     pinned = pinned_asteroids(backend)
-    if pinned is not None and bool((meta or {}).get("asteroids")) != pinned:
+    if pinned is not None and _asteroids_from_meta((meta or {}).get("asteroids")) != pinned:
         meta = {k: v for k, v in (meta or {}).items() if k != "asteroids"}
         if pinned:
-            meta["asteroids"] = True
+            meta["asteroids"] = _meta_asteroids(pinned)
     fit = FittedOrbit(desig=ctx["desig"], obs=obs, result=result, epoch_tdb=ctx["epoch_tdb"],
                       seed_d=ctx["seed_d"], iod_method=ctx["method"], mask=mask,
                       resid_all=resid_all, history=history, meta=meta,
@@ -1773,7 +1773,9 @@ def _deliver_nongrav_orbit(ctx, fit, model, result, mask, ng_diag=None,
         # perturbers is judged planets-only and every displayed residual carries the ~0.4"
         # divergence. with_force_model re-binds them through the ctx backend, so for one of
         # the 16 perturber objects the exclusion survives (a web re-fit, a jackknife).
-        ev2, ctx2 = with_force_model(ctx, True)
+        field = ctx.get("asteroids")
+        ev2, ctx2 = with_force_model(ctx, field if isinstance(field, frozenset) and field
+                                     else True)
     else:
         ev2 = _copy.copy(ctx["ev"])
         ctx2 = dict(ctx)
@@ -1864,7 +1866,7 @@ def refine_nongrav(fit, model="comet2", max_nfev=200, verbose=False,
         # The whole refit -- LM residuals, rescue profile, corrector -- under the
         # 16-perturber model; the delivered ctx carries the same wrapper (see
         # _deliver_nongrav_orbit) so nothing downstream drifts back to planets-only.
-        backend = _AsteroidForce(backend)
+        backend = _AsteroidForce(backend, asteroids)
     ev = ctx["ev"]
     # The phase-bridge link relaxation (Evaluator.relax_link_opposition) inflated a far
     # apparition's sigmas so the gravity-only reject loop would keep its coherent offset. That
@@ -2146,8 +2148,23 @@ class _AsteroidForce(PinnedForce):
     "fit" a trajectory 20-50 km off: the divergence is ~0.4" to the optical and hundreds of
     sigma to a delay). An inner pin is replaced; a SelfExcludedForce inside is kept (+15ast)."""
 
-    def __init__(self, backend):
-        super().__init__(backend, True)
+    def __init__(self, backend, asteroids=True):
+        # True (the 16) or a perturbers.Field (the 16 plus extra bodies); never off
+        super().__init__(backend, asteroids if asteroids else True)
+
+
+def _meta_asteroids(value):
+    """How a force model is recorded in an orbit's meta: True for the 16, the sorted list of
+    extra bodies for a perturbers.Field (a list survives JSON, a frozenset does not)."""
+    return sorted(int(n) for n in value) if isinstance(value, frozenset) and value else True
+
+
+def _asteroids_from_meta(value):
+    """The inverse of _meta_asteroids: a non-empty list is a perturbers.Field, else a bool."""
+    if isinstance(value, (list, tuple, set, frozenset)) and value:
+        from pyroorb.perturbers import Field
+        return Field(int(n) for n in value)
+    return bool(value)
 
 
 def with_force_model(ctx, asteroids, fit=None):
@@ -2163,8 +2180,11 @@ def with_force_model(ctx, asteroids, fit=None):
     base = ctx["backend"]
     # what will actually run: no perturbers off ASSIST, and none for a perturber object whose
     # exclusion cannot be built here (force_assist then refuses them; say so, don't pretend)
-    asteroids = (bool(asteroids) and is_assist(base)
-                 and (excluded_body(base) is None or _self_excluding(base)))
+    on = (bool(asteroids) and is_assist(base)
+          and (excluded_body(base) is None or _self_excluding(base)))
+    # a perturbers.Field (the 16 plus extra bodies) is kept as it is; anything else on is True
+    asteroids = (asteroids if isinstance(asteroids, frozenset) and asteroids else True) if on \
+        else False
     backend = pin(base, asteroids)
     ev = ctx["ev"]
     ev2 = _copy.copy(ev)
@@ -2178,7 +2198,7 @@ def with_force_model(ctx, asteroids, fit=None):
     ctx2["asteroids"] = asteroids
     meta = {k: v for k, v in (ctx.get("meta") or {}).items() if k != "asteroids"}
     if ctx2["asteroids"]:
-        meta["asteroids"] = True
+        meta["asteroids"] = _meta_asteroids(ctx2["asteroids"])
     ctx2["meta"] = meta
     ctx2["backend_name"] = _force_model_label(ctx, ctx2["asteroids"], fit)
     return ev2, ctx2
@@ -2434,7 +2454,7 @@ def _nongrav_asteroids_gate(fit):
         if not hasattr(ctx.get("backend"), "helio_states_multi"):
             return False                       # rebound fallback: no perturber support
         import pyroorb.force_assist as _fa
-        if _fa.asteroid_kernel_path() is None:
+        if not _fa.asteroids_available():
             return False
         if fit.arc_length_days() < NONGRAV_ASTEROIDS_ARC_DAYS:
             return False
@@ -2997,7 +3017,8 @@ def _delivered_verification(f, radar_rows, verbose=False):
         from scipy.optimize import least_squares
         mask = np.asarray(f._mask, bool)
         idx = np.flatnonzero(mask)
-        backend = _AsteroidForce(ctx["backend"]) if ctx.get("asteroids") else ctx["backend"]
+        backend = (_AsteroidForce(ctx["backend"], ctx["asteroids"]) if ctx.get("asteroids")
+                   else ctx["backend"])
         spec = ng.model(f.nongrav_model)
         resid, jac, _ = _make_ng_residual(backend, ctx["epoch_tdb"], ev.times_tdb[idx],
                                           [ev.Robs[i] for i in idx],
@@ -5025,12 +5046,14 @@ def _force_model_label(ctx, asteroids, fit=None):
         return name                             # rebound 8-planet: no perturbers either way
     if not asteroids:
         return "ASSIST(DE440+GR)"
+    more = ("".join(f"+({n})" for n in sorted(asteroids))
+            if isinstance(asteroids, frozenset) else "")
     sp = excluded_body(ctx.get("backend"))
     if sp is not None:
         if _self_excluding(ctx.get("backend")):
-            return f"ASSIST(DE440+GR+15ast, excl. {sp})"
+            return f"ASSIST(DE440+GR+15ast{more}, excl. {sp})"
         return "ASSIST(DE440+GR, +16ast off: self-perturber)"
-    return "ASSIST(DE440+GR+16ast)"
+    return f"ASSIST(DE440+GR+16ast{more})"
 
 def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
     """Polish a converged GRAVITY orbit with the 16 massive-asteroid perturbers.
@@ -5148,6 +5171,118 @@ def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
     return fit2
 
 
+def refine_perturbers(fit, max_iter=6, verbose=False):
+    """Add the asteroid perturbers the observations call for (perturbers.screen), and refit.
+
+    The screen scores every perturber not yet in the fit's field by the chi2 the observations
+    would gain with it (linear, all observations, rejected ones included); bodies at
+    perturbers.THRESHOLD or above join. From a gravity fit the 16 count as candidates too, so
+    one rule decides both whether the 16 are needed and which extra bodies are. Any pick turns
+    the 16 on (they cost little once any perturber is integrated) plus the picked extras.
+
+    The refit is warm -- from the fit's own orbit, with redemption and rejection to
+    convergence, as refine_asteroids does -- and the new field is kept only when it lowers the
+    chi2 on the same observations: the fit's own included set, or, when the new fit holds
+    observations the old one rejected, that larger set refitted in the old field. A body adds
+    no free parameter, so a lower same-obs chi2 is the whole test.
+
+    Returns the refined FittedOrbit or `fit` itself; either way ``perturber_screen`` on the
+    result says what happened: {"picks", "top", "seconds", "kept"} or {"skipped": reason}.
+    Skipped (never fatal) when switched off (PYROORB_PERTURBERS=off), without the extra-perturber
+    kernel, off the ASSIST backend, for an arc outside the kernel window (1900-2100), or for an
+    orbit carrying a non-gravitational model."""
+    import pyroorb.arc_extend as _ae
+    from pyroorb import perturbers as _pt
+    from pyroorb.products import fit_asteroids
+
+    def done(f, **info):
+        f.perturber_screen = info
+        return f
+
+    ctx = getattr(fit, "_ctx", None)
+    if ctx is None:
+        return done(fit, skipped="no fit context")
+    if not _pt.enabled():
+        return done(fit, skipped="switched off")
+    if not is_assist(ctx["backend"]) or _pt.kernel_path() is None:
+        return done(fit, skipped="no extra-perturber kernel")
+    if getattr(fit, "nongrav_model", None):
+        return done(fit, skipped="non-gravitational model")
+    sp = self_perturber_name(fit=fit)
+    if sp is not None and not _self_excluding(ctx["backend"]):
+        return done(fit, skipped=f"({sp}) is a perturber its backend cannot exclude")
+    try:
+        sc = _pt.screen(fit)
+    except Exception as ex:                          # a screen failure never costs the fit
+        why = f"screen failed: {type(ex).__name__}: {ex}"
+        print(f"(perturbers: {why})", file=sys.stderr)   # said, never silent
+        return done(fit, skipped=why)
+    if sc is None:
+        return done(fit, skipped="arc outside the kernel window")
+    top = [(int(b), round(d, 3), round(m, 6)) for b, d, m, _ in sc.top(5)]
+    base = fit_asteroids(fit)
+    if not sc.picks:
+        return done(fit, picks=[], top=top, seconds=round(sc.seconds, 3), kept=False)
+    more = set(_pt.extras(base)) | {b for b in sc.picks if b not in _pt.BIG16}
+    new = _pt.Field(more) if more else True
+    if new == base or (new is True and base is True):
+        return done(fit, picks=sc.picks, top=top, seconds=round(sc.seconds, 3), kept=False)
+    ev = ctx["ev"]
+    ev2, ctx2 = with_force_model(ctx, new, fit)
+    if not ctx2["asteroids"]:
+        return done(fit, skipped="perturbers unavailable for this object")
+    ev2.nongrav = None
+    mask0 = np.asarray(fit._mask, dtype=bool)
+    mask_a = mask0.copy()
+    state = np.asarray(fit._state, float).copy()
+    span0 = _ae._included_span(ev2, mask_a)
+    for _ in range(max_iter):
+        state, _ = ev2.fit(state, mask_a, thin=False)
+        before = mask_a.copy()
+        _ae.auto_reject_within_arc(ev2, mask_a, state, orig_span=span0)
+        if np.array_equal(mask_a, before):
+            break
+    state, mask_a = _ae._final_redeem(ev2, state, mask_a, [], verbose)
+    state, result = ev2.fit(state, mask_a, thin=False)
+    # what each extra body in the new field is there for, carried in the orbit's meta so every
+    # surface (fit page, command line, as_dict) can say it and later steps keep it
+    prev = {int(e["number"]): e for e in getattr(fit, "extra_perturbers", None) or []}
+    details = sorted((prev.get(b) or _pt.describe(b, sc.scores[b])
+                      for b in _pt.extras(new) if b in prev or b in sc.scores),
+                     key=lambda e: -e["dchi2"])
+    ctx2["meta"] = {**(ctx2.get("meta") or {}), "extra_perturbers": details}
+    fit2 = _build_orbit(ctx2, state, mask_a, result, fit.history)
+
+    def chi2(e, s, m):
+        return e.rms_norm(s, m) ** 2 * 2 * int(m.sum())
+
+    def refit_on(e, seeds, m):
+        best = None
+        for s in seeds:
+            s1, _ = e.fit(np.asarray(s, float)[:6].copy(), m, thin=False)
+            s2, _ = e.fit(s1, m, thin=False)            # a second pass: one can stop short
+            c = chi2(e, s2, m)
+            best = c if best is None else min(best, c)
+        return best
+
+    old_same = chi2(ev, np.asarray(fit._state, float), mask0)
+    new_same = refit_on(ev2, (fit._state, state), mask0)
+    gain = old_same - new_same
+    if gain <= 0 and (mask_a & ~mask0).any():
+        new_a = chi2(ev2, state, mask_a)
+        old_a = refit_on(ev, (fit._state, state), mask_a)
+        gain = max(gain, old_a - new_a)
+    info = dict(picks=sc.picks, top=top, seconds=round(sc.seconds, 3), gain=round(gain, 2))
+    if gain <= 0:
+        if verbose:
+            print(f"  perturbers: picks {sc.picks} gave no same-obs chi2 gain; kept {fit.force_model}")
+        return done(fit, kept=False, **info)
+    if verbose:
+        print(f"  perturbers: {fit.force_model} -> {fit2.force_model} (picks {sc.picks}, same-obs "
+              f"chi2 gain {gain:.1f}; {int(mask0.sum())} -> {int(mask_a.sum())} obs)")
+    return done(fit2, kept=True, extras=fit2.extra_perturbers, **info)
+
+
 def refit_force_model(fit, asteroids, mask=None, seed=None, max_nfev=200, drop_nongrav=False):
     """Re-fit on a FIXED observation set with or without the 16 asteroid perturbers -- a
     PURE force-model swap: NO redemption, NO rejection, the obs set is held exactly as `mask`.
@@ -5179,7 +5314,7 @@ def refit_force_model(fit, asteroids, mask=None, seed=None, max_nfev=200, drop_n
     # Both directions re-bind the evaluator (with_force_model): "off" used to reuse the fit's own
     # evaluator and only relabel it, so a fit made with the perturbers on stayed perturbed under
     # a gravity label.
-    ev2, ctx2 = with_force_model(ctx, use_ast, fit)
+    ev2, ctx2 = with_force_model(ctx, asteroids if use_ast else False, fit)
     if use_ast or drop_nongrav:
         ev2.nongrav = None
     if drop_nongrav:
@@ -5270,7 +5405,11 @@ def _observer_geometry(obs, obscodes):
         # made inside `with pyroorb.asteroid_perturbers():` re-corrected its LOV or range
         # profile planets-only once the block had closed.
         import pyroorb.force_assist as _fa
-        backend = pin(backend, _fa._use_asteroids(None))
+        use = _fa._use_asteroids(None)
+        # a forced field keeps its extra bodies (perturbers_on_for(reason, field)); pinning the
+        # bare bool here dropped them -- the ITF seed's Fortuna was labelled, not integrated
+        backend = pin(backend, _fa.forced_field()
+                      if use and _fa.forced_perturbers() is not None else use)
     jac_fn = (None if os.environ.get("PYROORB_FINITE_DIFF_JAC")
               else getattr(backend, "predict_radec_jac_batch", None))
     return {"Robs": Robs, "obs_ra": obs_ra, "obs_dec": obs_dec,
@@ -6889,11 +7028,21 @@ class FittedOrbit:
         # an unconstrained fit. Set by refit_constrained via meta; informational only.
         self.constraints = dict(meta.get("constraints") or {})
         # True when the 16 massive-asteroid perturbers are active (refine_asteroids polish).
-        self.asteroids = bool(meta.get("asteroids"))
+        # A perturbers.Field when extra bodies beyond the 16 are in the field (refine_perturbers).
+        self.asteroids = _asteroids_from_meta(meta.get("asteroids"))
+        # What the screen found for each extra body in the field: {"number", "name", "dchi2",
+        # "closest_au", "closest_date"}. Read from meta so it follows the orbit through every
+        # later step, and filtered to the field, so a toggle back to the 16 drops it.
+        field = self.asteroids if isinstance(self.asteroids, frozenset) else frozenset()
+        self.extra_perturbers = [dict(e) for e in (meta.get("extra_perturbers") or [])
+                                 if int(e.get("number", -1)) in field]
         # Set (to '1 Ceres', '4 Vesta', ...) when THIS object is one of the 16 perturbers, so
         # the fit ran with itself excluded from the perturber field (any asteroid perturbers
         # are the other 15) -- it cannot be perturbed by itself. See fit_orbit.
         self.self_perturber = None
+        # What refine_perturbers did ({"picks", "top", "seconds", "kept", "gain"} or
+        # {"skipped": reason}); None when it did not run.
+        self.perturber_screen = None
         self._elem = element_vector(self._state, epoch_tdb)
         self._state_cov = self._compute_state_cov()
         self._elem_cov = self._compute_elem_cov()
@@ -7398,7 +7547,7 @@ class FittedOrbit:
                 "n_modes": _count_range_modes(geo)}
         return _remember(info)
 
-    def predict_without(self, select, max_nfev=200):
+    def predict_without(self, select, max_nfev=200, station_floor=False):
         """Leave the observations ``select(obs)`` picks out of this fit and test whether the
         rest PREDICTS them, or whether they were only fitted because the orbit bent to take
         them.
@@ -7406,11 +7555,19 @@ class FittedOrbit:
         Re-converged WARM, from this fit's own state, over the remaining included
         observations; the left-out ones are then scored against that relaxed orbit:
         ``r`` their residuals in sigma units (two per observation), ``C`` the relaxed
-        orbit's covariance ``inv(J^T J)``, and ``chi2 = r^T (J_t C J_t^T + I)^-1 r`` on
-        ``2n`` degrees of freedom -- prediction uncertainty plus their own noise. Warm,
+        orbit's covariance ``inv(J^T J)``, and ``chi2 = r^T (J_t C J_t^T + N)^-1 r`` on
+        ``2n`` degrees of freedom -- prediction uncertainty plus their own noise ``N``. Warm,
         never a fresh solution: re-running orbit determination on a sparse multi-opposition
         remainder can settle in another minimum, and then its prediction says nothing about
         the observations left out.
+
+        ``N`` is the identity (each observation's noise is the sigma the fit weighted it by)
+        unless ``station_floor``: then each left-out observation's noise is raised to its
+        station's Veres et al. (2017) floor, the sigma a single station's astrometry can be
+        trusted to. A survey reports per-observation sigmas far below what one night of it
+        holds to (691 0.13" against its 0.6" floor, D29 0.14" against 0.75"), so a true
+        tracklet 0.3" off its prediction scored at p < 1e-4; floored, the same tracklets read
+        p 0.02-0.9, while a tracklet 8.5" off at 1.1" sigmas reads the same either way.
 
         Returns ``{"chi2", "dof", "p", "miss"}`` (``miss`` the mean offset, arcsec) or
         ``{"error": ...}`` when the test cannot be made: no live evaluator, a
@@ -7440,7 +7597,18 @@ class FittedOrbit:
             e = ev.evaluate(x, out)
             r = np.asarray(e.fun, float)
             Jo = np.asarray(e.jac, float)
-            q = float(r @ np.linalg.solve(Jo @ C @ Jo.T + np.eye(r.size), r))
+            noise = np.ones(r.size)
+            if station_floor:
+                from pyroorb.weights import VERES_2017, DEFAULT_SIGMA
+                idx = np.flatnonzero(out)
+                sra = np.asarray(ev.fit_sig_ra, float)[idx]
+                sdec = np.asarray(ev.fit_sig_dec, float)[idx]
+                fl = np.array([VERES_2017.get(str(self._obs[i].get("obscode", "")).strip(),
+                                              DEFAULT_SIGMA) for i in idx])
+                # residual order is per-observation [dRA, dDec] (arc_extend._radec_resid)
+                noise = np.column_stack([(np.maximum(sra, fl) / sra) ** 2,
+                                         (np.maximum(sdec, fl) / sdec) ** 2]).ravel()
+            q = float(r @ np.linalg.solve(Jo @ C @ Jo.T + np.diag(noise), r))
             da, dd = ev.resid_arcsec(x)
             miss = float(np.hypot(np.mean(np.asarray(da)[out]), np.mean(np.asarray(dd)[out])))
         except Exception as ex:                          # noqa: BLE001 -- a test, never a crash
@@ -8011,7 +8179,10 @@ class FittedOrbit:
                                   for k, d in (self._jackknife_sigmas or {}).items()},
             "nongrav_not_robust": (self.nongrav_not_robust if self._jackknife_sigmas is not None else []),
             "constraints": dict(self.constraints),
-            "asteroids": self.asteroids,
+            # True when any asteroid perturbers are in the field; the extra bodies beyond the 16
+            # (number, name, dchi2, closest approach) in "extra_perturbers"
+            "asteroids": bool(self.asteroids),
+            "extra_perturbers": [dict(e) for e in self.extra_perturbers],
             "self_perturber": self.self_perturber,
         }
         for nm in ELEM_NAMES:

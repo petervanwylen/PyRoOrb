@@ -268,7 +268,10 @@ def test_nongrav_asteroids_gate(monkeypatch):
     assert fo._nongrav_asteroids_gate(_F(4000, 1.4)) is False        # aphelion inside the belt
     assert fo._nongrav_asteroids_gate(_F(4000, 2.3, backend=object())) is False   # rebound fallback
     monkeypatch.setattr(fa, "asteroid_kernel_path", lambda: None)
-    assert fo._nongrav_asteroids_gate(_F(4000, 2.3)) is False        # kernel absent
+    monkeypatch.setattr(fa, "_field_kernel", lambda: "/x/pyroorb-perturbers.bsp")
+    assert fo._nongrav_asteroids_gate(_F(4000, 2.3)) is True         # the 16 from the kernel
+    monkeypatch.setattr(fa, "_field_kernel", lambda: None)
+    assert fo._nongrav_asteroids_gate(_F(4000, 2.3)) is False        # no kernel at all
     monkeypatch.setattr(fa, "asteroid_kernel_path", lambda: "/x/sb441-n16.bsp")
     monkeypatch.setenv("PYROORB_NG_ASTEROIDS", "0")
     assert fo._nongrav_asteroids_gate(_F(4000, 2.3)) is False        # kill switch

@@ -18,7 +18,7 @@ from astropy.time import Time
 import pyroorb.nongrav as _ngm          # SRP1AU + the AMR find_orb reports for its SRP model
 from pyroorb.fit_object import _nongrav_asteroids_gate as _ng_ast_gate
 from pyroorb.fit_object import (fit_orbit, fetch_mpc_seed, refine_asteroids, refine_nongrav,
-                        refit_constrained)
+                        refine_perturbers, refit_constrained)
 from pyroorb.obs_sources import (load_obscodes, fetch_observations, pop_unknown_obscodes,
                          fetch_combined, ensure_unpacked, read_obs_file, _group_by_designation,
                          fetch_failure_message)
@@ -63,6 +63,7 @@ USAGE = """usage: pyroorb DESIG [DESIG ...] [options]      fit one object (sever
   --itf-search            search the ITF for unlinked tracklets (needs your own SBN database)
   --mag-audit, --impact, --keyholes    opt-in reports
   --no-radar              skip the radar delay/Doppler refinement
+  --perturbers off        skip the asteroid-perturber screen (default: on)
 
 Environment: PYROORB_VERBOSE=1 traces arc extension. See the README for the Python API.
 """
@@ -1065,6 +1066,9 @@ def main():
         _fa.ASTEROIDS_OVERRIDE = asteroids_path
     if asteroids_flag:
         args.remove("--asteroids")
+    # --perturbers off: skip the asteroid-perturber screen (refine_perturbers), which otherwise
+    # runs after every fit and adds the 16 and any extra body the observations call for.
+    perturbers_opt = str(_opt(args, "--perturbers", "auto") or "auto").strip().lower()
     # --impact [--impact-days N]: Phase-1 impact LOCATION -- propagate forward and report
     # where/when the object reaches the ground (the CLI twin of the web Impact
     # pane). --impact-ip adds the EXPERIMENTAL Phase-2 LOV b-plane impact PROBABILITY, scanning
@@ -1179,6 +1183,17 @@ def main():
             print(f"auto-center: detected satellite of {center.capitalize()}")
     if asteroids_flag:
         fit = refine_asteroids(fit, force=True, verbose=True)
+    if perturbers_opt not in ("off", "0", "no", "false"):
+        fit = refine_perturbers(fit, verbose=True)
+        _pinfo = fit.perturber_screen or {}
+        if _pinfo.get("kept") and fit.extra_perturbers:
+            from pyroorb import perturbers as _pt
+            print(f"*** extra perturbers added (beyond the 16): {_pt.summary(fit.extra_perturbers)}")
+        elif _pinfo.get("picks") and not _pinfo.get("kept"):
+            print(f"perturber screen: {_pinfo['picks']} scored >= 1 but the refit gained nothing "
+                  f"on the same observations; force model unchanged")
+        elif _pinfo.get("skipped", "").startswith("screen failed"):
+            print(f"perturber screen did not run: {_pinfo['skipped']}")
     if nongrav_model and nongrav_model != "none":
         # explicit model request -> (1) DEEP coordinate-profiled seed so the joint LM descends to the
         # true minimum instead of stopping short, and (2) the RATIONAL profile-likelihood sigma
@@ -1265,7 +1280,8 @@ def main():
               + "  ".join(f"{k}={v:g}" for k, v in fit.constraints.items())
               + "  (find_orb limited_orbit)")
     if fit.asteroids:
-        print("asteroids: 16 massive perturbers active (sb441-n16)")
+        print("asteroids: 16 massive perturbers active (sb441-n16)"
+              + "".join(f" + ({e['number']}) {e['name']}" for e in fit.extra_perturbers))
     if getattr(fit, "radar", None):
         import pyroorb.radar as _radar
         rd = fit.radar

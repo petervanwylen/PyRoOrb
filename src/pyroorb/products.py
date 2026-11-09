@@ -84,7 +84,10 @@ def fit_asteroids(fit):
     the process-wide switch or the display label; `fit.asteroids` for a fit without one."""
     from pyroorb.forcemodel import pinned_asteroids
     pinned = pinned_asteroids((getattr(fit, "_ctx", None) or {}).get("backend"))
-    return bool(getattr(fit, "asteroids", False)) if pinned is None else pinned
+    if pinned is not None:
+        return pinned
+    a = getattr(fit, "asteroids", False)
+    return a if isinstance(a, frozenset) and a else bool(a)
 
 
 def _backend(fit):

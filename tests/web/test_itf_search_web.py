@@ -52,11 +52,16 @@ def _mpc_nights_ok(request, monkeypatch):
     """These stub searches link ONE seed line to ONE tracklet -- a layout, not an arc -- so
     the MPC's night requirement (``itf.mpcrules.submittable_nights``, which ``_pending_verdict``
     asks first) would refuse every one of them before the mechanics under test are reached.
-    Waived here; ``test_the_mpc_night_rule_refuses_a_pending_find`` runs the real one."""
-    if request.node.name == "test_the_mpc_night_rule_refuses_a_pending_find":
+    Waived here, and the anchor-apparition floor (``itf.anchor``) with it;
+    ``test_the_mpc_night_rule_refuses_a_pending_find`` and
+    ``test_the_anchor_rule_refuses_a_pending_find`` run the real ones."""
+    if request.node.name in ("test_the_mpc_night_rule_refuses_a_pending_find",
+                             "test_the_anchor_rule_refuses_a_pending_find"):
         return
+    import pyroorb.itf.anchor as A
     import pyroorb.itf.mpcrules as R
     monkeypatch.setattr(R, "submittable_nights", lambda astrometry: (True, ""))
+    monkeypatch.setattr(A, "anchor_problem", lambda astrometry, neo: None)
 
 
 def test_the_mpc_night_rule_refuses_a_pending_find():
@@ -76,6 +81,25 @@ def test_the_mpc_night_rule_refuses_a_pending_find():
     # ...the same pair 13 hours apart is two nights, and the search's yes stands
     itf = [line("2019 06 02.40000", "W84"), line("2019 06 02.94200", "W84")]
     ok, _, _ = E._pending_verdict({}, {"submittable": True}, None, seed + itf,
+                                  {"links": {"link_0": {}}})
+    assert ok is True
+
+
+def test_the_anchor_rule_refuses_a_pending_find():
+    """Switching tracklets off can thin the one apparition that anchored a find: six
+    apparitions of two nights each pass the MPC's profile rule, and the live re-judge still
+    refuses them, whatever the search's record says."""
+    def line(date, stn):
+        return ("     " + f"{'K26E25U':<7}" + "  C" + f"{date:<17}" + f"{'13 14 15.33':<12}"
+                + f"{'-10 30 37.3':<12}" + " " * 9 + " 23.4i" + " " + "     " + stn)
+    thin = [line(f"{y} 03 {d}.26991", stn) for y in range(2010, 2016)
+            for d, stn in ((10, "F51"), (14, "G96"))]
+    ok, why, possible = E._pending_verdict({}, {"submittable": True}, None, thin,
+                                           {"links": {"link_0": {}}})
+    assert ok is False and possible is True and "3+ tracklets" in why
+    # ...a third night in 2015 anchors it, and the search's yes stands
+    ok, _, _ = E._pending_verdict({}, {"submittable": True}, None,
+                                  thin + [line("2015 03 18.26991", "F51")],
                                   {"links": {"link_0": {}}})
     assert ok is True
 

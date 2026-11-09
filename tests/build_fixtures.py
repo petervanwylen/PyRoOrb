@@ -466,6 +466,12 @@ OBJECTS = [
     #     like any MBA -- 3 opp / ~6.3 yr arc @ ~0.36". Non-gravitational forces are not
     #     modelled here; this is the purely-gravity baseline. ---
     ("P_2023_JN16", ["2023 JN16"]),
+    # --- deflected by an asteroid outside the 16 (perturbers.screen / refine_perturbers) ---
+    # (19) Fortuna passed 0.0011 au in 2011: the +16 fit rejects the whole 2005 night (6.3" off);
+    # the screen picks Fortuna (dchi2 ~1180) and the refit holds all 15.
+    ("PAIR_2016RM33", ["2016 RM33", "2005 SA198"]),
+    # (324) Bamberga at 0.00006 au: an hour-long pass, the analytic close-pass impulse's case.
+    ("310585", ["310585"]),
     # --- additional identification pairs (linked cleanly on first try) ---
     # identification with a single mislinked NIGHT to drop (tracklet-granularity ident-check):
     # the 2013 CK176 arc carries one stray 3-obs B74 night that the rest fits without.

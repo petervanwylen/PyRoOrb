@@ -1,5 +1,6 @@
 #!/bin/sh
-# Container start-up: fetch the reference tables into the /data volume (skipped when they are
+# Container start-up: fetch the reference tables (DE440, debias, the asteroid-perturber kernel)
+# into the /data volume (skipped when they are
 # already there), then serve the web UI.
 #   PYROORB_ASTEROIDS=1   also fetch the 616 MB asteroid ephemeris (the 16 massive perturbers)
 #   PYROORB_FETCH_DATA=0  skip the fetch entirely

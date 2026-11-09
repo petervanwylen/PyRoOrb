@@ -1,0 +1,82 @@
+{
+ "designation": "2014 EJ64",
+ "note": "A 2-night seed (2015 Apr 18-19, 9 W84 obs) of a Jupiter Trojan (a 5.15 au) that fits a near-parabola (a ~ 1.6e4 au, U 11.2), plus one 4-obs G96 tracklet from 2014 Sep 23 that is NOT this object (~580,000 arcsec off its full-arc orbit). The loose seed bends to take it at 0.43 arcsec; live, the search LINKED it. Must not be submittable.",
+ "obs80": "     VS8CE87* C2014 09 23.38683 00 54 00.00 +09 57 38.2          20.2 Vq     G96\n     VS8CE87  C2014 09 23.39291 00 53 59.60 +09 57 37.6          20.1 Vq     G96\n     VS8CE87  C2014 09 23.39897 00 53 59.22 +09 57 39.2          20.8 Vq     G96\n     VS8CE87  C2014 09 23.40505 00 53 58.83 +09 57 39.5          20.7 Vq     G96\n     K14E64J 5C2015 04 18.06307 12 38 39.38 -16 18 46.0          22.8 V ~5VZ2W84\n     K14E64J 5C2015 04 18.06635 12 38 39.28 -16 18 45.5                 ~5VZ2W84\n     K14E64J 5C2015 04 18.06956 12 38 39.19 -16 18 44.7                 ~5VZ2W84\n     K14E64J 5C2015 04 18.07592 12 38 38.99 -16 18 43.6                 ~5VZ2W84\n     K14E64J 5C2015 04 19.05246 12 38 12.11 -16 15 20.1          22.7 V ~5VZ2W84\n     K14E64J 5C2015 04 19.05569 12 38 12.02 -16 15 19.4                 ~5VZ2W84\n     K14E64J 5C2015 04 19.05894 12 38 11.93 -16 15 18.7                 ~5VZ2W84\n     K14E64J 5C2015 04 19.06218 12 38 11.84 -16 15 18.0                 ~5VZ2W84\n     K14E64J 5C2015 04 19.06544 12 38 11.75 -16 15 17.5                 ~5VZ2W84\n",
+ "ades": {
+  "     VS8CE87* C2014 09 23.38683 00 54 00.00 +09 57 38.2          20.2 Vq     G96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KmMBLn000000DJdh0100001Fm",
+   "trksub": "VS8CE87",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     VS8CE87  C2014 09 23.39291 00 53 59.60 +09 57 37.6          20.1 Vq     G96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KmMBLn000000DJdh0100001Fn",
+   "trksub": "VS8CE87",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     VS8CE87  C2014 09 23.39897 00 53 59.22 +09 57 39.2          20.8 Vq     G96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KmMBLn000000DJdh0100001Fo",
+   "trksub": "VS8CE87",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     VS8CE87  C2014 09 23.40505 00 53 58.83 +09 57 39.5          20.7 Vq     G96": {
+   "sigma_ra": 0.5,
+   "sigma_dec": 0.5,
+   "uncert_src": "Veres2017",
+   "obs_id": "KmMBLn000000DJdh0100001Fp",
+   "trksub": "VS8CE87",
+   "mode": "CCD",
+   "band": "V"
+  },
+  "     K14E64J 5C2015 04 18.06307 12 38 39.38 -16 18 46.0          22.8 V ~5VZ2W84": {
+   "band": "V"
+  },
+  "     K14E64J 5C2015 04 18.06635 12 38 39.28 -16 18 45.5                 ~5VZ2W84": {
+   "band": " "
+  },
+  "     K14E64J 5C2015 04 18.06956 12 38 39.19 -16 18 44.7                 ~5VZ2W84": {
+   "band": " "
+  },
+  "     K14E64J 5C2015 04 18.07592 12 38 38.99 -16 18 43.6                 ~5VZ2W84": {
+   "band": " "
+  },
+  "     K14E64J 5C2015 04 19.05246 12 38 12.11 -16 15 20.1          22.7 V ~5VZ2W84": {
+   "band": "V"
+  },
+  "     K14E64J 5C2015 04 19.05569 12 38 12.02 -16 15 19.4                 ~5VZ2W84": {
+   "band": " "
+  },
+  "     K14E64J 5C2015 04 19.05894 12 38 11.93 -16 15 18.7                 ~5VZ2W84": {
+   "band": " "
+  },
+  "     K14E64J 5C2015 04 19.06218 12 38 11.84 -16 15 18.0                 ~5VZ2W84": {
+   "band": " "
+  },
+  "     K14E64J 5C2015 04 19.06544 12 38 11.75 -16 15 17.5                 ~5VZ2W84": {
+   "band": " "
+  }
+ },
+ "n_obs": 13,
+ "seed_obs": 9,
+ "foreign_trksubs": [
+  "VS8CE87"
+ ],
+ "hold_out_stations": [
+  "G96"
+ ],
+ "expect": {
+  "submittable": false
+ },
+ "known_defect": "delivered LINKED (status 1.0) at 0.43 arcsec, offline and live: the tracklet is 207 d before the seed, inside the 237-d opposition gap, so the new-opposition rule never scores it"
+}

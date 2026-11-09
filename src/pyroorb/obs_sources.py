@@ -130,14 +130,17 @@ def _force_backend(fit=None):
             # the forcing wrapper lands in the ctx, so every later step that reuses the fit
             # stays in the model it was linked in. For one of the 16 it wraps the exclusion.
             forced = (_fa.forced_perturbers() is not None
-                      and _fa.asteroid_kernel_path() is not None)
+                      and _fa.asteroids_available())
             sp = _fa.suppressed_perturber()
+            field = _fa.forced_field() if forced else None     # True, or the 16 + extras
+            more = ("".join(f"+({n})" for n in sorted(field))
+                    if isinstance(field, frozenset) else "")
             if sp is not None:
                 b = _fa.SelfExcludedForce(_fa, sp)
                 if forced:
                     from pyroorb.fit_object import _AsteroidForce
-                    return _AsteroidForce(b), (
-                        f"ASSIST(DE440+GR+15ast, excl. {sp})" if _fa._use_asteroids(True)
+                    return _AsteroidForce(b, field), (
+                        f"ASSIST(DE440+GR+15ast{more}, excl. {sp})" if _fa._use_asteroids(True)
                         else "ASSIST(DE440+GR, +16ast off: self-perturber)")
                 if not ast_on:
                     return b, "ASSIST(DE440+GR)"
@@ -146,7 +149,7 @@ def _force_backend(fit=None):
                 return b, "ASSIST(DE440+GR, +16ast off: self-perturber)"
             if forced:
                 from pyroorb.fit_object import _AsteroidForce
-                return _AsteroidForce(_fa), "ASSIST(DE440+GR+16ast)"
+                return _AsteroidForce(_fa, field), f"ASSIST(DE440+GR+16ast{more})"
             tag = "ASSIST(DE440+GR" + ("+16ast)" if ast_on else ")")
             return _fa, tag
     except Exception as ex:

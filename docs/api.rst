@@ -45,6 +45,8 @@ Fitting
 
 .. autoclass:: UndeterminedOrbitWarning
 
+.. autoclass:: PerturbersAddedWarning
+
 .. autoclass:: FetchError
 
 Products

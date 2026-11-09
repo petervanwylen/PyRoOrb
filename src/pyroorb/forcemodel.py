@@ -6,7 +6,8 @@ profile, an ephemeris, the public products -- goes through it. Two thin wrappers
 say which field it integrates in, so nothing has to be reconstructed later from process-wide
 settings or from the display label ``fit.force_model``:
 
-* :class:`PinnedForce` fixes the asteroid perturbers ON or OFF for every call that takes an
+* :class:`PinnedForce` fixes the asteroid perturbers ON or OFF -- or ON with extra bodies, a
+  ``perturbers.Field`` -- for every call that takes an
   ``asteroids=`` flag. A call that leaves the flag out (or passes None, "the global default")
   gets the pinned value; an explicit True/False still wins, so a caller that deliberately asks
   for the other model (the +16ast keep-gate's comparison) gets it.
@@ -39,7 +40,7 @@ class PinnedForce:
         if isinstance(backend, PinnedForce):
             backend = backend._backend
         self._backend = backend
-        self._asteroids = bool(asteroids)
+        self._asteroids = _norm(asteroids)
 
     def __getattr__(self, name):
         f = getattr(self._backend, name)
@@ -57,6 +58,12 @@ class PinnedForce:
         return f"PinnedForce({self._backend!r}, asteroids={self._asteroids})"
 
 
+def _norm(asteroids):
+    """True / False, or the perturbers.Field (the 16 plus extra bodies) unchanged: a Field is a
+    frozenset, recognised here without importing the module that defines it."""
+    return asteroids if isinstance(asteroids, frozenset) and asteroids else bool(asteroids)
+
+
 def is_assist(backend):
     """True for the ASSIST backend (the only one with asteroid perturbers), wrapped or not."""
     return hasattr(backend, "ensure_asteroid_kernel")
@@ -68,7 +75,7 @@ def pin(backend, asteroids):
     backend already pinned to the same value (an identification fit's forcing wrapper)."""
     if not is_assist(backend):
         return backend
-    if isinstance(backend, PinnedForce) and backend._asteroids == bool(asteroids):
+    if isinstance(backend, PinnedForce) and backend._asteroids == _norm(asteroids):
         return backend
     return PinnedForce(backend, asteroids)
 
@@ -83,7 +90,8 @@ def _chain(backend):
 
 
 def pinned_asteroids(backend):
-    """The asteroid pin of `backend` (True / False), or None when it carries none."""
+    """The asteroid pin of `backend` (True / False / a perturbers.Field), or None when it
+    carries none."""
     for b in _chain(backend):
         if isinstance(b, PinnedForce):
             return b._asteroids

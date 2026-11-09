@@ -10,6 +10,10 @@ only with a measurement, and update its line here when you do.
 - `iod.py` — start-arc selection + Gauss/Väisälä/Herget IOD.
 - `arc_extend.py` — extension, outlier rejection, cluster activation, single-night dropping.
 - `forward_model.py` / `force_assist.py` — rebound 8-planet and ASSIST (DE440+GR) propagators + batch sweeps.
+  `perturbers.py` — the field (the 16 + extra bodies, `Field`) and the screen that fills it;
+  `perturber_kernel.py` — its 343-body 1900-2100 kernel: downloaded from the PyRoOrb release
+  (`download`, SHA-256 checked) or built from JPL's sb441-n373 (`build`); the comment area names
+  PyRoOrb as producer of a modified, non-JPL kernel (NAIF modified-kernel rules, JPL data-use policy).
 - `weights.py` / `debias.py` / `photometry.py` / `hazard.py` — σ, EFCC18 debias, H/band, MOID/class/U.
   `healpix.py` — numpy HEALPix (pixel lookup + inclusive NESTED disc), byte-identical to healpy.
 - `hyperbolic.py`, `boundbridge.py`, `nightmodel.py` — the unbound-orbit gate.
@@ -36,7 +40,8 @@ only with a measurement, and update its line here when you do.
   (stable / provisional); `tests/test_public_api.py` fails on an exported or listed name
   without a docstring, and on a notebook cell importing an internal module unmarked.
   Everything else is internal. New public options are spellings of engine arguments whose
-  defaults call the engine exactly as before (`test_fit_options_reach_the_engine_unchanged`).
+  defaults call the engine exactly as before (`test_fit_options_reach_the_engine_unchanged`);
+  `perturbers="auto"` adds a post-fit step (`refine_perturbers`), the engine call unchanged.
 
 ## Testing
 
@@ -62,9 +67,12 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   excepted, `search._seed_opp_holds`); a partial pickup whose leftover tracklets misfit (`itf/pickup.py`, judged by
   `itf/mpcrules.py`, not our own gates); a comet/interstellar id (`linkage.comet_refusal`,
   column-aware); the MPC night rule (`mpcrules.submittable_nights`: 12 h apart = 2 nights);
+  no anchor apparition (`anchor.anchor_problem`: one apparition with 3+ tracklets, and
+  3+ nights unless a NEO, `anchor.is_neo`; also asked in the web re-judge);
   a single-opposition seed's new opposition the seed cannot vouch for
   (`search._new_opposition_unpredicted`: identification penalty past chi2_6 99.7% AND a
-  warm leave-out `FittedOrbit.predict_without` p < 0.01; `tests/test_itf_negative.py`).
+  warm leave-out `FittedOrbit.predict_without` p < 0.01, its noise station-floored as the
+  penalty's is; `tests/test_itf_negative.py`).
 - **A possible stays a possible through a web step** (`engine_api._pending_verdict`):
   only a GROWN obs set passing the search's own gate (`search.opp_profile_acceptable`)
   upgrades it; sole exception the opp-profile-only refusal after a re-solve
@@ -81,6 +89,11 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   tests live in `SeedCheck` (rule V; floor read as a measurement; one offending seed
   night dropped and priced, `_drop_seed_night`). Vouching (`_vouch`) accepts a tracklet
   the orbit does not move toward. What a repair earns rides on the `Assessment`.
+- **Seed retention concedes a corroborated clip** (`search._corroborated_seed_clips`,
+  `ItfConfig.seed_clip_corroboration`): seed obs on ONE seed night that an earlier trial sharing no
+  UT date also clipped are not counted against `recurse_seed_retention` (a short seed bends to
+  absorb a bad night; every correct extension then clips it). Every other clause and the verdict's
+  clip ledger still apply.
 - **Residual trends are diagnostics, not gates** (`itf/residual_trend.py`; withdrawn as a gate); they ARE review warnings in batch CSVs; the two-axis walk
   (`two_axis_trend`) is a search warning. Leave-out confirmation can demote a caution
   (`itf/leaveout.py`, never on 1.75→3).
@@ -125,6 +138,32 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **An identification fit (>= 2 designations requested) runs +16ast from the first step**,
   ungated (`fit_object.fit_orbit`, `force_assist.perturbers_on_for`; `_AsteroidForce` on the
   ctx): the gated polish starts from the gravity linker's links, too late to undo a refusal.
+- **Asteroid perturbers are screened, not gated** (`perturbers.screen`,
+  `fit_object.refine_perturbers`): each massive asteroid not in the field is scored by the
+  linear chi2 it would remove from ALL observations, rejected ones included (on the included
+  ones alone Fortuna's 2016 RM33 deflection scores 15; on all, 1159); at >= 1 it joins (at
+  most 8; any pick brings the 16), the refit is warm with redemption/rejection, and kept only on
+  a same-obs chi2 gain. Passes under 0.002 au are taken as an analytic impulse (sampling scored
+  a 0.00006 au pass 5 vs a refit gain of 1670). `asteroids` is False / True / `Field` (frozen
+  set of extras, truthy); the kernel covers 1900-2100 and a sweep outside it runs in
+  sb441-n16 (`force_assist._integrate_split`), or planets-only where sb441-n16 is absent (the
+  default install: the 16 then come from the kernel, `force_assist.asteroids_available`). It
+  runs after public `fit_orbit`, the CLI, the web fit and identification services'
+  identification fits (`itf.fitter.refine_trial`). ITF screens the SEED once per search and,
+  when the refit keeps bodies beyond the 16, every trial fit runs in that field
+  (`itf.fitter.seed_perturbers`, `ItfConfig.seed_perturber_screen`; the forced field is what
+  `_observer_geometry` pins -- pinning the bool dropped Fortuna under its own label); trials
+  are never screened themselves. Off by `perturbers="off"`, `--perturbers off`,
+  `PYROORB_PERTURBERS=off` (the web then falls back to the gated +16 polish). Cost of the
+  default on 34 mixed objects: 1.52x the gravity fit's CPU (web 1.14x its old polish).
+- **Perturber masses: SiMDA beyond the 16, DE440 for the 16** (`perturbers.mass_table`,
+  `data/perturber_masses.json`, applied in `perturbers.ephem_for` and `perturbers.gm`): SiMDA's
+  compiled mass (Kretlow 2020, EPSC2020-690) for the 165 bodies outside the 16 with SiMDA rank
+  A-C; the 16 and ranks D-E keep the DE440 header constant (a +16 fit is unchanged). Where an
+  encounter constrains the mass strongly SiMDA fitted better in 4 of 5 (chi2 -85, -20, -11, -11;
+  DE440's Laetitia made (311771) worse than none). Every extra body reports its mass and source.
+  Pinned to SiMDA v1.1 (Zenodo doi:10.5281/zenodo.4039774, CC-BY-4.0); the table credits it inside
+  the file (`_about`, `_credit`, `_license`, ahead of the data).
 - **A fit's force model is state on its backend, fixed at fit time** (`forcemodel.PinnedForce`,
   pinned in `_observer_geometry`): the evaluator, re-anchor, LOV, range profile and every
   product integrate in it whatever the process-wide switch says later. Swap it only through
@@ -151,7 +190,8 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   hazard, NEOCP, classification or linkage acceptance. Past one
   night it moves along the LOV, only when the delivered orbit's weight is <= 1% of the peak's
   (`LOV_W0_MAX`, two holdouts), kept if bound, e < 0.9 and within 1.5x the rms
-  (`popprior.most_probable_lov_fit`); an asked-for orbit is judged by its ARC (`optin_source`).
+  (`popprior.most_probable_lov_fit`); an asked-for orbit is judged by its ARC (`optin_source`, set by
+  `popprior.most_probable_fit`, honoured by `constraint.assess`).
 - **Asteroid nongrav discovery gates on q < 1.4 au**, not a (`NONGRAV_Q_MAX_AU`; drift is earned at perihelion).
 - **Nongrav discovery by BIC** (`_ng_choice`, `NONGRAV_BIC_MARGIN` 15; comet ladder
   `_comet_step_justified`); negative A1 refused; exact 0.0 = stall; marginal models
