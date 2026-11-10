@@ -100,14 +100,22 @@ def oppositions(astrometry):
 
 
 def mpc_opp_profile_ok(astrometry):
-    """``(ok, reason)`` for the MPC's multi-opposition night requirements.
+    """``(ok, reason)`` for the MPC's multi-opposition night requirements on OBS80
+    text (:func:`opp_profile_counts_ok` on its :func:`oppositions`)."""
+    return opp_profile_counts_ok(oppositions(astrometry))
+
+
+def opp_profile_counts_ok(apps):
+    """``(ok, reason)`` for the MPC's multi-opposition night requirements, from the
+    nights per apparition in time order -- the rule itself, for callers holding
+    observations rather than OBS80 text.
 
     * 1 apparition  -- handled by the night/arc rules, not here.
     * 2 apparitions -- one needs >= 3 nights, the other >= 2.
     * 3-4           -- at least one apparition with >= 3 nights.
     * 5+            -- one with >= 3 nights, OR two with >= 2 nights each.
     """
-    apps = oppositions(astrometry)
+    apps = list(apps)
     n = len(apps)
     if n <= 1:
         return True, ""

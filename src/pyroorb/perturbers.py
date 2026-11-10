@@ -96,12 +96,20 @@ def enabled():
     return os.environ.get(SWITCH_ENV, "").strip().lower() not in ("0", "off", "no", "false")
 
 
+# The kernel ships inside the package (~26 MB), so every install screens perturbers with no
+# download or build step.
+BUNDLED_KERNEL = Path(__file__).resolve().parent / "data" / KERNEL_NAME
+
+
 def kernel_path():
-    """The extra-perturber kernel (PYROORB_PERTURBER_KERNEL, else <ephem dir>/KERNEL_NAME),
-    or None when it is not installed (``pyroorb-fetch-data --perturbers`` builds it)."""
+    """The extra-perturber kernel: PYROORB_PERTURBER_KERNEL when set, else the copy bundled
+    with the package, else <ephem dir>/KERNEL_NAME (a rebuild, ``perturber_kernel.build``);
+    None when none exists."""
     want = os.environ.get(KERNEL_ENV, "").strip()
     if want:
         return want if Path(want).exists() else None
+    if BUNDLED_KERNEL.exists():
+        return str(BUNDLED_KERNEL)
     from pyroorb import force_assist as fa
     p = Path(fa.EPHEM_DIR) / KERNEL_NAME
     return str(p) if p.exists() else None
@@ -213,7 +221,9 @@ class _Table:
         p = Path(kernel)
         st = p.stat()
         name = f"{p.stem}.table4d.{st.st_size}.npy"
-        if os.access(p.parent, os.W_OK):
+        # beside the kernel when that folder is writable, never inside the package (the 75 MB
+        # table would land in an editable checkout and in every wheel built from it)
+        if p.resolve().parent != BUNDLED_KERNEL.parent and os.access(p.parent, os.W_OK):
             return p.parent / name
         from pyroorb import datadirs
         d = datadirs.cache_dir() / "perturbers"

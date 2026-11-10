@@ -5,10 +5,11 @@ Downloads (idempotently -- skips anything already present) into ``PYROORB_EPHEM_
 
   - DE440 planets    linux_p1550p2650.440   ~102 MB   REQUIRED
   - asteroid kernel  sb441-n16.bsp          ~616 MB   optional (16 perturbers)
-  - extra perturbers pyroorb-perturbers-1900-2100-20km.bsp  ~26 MB  by default (343 asteroids,
-                     1900-2100; the automatic perturber screen and, without sb441-n16, the 16
-                     themselves). Downloaded from the PyRoOrb release (SHA-256 checked); if that
-                     fails, built from JPL's sb441-n373 instead (~1 min, reading ~165 MB)
+
+The extra-perturber kernel (pyroorb-perturbers-1900-2100-20km.bsp, ~26 MB: 343 asteroids,
+1900-2100; the automatic perturber screen and, without sb441-n16, the 16 themselves) ships
+inside the package, so nothing is fetched for it; only an install without that copy builds it
+here from JPL's sb441-n373 (~1 min, reading ~165 MB).
 
 Why a separate command rather than the engine's lazy download: on a hosted box the
 ~700 MB asteroid fetch should happen ONCE, before traffic, into a persistent
@@ -16,9 +17,8 @@ volume -- not mid-fit (slow, and the asteroid/epsilon coupling wants the kernel
 in place before the first integration). Run it at deploy time against the mounted
 volume; subsequent boots find the files and skip.
 
-    pyroorb-fetch-data                  # DE440 + debias tables + the extra-perturber kernel
+    pyroorb-fetch-data                  # DE440 + debias tables
     pyroorb-fetch-data --asteroids      # + sb441-n16 (the 16 over DE441's whole span, 616 MB)
-    pyroorb-fetch-data --no-perturbers  # skip the extra-perturber kernel (no perturber screen)
 
 It reuses the engine's own downloaders so the URLs/paths never drift from the
 engine. Honours PYROORB_EPHEM_DIR -- point it at the volume mount on a host.
@@ -44,11 +44,10 @@ def main():
     ap.add_argument("--asteroids", action="store_true",
                     help="also fetch the ~616 MB asteroid perturber kernel (full fidelity)")
     ap.add_argument("--no-perturbers", action="store_true",
-                    help="skip the ~26 MB extra-perturber kernel (343 asteroids, 1900-2100, built "
-                         "from JPL's sb441-n373 by default; without it fits skip the perturber screen)")
+                    help="do not check for (or build) the extra-perturber kernel; it ships with "
+                         "the package, so this only matters for an install without that copy")
     ap.add_argument("--perturbers", action="store_true",
-                    help="build the extra-perturber kernel and fail if that fails (it is built "
-                         "by default; this makes a failure an error)")
+                    help="fail if the extra-perturber kernel is absent and cannot be built")
     ap.add_argument("--no-debias", action="store_true",
                     help="skip the ~10 MB EFCC18 debias tables (fetched by default)")
     args = ap.parse_args()
@@ -79,27 +78,21 @@ def main():
     if not args.no_perturbers:
         from pathlib import Path
         from pyroorb import perturbers, perturber_kernel
-        dst = Path(fa.EPHEM_DIR) / perturbers.KERNEL_NAME
-        if dst.exists():
-            print(f"  perturbers: {dst} (present)")
+        have = perturbers.kernel_path()
+        if have:
+            print(f"  perturbers: {have} (present)")
         else:
-            print("fetching the asteroid-perturber kernel (~26 MB) ...")
+            # only a stripped install lacks the bundled copy: make it from JPL instead
+            dst = Path(fa.EPHEM_DIR) / perturbers.KERNEL_NAME
+            print("building the asteroid-perturber kernel from JPL sb441-n373 (~1 min) ...")
             try:
-                perturber_kernel.download(dst)
-            except Exception as ex:
-                # the published copy is unreachable or did not verify: make it from JPL instead
-                print(f"  download failed ({type(ex).__name__}: {ex}); "
-                      "building it from JPL sb441-n373 (~1 min) ...")
-                try:
-                    perturber_kernel.build(dst, p)
-                except Exception as ex2:
-                    print(f"  perturbers: build failed ({type(ex2).__name__}: {ex2}); "
-                          "fits skip the perturber screen (re-run to retry)")
-                    if args.perturbers:
-                        sys.exit(1)
-                    dst = None
-            if dst is not None:
+                perturber_kernel.build(dst, p)
                 print(f"  perturbers: {dst}")
+            except Exception as ex:
+                print(f"  perturbers: build failed ({type(ex).__name__}: {ex}); "
+                      "fits skip the perturber screen (re-run to retry)")
+                if args.perturbers:
+                    sys.exit(1)
     print("done.")
 
 

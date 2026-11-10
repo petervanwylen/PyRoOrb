@@ -11,8 +11,9 @@ only with a measurement, and update its line here when you do.
 - `arc_extend.py` — extension, outlier rejection, cluster activation, single-night dropping.
 - `forward_model.py` / `force_assist.py` — rebound 8-planet and ASSIST (DE440+GR) propagators + batch sweeps.
   `perturbers.py` — the field (the 16 + extra bodies, `Field`) and the screen that fills it;
-  `perturber_kernel.py` — its 343-body 1900-2100 kernel: downloaded from the PyRoOrb release
-  (`download`, SHA-256 checked) or built from JPL's sb441-n373 (`build`); the comment area names
+  `perturber_kernel.py` — its 343-body 1900-2100 kernel, SHIPPED in the package
+  (`perturbers.BUNDLED_KERNEL`, `src/pyroorb/data/`, SHA-256 `KERNEL_SHA256` tested; its position
+  table goes to the cache, never the package), rebuilt from JPL's sb441-n373 by `build`; the comment area names
   PyRoOrb as producer of a modified, non-JPL kernel (NAIF modified-kernel rules, JPL data-use policy).
 - `weights.py` / `debias.py` / `photometry.py` / `hazard.py` — σ, EFCC18 debias, H/band, MOID/class/U.
   `healpix.py` — numpy HEALPix (pixel lookup + inclusive NESTED disc), byte-identical to healpy.
@@ -138,6 +139,12 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **An identification fit (>= 2 designations requested) runs +16ast from the first step**,
   ungated (`fit_object.fit_orbit`, `force_assist.perturbers_on_for`; `_AsteroidForce` on the
   ctx): the gated polish starts from the gravity linker's links, too late to undo a refusal.
+- **An identification is held to the ITF submission floor** (`ident_check.itf_muster_problem`,
+  asked by `linkage_verdict`): the MPC night profile (`mpcrules.opp_profile_counts_ok`) and the
+  anchor apparition (`anchor.anchor_problem_points`) on the kept observations, NEOs waived
+  (`anchor.is_neo`). Failing it, a 'y' becomes 'y-examine' and nothing is submittable; a real
+  apparition plus a one-night tracklet under another designation otherwise read clean
+  (`tests/test_ident_itf_muster.py`).
 - **Asteroid perturbers are screened, not gated** (`perturbers.screen`,
   `fit_object.refine_perturbers`): each massive asteroid not in the field is scored by the
   linear chi2 it would remove from ALL observations, rejected ones included (on the included

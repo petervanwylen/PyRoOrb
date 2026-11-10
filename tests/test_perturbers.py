@@ -229,29 +229,39 @@ def test_a_screen_that_cannot_run_says_why(monkeypatch):
     assert g is fit and g.perturber_screen["skipped"].startswith("screen failed")
 
 
-def test_the_kernel_download_is_verified(monkeypatch, tmp_path):
-    """A published kernel is accepted only with the expected SHA-256; a mismatch leaves nothing
-    behind (fetch-data then builds it from JPL)."""
-    import io
-    from pyroorb import perturber_kernel as pk
-    data = b"not a kernel"
-
-    class _R(io.BytesIO):
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    monkeypatch.setattr(pk.urllib.request, "urlopen", lambda url, timeout=None: _R(data))
+def test_the_bundled_kernel_is_the_published_build():
+    """The kernel ships inside the package (every install screens with no download), and it is
+    the build KERNEL_SHA256 names, not a silently swapped file."""
     import hashlib
-    good = hashlib.sha256(data).hexdigest()
-    out = tmp_path / "k.bsp"
-    assert pk.download(out, sha256=good, verbose=False) == out and out.read_bytes() == data
-    out2 = tmp_path / "k2.bsp"
-    with pytest.raises(IOError, match="checksum"):
-        pk.download(out2, sha256="0" * 64, verbose=False)
-    assert not out2.exists() and not (tmp_path / "k2.bsp.part").exists()
+    from pyroorb import perturber_kernel as pk
+    k = pt.BUNDLED_KERNEL
+    assert k.parent.name == "data" and k.parent.parent.name == "pyroorb" and k.exists()
+    assert hashlib.sha256(k.read_bytes()).hexdigest() == pk.KERNEL_SHA256
+
+
+def test_the_bundled_kernel_is_preferred(monkeypatch, tmp_path):
+    from pyroorb import force_assist as fa
+    monkeypatch.delenv(pt.KERNEL_ENV, raising=False)
+    (tmp_path / pt.KERNEL_NAME).write_bytes(b"an older rebuild")
+    monkeypatch.setattr(fa, "EPHEM_DIR", str(tmp_path))
+    assert pt.kernel_path() == str(pt.BUNDLED_KERNEL)
+    other = tmp_path / "mine.bsp"
+    other.write_bytes(b"x")
+    monkeypatch.setenv(pt.KERNEL_ENV, str(other))
+    assert pt.kernel_path() == str(other)                   # an explicit override still wins
+
+
+def test_the_position_table_never_lands_in_the_package(monkeypatch, tmp_path):
+    """Beside a writable kernel elsewhere, but for the bundled copy in the cache folder: the
+    75 MB table would otherwise grow an editable checkout and every wheel built from it."""
+    from pyroorb import datadirs
+    monkeypatch.setattr(datadirs, "cache_dir", lambda: tmp_path / "cache")
+    t = pt._Table._path(pt.BUNDLED_KERNEL)
+    assert t.parent == tmp_path / "cache" / "perturbers"
+    elsewhere = tmp_path / "ephem" / pt.KERNEL_NAME
+    elsewhere.parent.mkdir()
+    elsewhere.write_bytes(b"k")
+    assert pt._Table._path(elsewhere).parent == elsewhere.parent
 
 
 def test_the_kernel_says_it_is_ours_and_derived_from_jpl():
@@ -267,17 +277,10 @@ def test_the_kernel_says_it_is_ours_and_derived_from_jpl():
     c.encode("ascii")                                       # an SPK comment area is ASCII
 
 
-@needs_kernel
 def test_the_published_kernel_carries_that_comment():
-    """The released file (the one KERNEL_SHA256 names) says it is ours, inside itself."""
-    import hashlib
-    from pathlib import Path
+    """The shipped file says it is ours, inside itself."""
     from jplephem.spk import SPK
-    from pyroorb import perturber_kernel as pk
-    path = pt.kernel_path()
-    if hashlib.sha256(Path(path).read_bytes()).hexdigest() != pk.KERNEL_SHA256:
-        pytest.skip("the installed kernel is not the published build")
-    k = SPK.open(path)
+    k = SPK.open(str(pt.BUNDLED_KERNEL))
     try:
         assert "PRODUCER: the PyRoOrb project" in k.comments()
         assert "Courtesy NASA/JPL-Caltech" in k.comments()

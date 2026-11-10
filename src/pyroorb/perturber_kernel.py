@@ -149,44 +149,9 @@ def _write_spk(path, segments, comment, template_fr):
     os.replace(tmp, path)
 
 
-# The built kernel, published as a release asset of the public repository: fetching it (~26 MB)
-# replaces reading ~165 MB of JPL's file and a minute of re-fitting. Its SHA-256 is checked; on
-# any failure the caller builds it from JPL instead.
-RELEASE_TAG = "perturber-kernel-1"
-KERNEL_URL = ("https://github.com/petervanwylen/PyRoOrb/releases/download/"
-              f"{RELEASE_TAG}/pyroorb-perturbers-1900-2100-20km.bsp")
+# The SHA-256 of the kernel bundled with the package (perturbers.BUNDLED_KERNEL), the build
+# this module made from sb441-n373 at TOL_KM; a test checks the shipped file against it.
 KERNEL_SHA256 = "e930bf3f32d710dee130613c3409d6e0b411cc0925a1574e5a1960373d53fb29"
-
-
-def download(out_path, url=KERNEL_URL, sha256=KERNEL_SHA256, verbose=True):
-    """Fetch the published kernel to `out_path`, verified by SHA-256; returns the path. Raises
-    on a network failure or a checksum mismatch (nothing is left at `out_path` then)."""
-    import hashlib
-    import os
-    tmp = str(out_path) + ".part"
-    h = hashlib.sha256()
-    done = False
-    try:
-        with urllib.request.urlopen(url, timeout=120) as r, open(tmp, "wb") as f:
-            while True:
-                b = r.read(1 << 20)
-                if not b:
-                    break
-                h.update(b)
-                f.write(b)
-        if h.hexdigest() != sha256:
-            raise IOError(f"checksum mismatch for {url}")
-        os.replace(tmp, out_path)
-        done = True
-    finally:
-        if not done:                     # nothing half-written is left behind, whatever failed
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-    if verbose:
-        print(f"  downloaded {out_path} (sha256 verified)")
-    return out_path
 
 
 def comment_text(n_refit, tol_km, worst_km):

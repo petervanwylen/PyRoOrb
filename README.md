@@ -95,7 +95,7 @@ needs your own SBN database, is left out; `--extras itf` adds it (~500 MB more).
 curl -LsSf https://astral.sh/uv/install.sh | sh     # if you don't have uv yet
 uv venv && uv pip install pyroorb
 source .venv/bin/activate   # in every new terminal, before the pyroorb commands
-pyroorb-fetch-data          # once: DE440 (~102 MB), the debias tables (~10 MB) and the asteroid-perturber kernel (~26 MB, derived from JPL data)
+pyroorb-fetch-data          # once: DE440 (~102 MB) and the debias tables (~10 MB); the asteroid-perturber kernel (~26 MB, derived from JPL data) ships in the package
 ```
 
 **From PyPI, for your own scripts and notebooks.** PyRoOrb is on [PyPI](https://pypi.org/project/pyroorb/),
@@ -103,7 +103,7 @@ so inside any Python environment you already use (a project venv, a Jupyter kern
 
 ```bash
 pip install pyroorb          # or: uv pip install pyroorb
-pyroorb-fetch-data           # once: DE440 (~102 MB), the debias tables (~10 MB) and the asteroid-perturber kernel (~26 MB, derived from JPL data)
+pyroorb-fetch-data           # once: DE440 (~102 MB) and the debias tables (~10 MB); the asteroid-perturber kernel (~26 MB, derived from JPL data) ships in the package
 ```
 
 ```python

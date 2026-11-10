@@ -1316,6 +1316,47 @@ def examine_or_no(fit):
     return "y-examine", f"{ok}; {note}" if note else ok
 
 
+_JD_ORDINAL0 = 1721424.5     # JD of proleptic-Gregorian ordinal day 0.0 (datetime.toordinal)
+
+
+def itf_muster_problem(fit):
+    """Why the identification's KEPT observations would not pass the ITF search's own
+    submission floor, or None when they would (or the object is a NEO).
+
+    The same two rules an ITF linkage must meet before it is called submittable: the
+    MPC's night profile across apparitions (two apparitions need one of >= 3 nights and
+    the other of >= 2; :func:`itf.mpcrules.opp_profile_counts_ok`) and the anchor
+    apparition (one apparition with >= 3 tracklets and >= 3 nights;
+    :func:`itf.anchor.anchor_problem_points`). An identification is the same claim as
+    an ITF linkage -- these observations are one object -- and an arc of thin
+    apparitions fits almost any orbit family whichever route assembled it. A NEO is
+    waived, by the search's own NEO test (:func:`itf.anchor.is_neo`): its links are
+    proposals worth sending on fewer nights."""
+    from pyroorb.itf import anchor, mpcrules
+    from pyroorb.itf.config import ItfConfig
+    try:
+        if anchor.is_neo(ItfConfig(), _element(fit, "q"), _element(fit, "e")):
+            return None
+    except Exception:                    # unreadable elements: the stricter rule applies
+        pass
+    mask = np.asarray(fit._mask, dtype=bool)
+    points = [(o["jd_utc"] - _JD_ORDINAL0, o["obscode"])
+              for o, kept in zip(fit._obs, mask) if kept]
+    apps = anchor.apparition_counts(points)
+    ok, why = mpcrules.opp_profile_counts_ok([nights for _, nights in apps])
+    if not ok:
+        return f"the MPC would refuse it: {why} (tracklets less than 12 hours apart are one night)"
+    return anchor.anchor_problem_points(points, neo=False)
+
+
+def _element(fit, name):
+    """One element of ``fit``, or None when it cannot be read."""
+    try:
+        return fit._val(name)
+    except Exception:
+        return None
+
+
 def linkage_verdict(fit):
     """May the joint fit on screen be OFFERED to a human as an MPC identification, and with what
     cautions?  ``{"offer", "clean", "reason", "cautions"}``.
@@ -1471,6 +1512,20 @@ def linkage_verdict(fit):
         cautions.append(f"Systematic residual pattern: {sysmis}. Nights sitting coherently OFF the "
                         f"orbit (rather than scattered around it) is the tell of a wrong linkage "
                         f"that an acceptable overall rms hides.")
+    # The ITF search's submission floor (night profile + anchor apparition, NEOs waived): an
+    # identification it would refuse as an ITF linkage is not a clean identification either.
+    # Offered for review with the rule named; never transmitted.
+    muster = itf_muster_problem(fit) if is_ident else None
+    if muster:
+        if code_override is None and not y2:
+            code_override = "y-examine"
+            reason = (f"NOT a clean identification -- the kept observations do not meet the floor "
+                      f"an ITF linkage must meet before it is submitted: {muster}. Offered for "
+                      f"review; not submittable.")
+        else:
+            cautions.append(f"Also short of the ITF submission floor: {muster}.")
+        clean = False
+        submittable = False
     st = _mag_stats(fit)
     if st and st["tier"] is not None:
         label = {"?": "possible", "": "significant", "!": "LARGE"}[st["tier"]]
