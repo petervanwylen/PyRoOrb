@@ -249,9 +249,11 @@ pyroorb-fetch-data                   # DE440 + debias tables
 pyroorb-fetch-data --asteroids       # + JPL's sb441-n16 (the 16 over DE441's span, ~616 MB, optional)
 ```
 
-The **asteroid-perturber kernel** (`pyroorb-perturbers-1900-2100-20km.bsp`, ~26 MB) holds the 343
-massive asteroids for 1900-2100 and lets every fit be screened for the ones its observations
-need (`fit_orbit(perturbers="auto")`, the default); it also supplies the 16 used by
+The **asteroid-perturber kernel** (`pyroorb-perturbers-1900-2100-20km.bsp`, ~33 MB) holds the 343
+massive asteroids for 1900-2100 (the 16 most massive for 1800-2200) and lets every fit be screened for the ones its observations
+need (`fit_orbit(perturbers="auto")`, the default) -- or fitted in all 343 whether or not they
+matter (`perturbers="all"`, `pyroorb --perturbers all`, the web page's "+343 ast" toggle; 5-18x
+slower than the 16); it also supplies the 16 used by
 identification fits when sb441-n16 is not installed. It **ships inside the package**, so every
 install has it with nothing to download. On first use a ~75 MB position table is derived from
 it into the cache folder. (An install without the bundled copy builds it with

@@ -23,7 +23,9 @@ def test_the_ephemeris_follows_the_fit_not_the_switch():
     records, meta = fixture_obs("107474")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        grav = pyroorb.fit_orbit(pyroorb.Observations(records, meta), designation="107474")
+        # perturbers="off": the default screen would already give this fit the 16
+        grav = pyroorb.fit_orbit(pyroorb.Observations(records, meta), designation="107474",
+                                 perturbers="off")
     polished = fo.refine_asteroids(grav)
     assert polished.asteroids and "+16ast" in polished.force_model
     for f in (grav, polished):

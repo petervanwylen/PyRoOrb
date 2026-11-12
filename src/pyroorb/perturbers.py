@@ -16,9 +16,11 @@ data/perturber_masses.json, rank A-C) -- see mass_table() for the measurements b
 
 Kernel. The extra bodies come from ONE Sun-centred SPK built from JPL's sb441-n373 (DE441
 small-body perturbers),
-covering 1900-2100: the 16 copied verbatim, the other 327 re-fitted within 20 km (a 20 km
-position error moves a 0.001 au encounter's force by 1e-4; refits with 5, 20 and 50 km kernels
-agreed to 1e-4" and 1.5 m in state). Outside the window the field falls back to sb441-n16.
+the 16 copied verbatim over 1800-2200, the other 327 re-fitted within 20 km over 1900-2100 (a
+20 km position error moves a 0.001 au encounter's force by 1e-4; refits with 5, 20 and 50 km
+kernels agreed to 1e-4" and 1.5 m in state). A field with extra bodies is bounded by 1900-2100;
+a sweep outside it falls back to the 16 (sb441-n16, or the kernel's own 16 within 1800-2200),
+else planets-only, and says so once (force_assist._fallback_ephem).
 
 Screen. For each candidate body the linear first-order change it makes to the observations is
 built from ONE state-transition integration and the fit's own weighted design matrix:
@@ -89,6 +91,40 @@ def as_field(value):
 def extras(value):
     """The extra bodies of an ``asteroids`` value (empty for False / True / None)."""
     return frozenset(value) if isinstance(value, Field) else frozenset()
+
+
+_ALL = {}
+
+
+def all_extras():
+    """Every body of the extra-perturber kernel outside the 16 (empty without the kernel)."""
+    kern = kernel_path()
+    if kern is None:
+        return frozenset()
+    if kern not in _ALL:
+        from jplephem.spk import SPK
+        k = SPK.open(kern)
+        try:
+            _ALL[kern] = frozenset(s.target - 2000000 for s in k.segments) - frozenset(BIG16)
+        finally:
+            k.close()
+    return _ALL[kern]
+
+
+def all_field(exclude=None):
+    """The whole kernel as a Field: the 16 plus every other body, without `exclude` (the
+    fitted object's own number -- a body is never integrated inside itself); None without the
+    kernel."""
+    a = all_extras() - {exclude}
+    return Field(a) if a else None
+
+
+def is_all(value):
+    """True for a Field holding every kernel body outside the 16 (the object itself aside)."""
+    if not isinstance(value, Field):
+        return False
+    a = all_extras()
+    return bool(a) and frozenset(value) <= a and len(a - frozenset(value)) <= 1
 
 
 def enabled():
@@ -211,7 +247,11 @@ class _Table:
             arr = np.empty((len(self.bodies), nt, 3), np.float32)
             for i, b in enumerate(self.bodies):
                 arr[i] = (np.asarray(self.seg[b].compute(t)).T / AU_KM).astype(np.float32)
-            tmp = path.with_suffix(".tmp.npy")
+            # one temporary name per writer: processes that build the table at once (a pool's
+            # first fits after a kernel change) each moved the other's file away, and the
+            # loser's screen failed with FileNotFoundError. os.replace is atomic, so the last
+            # complete table wins and every reader maps a whole one.
+            tmp = path.with_name(f"{path.stem}.{os.getpid()}.{threading.get_ident()}.tmp.npy")
             np.save(tmp, arr)
             os.replace(tmp, path)
             self.pos = np.load(path, mmap_mode="r")

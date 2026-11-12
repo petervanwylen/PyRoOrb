@@ -146,8 +146,11 @@ function flashIdentLinkage(p) {
 function flashFitBanners(p) {
   // Blue: the 16 asteroid perturbers were auto-kept because they meaningfully
   // lowered the RMS (run_fit sets asteroids_auto; manual toggles never do).
-  if (p.asteroids_auto && p.session && p.session !== _astFlashKey) {
-    _astFlashKey = p.session;
+  // Keyed on the fit, not the session: a payload off the disk cache (a ?object= deeplink,
+  // usually) has no session until the viewer clicks, and still deserves the banner -- once.
+  const astKey = p.restore || p.refit || p.session;
+  if (p.asteroids_auto && astKey && astKey !== _astFlashKey) {
+    _astFlashKey = astKey;
     const ex = p.asteroid_extras || [];
     const det = new Map((p.extra_perturbers || []).map((e) => [e.number, e]));
     const named = ex.map((n) => {
@@ -1082,7 +1085,8 @@ const ngFmt = (v) => (v === null || v === undefined || Number.isNaN(v))
 // (re-fits the orbit at trial values, a few seconds) and re-renders the panel with the true ±
 // and any "unconstrained" axes. Stashes the result on CURRENT.nongrav so a re-render keeps it.
 async function computeNongravSigmas() {
-  if (!CURRENT || !CURRENT.session || !CURRENT.nongrav) return;
+  if (!CURRENT || !CURRENT.nongrav || !(CURRENT.session || CURRENT.restore || CURRENT.refit)) return;
+  if (!(await ensureLive())) return;
   const btn = document.querySelector(".ngsigbtn");
   if (btn) { btn.disabled = true; btn.textContent = "computing ±… (a few seconds)"; }
   try {
@@ -1121,7 +1125,8 @@ async function setAsteroids(on) {
   const tog = $("astToggle");
   tog.classList.add("busy");
   $("ngBody").innerHTML = `<div class="ngnote loading">` +
-    `${on ? "adding 16 asteroid perturbers" : "reverting to gravity"}…</div>`;
+    `${on === "all" ? "adding every massive asteroid (slower)"
+       : on ? "adding 16 asteroid perturbers" : "reverting to gravity"}…</div>`;
   try {
     const r = await fetch("/api/asteroids", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1179,14 +1184,25 @@ function ngAmrLine(ng) {
 function renderNongrav(p) {
   const panel = $("ngPanel"), sel = $("ngSelect"), body = $("ngBody");
   // The nongrav force lives in the ASSIST backend only; hide the panel otherwise.
-  if (!p.force_model || p.force_model.indexOf("ASSIST") === -1 || !p.session) {
+  // Shown for any payload that CAN become live, not only one holding a session: a disk-cache
+  // hit (what a ?object= deeplink usually gets) carries none until the viewer clicks, and
+  // hiding the panel then left the field invisible -- 352870 read as gravity only while its
+  // orbit ran in +16 ast +(471). Every control in here claims a session (ensureLive) first.
+  if (!p.force_model || p.force_model.indexOf("ASSIST") === -1
+      || !(p.session || p.restore || p.refit)) {
     panel.hidden = true; return;
   }
   panel.hidden = false;
-  // Reflect the active force model in the gravity / +16 ast segmented toggle.
-  const aOn = !!p.asteroids;
+  // Reflect the active force model in the gravity / +16 ast / +343 ast segmented toggle.
+  const cur = astState(p);
   $("astToggle").querySelectorAll(".seg")
-    .forEach((s) => s.classList.toggle("active", (s.dataset.ast === "1") === aOn));
+    .forEach((s) => s.classList.toggle("active", s.dataset.ast === cur));
+  // "all": the whole extra-perturber kernel, counted on the button; hidden without the kernel
+  const nAll = p.perturbers_all_count || 0;
+  $("astToggle").querySelectorAll("button[data-ast='all']").forEach((s) => {
+    s.hidden = !nAll;
+    s.textContent = `+${nAll} ast`;
+  });
   // If this object IS one of the 16 +16ast perturbers, the +16ast segment runs the OTHER 15:
   // it can't be perturbed by itself, so the engine excludes it from its own field.
   const sp = p.self_perturber;
@@ -1202,7 +1218,11 @@ function renderNongrav(p) {
       + (ex.length ? `${sp ? "; " : ""}plus ${ex.map((n) => `(${n})`).join(", ")}` : "");
   });
   const exNote = $("astExtras");
-  if (exNote) {
+  if (exNote && p.perturbers_all) {
+    exNote.hidden = false;
+    exNote.innerHTML = `<b>All ${nAll} massive asteroids</b> of the perturber kernel are in the ` +
+      `field, as asked — not only the ones the screen judged to matter.`;
+  } else if (exNote) {
     exNote.hidden = !det.length;
     exNote.innerHTML = det.length
       ? "<b>Beyond the 16:</b> " + det.map((e) =>
@@ -3283,14 +3303,21 @@ $("ocAxisToggle").addEventListener("click", (e) => {
   if (CURRENT) renderOCPlot(CURRENT);
 });
 
-// gravity / +16-asteroid segmented toggle (re-fits with/without the perturbers)
+// The toggle segment a payload's force model is: "0" gravity, "1" the 16 (+ any screen
+// picks), "all" the whole extra-perturber kernel.
+function astState(p) {
+  return !p.asteroids ? "0" : p.perturbers_all ? "all" : "1";
+}
+
+// gravity / +16-asteroid / all-asteroid segmented toggle (re-fits in the chosen field)
 $("astToggle").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-ast]");
   if (!b) return;
-  const want = b.dataset.ast === "1";
-  if (want === !!(CURRENT && CURRENT.asteroids)) return;   // already in that state
-  _ga("change_force_model", { control: "asteroids", model: want ? "16ast" : "gravity" });
-  setAsteroids(want);
+  const want = b.dataset.ast;                               // "0" | "1" | "all"
+  if (CURRENT && want === astState(CURRENT)) return;        // already in that state
+  _ga("change_force_model", { control: "asteroids",
+    model: want === "all" ? "allast" : want === "1" ? "16ast" : "gravity" });
+  setAsteroids(want === "all" ? "all" : want === "1");
 });
 
 // ---- paste loader + export (WEB_UI_PLAN §2.7) ----------------------------

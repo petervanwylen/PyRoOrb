@@ -58,15 +58,27 @@ const BAMBERGA = { number: 324, name: "Bamberga", dchi2: 1402, closest_au: 0.000
                    closest_date: "2005-10-29" };
 let extras = [];
 let nFit = 0;
+let allCount = 0, allOn = false;
+const posted = [];
 w.fetch = async (url, opts) => {
   const u = String(url);
   const p = JSON.parse(JSON.stringify(BASE));
+  p.perturbers_all_count = allCount;
+  p.perturbers_all = allOn;
   p.extra_perturbers = extras;
   p.asteroids_auto = extras.length > 0;
   p.session = `s${nFit}`;                 // the banner fires once per session
   p.asteroid_extras = extras.map((e) => e.number);
   if (extras.length) p.force_model = "ASSIST(DE440+GR+16ast+(19))";
   let body = p;
+  if (u.startsWith("/api/asteroids")) {
+    const req = JSON.parse(opts.body);
+    posted.push(req.on);
+    allOn = req.on === "all";
+    p.perturbers_all = allOn;
+    p.asteroids = req.on !== false;
+    p.asteroids_auto = false;
+  }
   if (u.startsWith("/api/session")) body = { ok: true, session: "s1" };
   else if (u.startsWith("/api/fit_start")) body = { ok: true, job: "j", state: "done", done: true, result: p };
   else if (u.startsWith("/api/export/")) return { text: async () => "", json: async () => ({}) };
@@ -120,6 +132,28 @@ async function fit(list) {
   check("two bodies: plural", /^2 asteroid perturbers beyond the 16 deflect this orbit/.test(b));
   check("two bodies: 18 perturbers in all", /includes 18 asteroidal perturbers \(the 16 plus these\)/.test(b));
   check("two bodies: the line says 'need them'", /need them\./.test(note.textContent));
+  // the "all" segment: every body of the perturber kernel, screened or not
+  const allBtn = w.document.querySelector("#astToggle button[data-ast='all']");
+  allCount = 0;
+  await fit([]);
+  check("no kernel: the all toggle is hidden", allBtn.hidden);
+  allCount = 343;
+  await fit([]);
+  check("with the kernel: the all toggle reads '+343 ast'",
+        !allBtn.hidden && allBtn.textContent.trim() === "+343 ast");
+  check("the 16 is the active segment", btn.classList.contains("active")
+        && !allBtn.classList.contains("active"));
+  allBtn.click();
+  await new Promise((r) => setTimeout(r, 30));
+  check("clicking it asks the server for on: 'all'", posted[posted.length - 1] === "all");
+  check("the all segment is then active", allBtn.classList.contains("active")
+        && !btn.classList.contains("active"));
+  check("the line says every body is in the field", !note.hidden
+        && /All 343 massive asteroids/.test(note.textContent));
+  btn.click();
+  await new Promise((r) => setTimeout(r, 30));
+  check("back to the 16: on true", posted[posted.length - 1] === true
+        && btn.classList.contains("active"));
   if (failures) { console.log(`FAIL: ${failures} check(s)`); process.exit(1); }
   console.log("PASS: extra perturbers shown on the fit page");
 })();

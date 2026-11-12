@@ -146,3 +146,40 @@ def test_a_step_in_one_session_does_not_touch_another_or_the_template(job):
         "the template was mutated by a client's step"
     assert np.allclose(E._SESSIONS[b]["state"], before), \
         "one client's step changed another client's session"
+
+
+def test_restored_session_keeps_the_screened_perturber_field(job, monkeypatch):
+    """A fit whose screen added an extra body (352870: (471) Papagena) must keep it in a
+    restored session -- both in the restored +16ast baseline and when the toggle goes to
+    gravity and back. session_from_job rebuilt the baseline with the bare 16 and did not
+    carry auto_field/auto_detail, so 'on' came back as the 16 alone."""
+    import copy
+    import pyroorb.web.engine_api as E
+    import pyroorb.web.fitqueue as fq
+    from pyroorb import fit_object as fo
+    from pyroorb import perturbers as pt
+    if pt.kernel_path() is None:
+        pytest.skip("extra-perturber kernel not installed")
+    jid, _ = job
+    real = fq.retained(jid)
+    field = pt.Field({471})
+    detail = [{"number": 471, "name": "Papagena", "dchi2": 346.6}]
+    pure = real["grav_pure"]
+    _ev, ctx_f = fo.with_force_model(pure._ctx, field, pure)
+    gfit = copy.copy(pure)
+    gfit._ctx = ctx_f
+    gfit.asteroids = field
+    tmpl = dict(real, grav_fit=gfit, asteroids=True, auto_field=field,
+                auto_detail=detail, ast_state=np.asarray(pure._state, float).copy())
+    monkeypatch.setattr(fq, "retained", lambda j: tmpl if j == jid else None)
+    sid = E.session_from_job(jid)["session"]
+    s = E._SESSIONS[sid]
+    # what INTEGRATES, not the label (the attribute was copied even when the ctx was the bare 16)
+    assert s["grav_fit"]._ctx["asteroids"] == field
+    assert s["auto_field"] == field and s["auto_detail"] == detail
+    assert not E.set_asteroids(sid, False).get("error")
+    assert not E._SESSIONS[sid]["grav_fit"].asteroids
+    assert not E.set_asteroids(sid, True).get("error")
+    back = E._SESSIONS[sid]["grav_fit"]
+    assert back.asteroids == field and back._ctx["asteroids"] == field
+    assert [e["number"] for e in back.extra_perturbers] == [471]

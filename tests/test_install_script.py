@@ -21,6 +21,21 @@ def test_the_script_parses():
     assert subprocess.run(["bash", "-n", str(SCRIPT)]).returncode == 0
 
 
+def test_the_script_is_committed_executable():
+    """The README says ./install.sh, and CI runs it that way; a whole-file rewrite on the
+    sandbox mount once committed it as 100644 (d68e137d) and every macOS/Linux install job
+    failed with 'Permission denied'. Checked in git's index, not the file system, because the
+    index is what a clone gets."""
+    if shutil.which("git") is None:
+        pytest.skip("needs git")
+    out = subprocess.run(["git", "ls-files", "-s", "--", SCRIPT.name], cwd=SCRIPT.parent,
+                         capture_output=True, text=True)
+    if out.returncode != 0 or not out.stdout:
+        pytest.skip("not a git checkout")
+    assert out.stdout.split()[0] == "100755", (
+        "install.sh lost its executable bit: git update-index --chmod=+x install.sh")
+
+
 def test_help_describes_it_and_exits_cleanly():
     out = subprocess.run(["bash", str(SCRIPT), "--help"], capture_output=True, text=True)
     assert out.returncode == 0

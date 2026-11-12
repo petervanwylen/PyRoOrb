@@ -18,7 +18,8 @@ from astropy.time import Time
 import pyroorb.nongrav as _ngm          # SRP1AU + the AMR find_orb reports for its SRP model
 from pyroorb.fit_object import _nongrav_asteroids_gate as _ng_ast_gate
 from pyroorb.fit_object import (fit_orbit, fetch_mpc_seed, refine_asteroids, refine_nongrav,
-                        refine_perturbers, refit_constrained)
+                        refine_perturbers, refit_constrained,
+                        discover_nongrav_after_field)
 from pyroorb.obs_sources import (load_obscodes, fetch_observations, pop_unknown_obscodes,
                          fetch_combined, ensure_unpacked, read_obs_file, _group_by_designation,
                          fetch_failure_message)
@@ -63,7 +64,8 @@ USAGE = """usage: pyroorb DESIG [DESIG ...] [options]      fit one object (sever
   --itf-search            search the ITF for unlinked tracklets (needs your own SBN database)
   --mag-audit, --impact, --keyholes    opt-in reports
   --no-radar              skip the radar delay/Doppler refinement
-  --perturbers off        skip the asteroid-perturber screen (default: on)
+  --perturbers off|all    skip the asteroid-perturber screen, or fit with ALL 343 massive
+                          asteroids whether or not they matter (default: the screen picks)
 
 Environment: PYROORB_VERBOSE=1 traces arc extension. See the README for the Python API.
 """
@@ -1067,7 +1069,8 @@ def main():
     if asteroids_flag:
         args.remove("--asteroids")
     # --perturbers off: skip the asteroid-perturber screen (refine_perturbers), which otherwise
-    # runs after every fit and adds the 16 and any extra body the observations call for.
+    # runs after every fit and adds the 16 and any extra body the observations call for;
+    # --perturbers all: no screen, the whole kernel field (perturb_with_all).
     perturbers_opt = str(_opt(args, "--perturbers", "auto") or "auto").strip().lower()
     # --impact [--impact-days N]: Phase-1 impact LOCATION -- propagate forward and report
     # where/when the object reaches the ground (the CLI twin of the web Impact
@@ -1169,8 +1172,13 @@ def main():
               + ", ".join(f"{a} -> kept as {b}" for a, b in pairs))
 
     verbose = bool(meta["combined"] or os.environ.get("PYROORB_VERBOSE"))
+    # With the perturber screen on, the engine fits gravity and automatic nongrav discovery runs
+    # after the screen, in the field it chose (discover_nongrav_after_field, below) -- the same
+    # order as the public fit_orbit and the web. --perturbers off keeps the engine's own order.
+    discover_after = center is None and perturbers_opt not in ("off", "0", "no", "false")
     fit = fit_orbit(obs, obscodes, desig=meta["designation"], meta=meta,
                     verbose=verbose, force=force, center=center,
+                    auto_nongrav=(False if discover_after else None),
                     auto_center=(False if no_auto_center else None),
                     # the planetocentric path ignores the MPC seed (MPC has no heliocentric
                     # orbit for a satellite); skip the needless network fetch when --center is set.
@@ -1183,7 +1191,15 @@ def main():
             print(f"auto-center: detected satellite of {center.capitalize()}")
     if asteroids_flag:
         fit = refine_asteroids(fit, force=True, verbose=True)
-    if perturbers_opt not in ("off", "0", "no", "false"):
+    if perturbers_opt == "all":
+        fit = refine_perturbers(fit, verbose=True, mode="all")
+        _pinfo = fit.perturber_screen or {}
+        if _pinfo.get("skipped"):
+            print(f"--perturbers all did not run: {_pinfo['skipped']}")
+        else:
+            print(f"*** all {_pinfo['bodies']} asteroid perturbers in the field "
+                  f"({_pinfo['seconds']:.1f} s CPU)")
+    elif perturbers_opt not in ("off", "0", "no", "false"):
         fit = refine_perturbers(fit, verbose=True)
         _pinfo = fit.perturber_screen or {}
         if _pinfo.get("kept") and fit.extra_perturbers:
@@ -1194,6 +1210,9 @@ def main():
                   f"on the same observations; force model unchanged")
         elif _pinfo.get("skipped", "").startswith("screen failed"):
             print(f"perturber screen did not run: {_pinfo['skipped']}")
+    if discover_after:
+        fit, _ = discover_nongrav_after_field(fit, obscodes, meta.get("radar") or [],
+                                              verbose=verbose)
     if nongrav_model and nongrav_model != "none":
         # explicit model request -> (1) DEEP coordinate-profiled seed so the joint LM descends to the
         # true minimum instead of stopping short, and (2) the RATIONAL profile-likelihood sigma
@@ -1279,7 +1298,10 @@ def main():
         print("constr   : held fixed -> "
               + "  ".join(f"{k}={v:g}" for k, v in fit.constraints.items())
               + "  (find_orb limited_orbit)")
-    if fit.asteroids:
+    if fit.perturbers_all:
+        print(f"asteroids: every massive perturber of the asteroid-perturber kernel active "
+              f"(the 16 + {len(fit.asteroids)} more; {fit.force_model})")
+    elif fit.asteroids:
         print("asteroids: 16 massive perturbers active (sb441-n16)"
               + "".join(f" + ({e['number']}) {e['name']}" for e in fit.extra_perturbers))
     if getattr(fit, "radar", None):

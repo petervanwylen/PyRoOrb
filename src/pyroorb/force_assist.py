@@ -175,7 +175,7 @@ def ensure_asteroid_kernel(verbose=False, n16=False):
     at most once; thereafter asteroid_kernel_path() finds the cached file.
 
     The extra-perturber kernel serves the 16 as well (sb441-n16's records verbatim inside
-    1900-2100), so when it is installed its path is returned and nothing is downloaded -- an
+    1800-2200), so when it is installed its path is returned and nothing is downloaded -- an
     identification fit used to pull 616 MB mid-request. `n16=True` (pyroorb-fetch-data
     --asteroids) asks for sb441-n16 itself."""
     p = asteroid_kernel_path() or (None if n16 else _field_kernel())
@@ -362,7 +362,7 @@ def _field_kernel():
 
 def asteroids_available():
     """True when an asteroid field can be integrated: sb441-n16, or the extra-perturber kernel
-    (which carries the 16 verbatim inside 1900-2100). A default install builds only the
+    (which carries the 16 verbatim inside 1800-2200). A default install builds only the
     latter; without this every asteroid field there silently integrated planets-only."""
     return asteroid_kernel_path() is not None or _field_kernel() is not None
 
@@ -635,6 +635,43 @@ def _sun_bary(ephem, jd_tdb):
     return pos, vel
 
 
+def _window_covers(w, lo, hi):
+    """True when the window (jd_lo, jd_hi) holds [lo, hi] with a day to spare at each end."""
+    return lo >= w[0] + 1.0 and hi <= w[1] - 1.0
+
+
+_FALLBACK_SAID = set()
+_FALLBACK_LOCK = threading.Lock()
+
+
+def _fallback_ephem(lo, hi):
+    """The ephemeris for a sweep over [lo, hi] (JD TDB) that leaves its field's window: the 16
+    (sb441-n16 where installed, which covers 1550-2650; else the kernel's own 16, 1800-2200),
+    or planets-only when even that window does not cover it. The sweep runs WHOLLY in the
+    smaller field, so a fit's chi2 never mixes two force models within one sweep.
+
+    Said once per process and destination (a UserWarning): the result is not what the fit's
+    force-model label names. Before this was said, an orbit with a pre-1900 observation on the
+    default install integrated planets-only under a +16 label."""
+    from pyroorb import perturbers as _pt
+    e = get_ephem(True)
+    w = _pt.window(e)
+    if w is not None and not _window_covers(w, lo, hi):
+        e, to = get_ephem(False), "planets only (no asteroid perturbers)"
+    else:
+        to = "the 16 asteroid perturbers only"
+    with _FALLBACK_LOCK:
+        first = to not in _FALLBACK_SAID
+        _FALLBACK_SAID.add(to)
+    if first:
+        import warnings
+        span = "-".join(f"{2000 + (t - 2451545.0) / 365.25:.0f}" for t in (lo, hi))
+        warnings.warn(f"an orbit sweep over {span} leaves its asteroid field's ephemeris "
+                      f"window and runs in {to}; the force-model label still names the full "
+                      f"field (said once per process)", UserWarning, stacklevel=3)
+    return e
+
+
 def _integrate_split(ephem, t0_tdb, states, times_tdb, epsilon, setup=None):
     """Build the ASSIST sim and march MONOTONICALLY outward from t0 (forward through obs
     >= t0, backward through obs < t0), yielding (i, sim) after integrating to each obs
@@ -653,18 +690,16 @@ def _integrate_split(ephem, t0_tdb, states, times_tdb, epsilon, setup=None):
     step, so each leg must advance one way) AND it confines a far-apparition divergence to
     its own direction instead of NaN-poisoning every later obs in a single sweep. ASSIST
     double-buffers the particles, so read sim.particles / serialize FRESH after each yield."""
-    # The extra-perturber kernel covers a window (1900-2100); ASSIST refuses an epoch outside a
-    # perturber's coverage, so a sweep reaching past it runs in the 16 of sb441-n16 instead.
+    # A field from the extra-perturber kernel covers a window (1900-2100 with any extra body,
+    # 1800-2200 for the 16 alone); ASSIST refuses an epoch outside a perturber's coverage, so a
+    # sweep reaching past it runs in the widest field that covers it (_fallback_ephem).
     from pyroorb import perturbers as _pt
     w = _pt.window(ephem)
     if w is not None and len(times_tdb):
         lo = min(float(np.min(times_tdb)), t0_tdb)
         hi = max(float(np.max(times_tdb)), t0_tdb)
-        if lo < w[0] + 1.0 or hi > w[1] - 1.0:
-            ephem = get_ephem(True)
-            if _pt.window(ephem) is not None:
-                # no sb441-n16 to fall back to: outside the window the field is planets-only
-                ephem = get_ephem(False)
+        if not _window_covers(w, lo, hi):
+            ephem = _fallback_ephem(lo, hi)
     sunp0, sunv0 = _sun_bary(ephem, t0_tdb)
     # The one place all ASSIST propagation passes through, so it is where a bounded
     # unit of work agrees to stop (see deadline.py -- Python cannot kill a thread,

@@ -81,6 +81,85 @@ def _refit(label):
                         meta=fx["meta"], verbose=False)
 
 
+@needs_kernel
+def test_all_is_the_whole_kernel_less_the_object_itself():
+    from pyroorb import fit_object as fo
+    a = pt.all_extras()
+    assert len(a) == 327 and not a & set(pt.BIG16) and 19 in a
+    f = pt.all_field()
+    assert pt.is_all(f) and 16 + len(f) == 343
+    me = pt.all_field(exclude=19)                       # fitting (19) Fortuna: never inside itself
+    assert 19 not in me and pt.is_all(me) and 19 not in pt.field_bodies(me)
+    assert not pt.is_all(pt.Field([19])) and not pt.is_all(True) and not pt.is_all(False)
+    ctx = {"backend_name": "ASSIST(DE440+GR)", "backend": None}
+    assert fo._force_model_label(ctx, f, None) == "ASSIST(DE440+GR+343ast)"   # counted, not listed
+    assert fo._force_model_label(ctx, me, None) == "ASSIST(DE440+GR+342ast)"
+
+
+def test_all_is_a_spelling_the_api_and_refit_accept():
+    with pytest.raises(ValueError, match="'auto', 'all' or 'off'"):
+        pyroorb.fit_orbit([], perturbers="every")
+    from pyroorb import fit_object as fo
+    with pytest.raises(ValueError, match="mode"):
+        fo.refine_perturbers(type("F", (), {"_ctx": {}})(), mode="most")
+
+
+@pytest.mark.slow
+@needs_kernel
+def test_all_fits_in_every_body_and_says_so():
+    """perturbers="all": no screen, the whole kernel, kept unconditionally; Fortuna is in it, so
+    the 2005 night comes back as with the screen's pick."""
+    import json
+    from _fixtures import FIX, load_fixture
+    fx = load_fixture(f"{FIX}/PAIR_2016RM33.json")
+    obs = pyroorb.Observations(fx["obs"], fx["meta"])
+    fit = pyroorb.fit_orbit(obs, "2016 RM33", perturbers="all")
+    assert fit.perturbers_all and fit.force_model == "ASSIST(DE440+GR+343ast)"
+    assert fit.perturber_screen["mode"] == "all" and fit.perturber_screen["bodies"] == 343
+    assert fit.extra_perturbers == []                    # nothing judged, nothing to name
+    d = json.loads(json.dumps(fit.as_dict()))
+    assert d["perturbers_all"] is True and d["asteroids"] is True
+    y05 = [r for r in fit.residuals() if r["designation"] == "2005 SA198"]
+    assert sum(r["included"] for r in y05) == len(y05) == 15
+    # the same observations in the 16 only, and back: refit's perturbers= option
+    r16 = pyroorb.refit(fit, perturbers="16")
+    assert r16.asteroids is True and not r16.perturbers_all
+    assert pyroorb.refit(r16, perturbers="all").perturbers_all
+    assert pyroorb.refit(fit, perturbers="off").asteroids is False
+    assert r16.rms_residual() > fit.rms_residual()       # Fortuna's deflection is missing there
+    with pytest.raises(ValueError, match="perturbers"):
+        pyroorb.refit(fit, perturbers="some")
+
+
+@pytest.mark.slow
+@needs_kernel
+def test_all_keeps_a_non_gravitational_model():
+    from pyroorb import fit_object as fo
+    fit = _refit("2004_JN1")
+    assert fit.nongrav_model
+    g = fo.refine_perturbers(fit, mode="all")
+    assert g.perturbers_all and g.nongrav_model == fit.nongrav_model
+    assert "+343ast" in g.force_model and g.perturber_screen["mode"] == "all"
+
+
+@pytest.mark.slow
+@needs_kernel
+def test_the_web_toggle_solves_in_every_body_and_back():
+    from _fixtures import FIX, load_fixture
+    import pyroorb.web.engine_api as E
+    fx = load_fixture(f"{FIX}/PAIR_2016RM33.json")
+    p = E.fit_obs_list(fx["obs"], fx["meta"], E._obscodes())
+    sid = p["session"]
+    assert p["perturbers_all_count"] == 343 and not p["perturbers_all"]
+    a = E.set_asteroids(sid, "all")
+    assert a.get("ok", True) and a["perturbers_all"] and a["asteroid_extras"] == []
+    assert "+343ast" in a["force_model"]
+    b = E.set_asteroids(sid, True)
+    assert not b["perturbers_all"] and b["asteroids"]
+    c = E.set_asteroids(sid, False)
+    assert not c["asteroids"] and not c["perturbers_all"]
+
+
 @pytest.mark.slow
 @needs_kernel
 def test_fortuna_is_picked_and_the_2005_night_comes_back():
@@ -334,4 +413,108 @@ def test_one_ephemeris_per_body_set_and_its_window():
     assert a is not b
     lo, hi = pt.window(a)
     assert lo < 2415100 and hi > 2488000                            # 1900 .. 2100
+    assert lo > 2414000 and hi < 2489100                            # an extra body bounds it
+    lo, hi = pt.window(b)
+    assert lo < 2378497 and hi > 2524593                            # the 16 alone: 1800 .. 2200
     assert a.get_particle(11 + 16, 2451545.0 - a.jd_ref).m > 0      # the 17th body has mass
+
+
+def _jd(year):
+    return 2451545.0 + (year - 2000) * 365.25
+
+
+def _default_install(monkeypatch, tmp_path):
+    """No sb441-n16: the 16 come from the extra-perturber kernel, as on a default install."""
+    from pyroorb import force_assist as fa
+    monkeypatch.setattr(fa, "ASTEROIDS_DEFAULT_PATH", str(tmp_path / "sb441-n16.bsp"))
+    monkeypatch.setattr(fa, "ASTEROIDS_PATH", None)
+    monkeypatch.setattr(fa, "ASTEROIDS_OVERRIDE", None)
+    monkeypatch.setattr(fa, "_EPHEM_AST", None)
+    monkeypatch.setattr(fa, "_FALLBACK_SAID", set())
+    assert fa.asteroid_kernel_path() is None
+    return fa
+
+
+@needs_kernel
+def test_a_sweep_leaving_its_window_runs_in_the_widest_field_and_says_so(monkeypatch, tmp_path):
+    """Default install: a sweep reaching 1850 leaves an extra body's 1900-2100 but not the 16's
+    1800-2200, so it runs in the 16 (before, planets-only, silently, under a +16 label); one
+    reaching 1700 leaves both and runs planets-only. Each is said once per process."""
+    import warnings
+    fa = _default_install(monkeypatch, tmp_path)
+    with pytest.warns(UserWarning, match="the 16 asteroid perturbers only"):
+        e = fa._fallback_ephem(_jd(1850), _jd(2020))
+    assert e is pt.ephem_for(pt.field_bodies(True))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert fa._fallback_ephem(_jd(1850), _jd(2020)) is e            # said once
+    with pytest.warns(UserWarning, match="planets only"):
+        e = fa._fallback_ephem(_jd(1700), _jd(2020))
+    assert e is fa.get_ephem(False) and pt.window(e) is None
+
+
+@needs_kernel
+def test_the_16_integrate_before_1900_on_the_default_install(monkeypatch, tmp_path):
+    """A one-state sweep to 1850 in the kernel's 16 runs inside their window (no fallback, no
+    warning) and is pulled by them: it differs from the planets-only sweep."""
+    import warnings
+    fa = _default_install(monkeypatch, tmp_path)
+    s0 = np.array([2.7, 0.0, 0.0, 0.0, 0.0105, 0.001])               # a main-belt orbit
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with16 = fa.predict_state(None, _jd(2020), s0, _jd(1850), asteroids=True)
+    planets = fa.predict_state(None, _jd(2020), s0, _jd(1850), asteroids=False)
+    assert np.all(np.isfinite(with16))
+    assert np.linalg.norm(with16[:3] - planets[:3]) > 1e-7             # au; the 16 pulled it
+
+
+@needs_kernel
+@pytest.mark.skipif(not __import__("pyroorb.force_assist").force_assist.asteroid_kernel_path(),
+                    reason="needs sb441-n16 to compare against")
+def test_the_kernels_16_are_sb441_n16_over_1800_to_2200():
+    """The 16 are JPL's records verbatim over their whole span, so a fit in them integrates
+    as with sb441-n16 wherever both cover it. Positions agree to centimetres, not bits: a record
+    is located from its segment's start epoch, and a different cut start changes the last bits
+    of the normalised time (0.07 m at most, the same as the 1900-2100 kernel)."""
+    from jplephem.spk import SPK
+    from pyroorb import force_assist as fa
+    ours, jpl = SPK.open(pt.kernel_path()), SPK.open(fa.asteroid_kernel_path())
+    t = np.random.default_rng(3).uniform(_jd(1800) + 2, _jd(2200) - 2, 400)
+    want = {s.target: s for s in jpl.segments                       # JPL splits each body's
+            if s.start_jd < t.min() and s.end_jd > t.max()}            # span into segments
+    for s in ours.segments:
+        if s.target - 2000000 in pt.BIG16:
+            assert np.abs(s.compute(t) - want[s.target].compute(t)).max() < 1e-3, s.target  # km
+
+
+@pytest.mark.slow
+@needs_kernel
+def test_concurrent_table_builds_never_share_a_temporary(monkeypatch, tmp_path):
+    """Writers building the position table at once each use their own temporary file: with one
+    shared name, one writer's os.replace moved another's file away and that screen failed with
+    FileNotFoundError (a 3-process study pool after a kernel change)."""
+    import threading
+    saved, errors = [], []
+    real_save = np.save
+
+    def record(f, a):
+        saved.append(str(f))
+        real_save(f, a)
+
+    monkeypatch.setattr(pt._Table, "_path", staticmethod(lambda k: tmp_path / "k.table4d.npy"))
+    monkeypatch.setattr(pt.np, "save", record)
+
+    def build():
+        try:
+            assert pt._Table(pt.kernel_path()).pos.shape[0] == 343
+        except Exception as e:                      # pragma: no cover - the failure mode
+            errors.append(e)
+
+    ts = [threading.Thread(target=build) for _ in range(3)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert not errors
+    assert len(saved) == len(set(saved))
+    assert not list(tmp_path.glob("*.tmp.npy"))

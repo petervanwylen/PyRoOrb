@@ -82,7 +82,7 @@ Endpoints:
     POST /api/constrain         re-solve with elements held fixed {session, constraints}
     POST /api/nominal           show an orbit anyway on an undetermined arc {session}
     POST /api/d2_tracklets      digest2 scores per tracklet, for q < 1.8 {session | fit_key}
-    POST /api/asteroids         toggle the 16 asteroid perturbers + re-fit {session, on}
+    POST /api/asteroids         toggle the asteroid perturbers + re-fit {session, on: false|true|"all"}
 
 Web add-ons (web/addons.py) add their own routes, pages, Tools-menu links and scripts; the
 server serves whatever the installed add-ons register and knows none of them by name.

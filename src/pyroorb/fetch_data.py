@@ -6,8 +6,9 @@ Downloads (idempotently -- skips anything already present) into ``PYROORB_EPHEM_
   - DE440 planets    linux_p1550p2650.440   ~102 MB   REQUIRED
   - asteroid kernel  sb441-n16.bsp          ~616 MB   optional (16 perturbers)
 
-The extra-perturber kernel (pyroorb-perturbers-1900-2100-20km.bsp, ~26 MB: 343 asteroids,
-1900-2100; the automatic perturber screen and, without sb441-n16, the 16 themselves) ships
+The extra-perturber kernel (pyroorb-perturbers-1900-2100-20km.bsp, ~33 MB: 343 asteroids,
+1900-2100, the 16 of them 1800-2200; the automatic perturber screen and, without sb441-n16,
+the 16 themselves) ships
 inside the package, so nothing is fetched for it; only an install without that copy builds it
 here from JPL's sb441-n373 (~1 min, reading ~165 MB).
 

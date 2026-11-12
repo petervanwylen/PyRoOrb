@@ -119,7 +119,9 @@ def test_digest2_scores_need_no_fit():
 
 def test_fit_options_reach_the_engine_unchanged(monkeypatch):
     """nongrav / center / detect_satellite / mpc_seed are spellings of the engine's own
-    arguments; the defaults must call it exactly as before they existed."""
+    arguments; with perturbers="off" the defaults call it exactly as before they existed. With
+    the screen on (the default) the engine fits gravity and automatic nongrav discovery runs
+    after the screen, in the field it settled (fit_object.discover_nongrav_after_field)."""
     from pyroorb import fit_object
     calls = []
 
@@ -130,11 +132,21 @@ def test_fit_options_reach_the_engine_unchanged(monkeypatch):
         calls.append(kw)
         return _Fit()
 
+    order = []
     monkeypatch.setattr(fit_object, "fit_orbit", fake_fit)
     monkeypatch.setattr(fit_object, "fetch_mpc_seed", lambda obs, meta: {"seed": meta["designation"]})
+    monkeypatch.setattr(fit_object, "refine_perturbers",
+                        lambda f, **kw: (order.append("perturbers"), f)[1])
+    monkeypatch.setattr(fit_object, "discover_nongrav_after_field",
+                        lambda f, oc, rows, **kw: (order.append("nongrav"), (f, None))[1])
     obs = pyroorb.read_observations(OBS80)
+    # perturbers="off": the engine exactly as before, its own discovery inside
+    pyroorb.fit_orbit(obs, obscodes={}, perturbers="off")
+    assert calls[-1]["auto_nongrav"] is None and calls[-1]["center"] is None and order == []
+    # the default screens: the engine fits gravity, the field is settled, THEN discovery
     pyroorb.fit_orbit(obs, obscodes={})
-    assert calls[-1]["auto_nongrav"] is None and calls[-1]["center"] is None
+    assert calls[-1]["auto_nongrav"] is False and calls[-1]["center"] is None
+    assert order == ["perturbers", "nongrav"]
     assert calls[-1]["auto_center"] is None and calls[-1]["mpc_seed"] is None
     assert calls[-1]["force"] is False
     # the brute-force linker is not public (it can glue two objects into one clean-looking

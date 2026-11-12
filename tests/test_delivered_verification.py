@@ -165,3 +165,22 @@ def test_web_tail_is_quiet_when_both_steps_succeed(monkeypatch):
     api = _tail(monkeypatch, lambda f, rows, oc: f, lambda f, rows: f)
     display, auto = api.post_discovery_tail(_Orbit("yarkovsky"), {})
     assert auto == "yarkovsky" and display.nongrav_warning is None
+
+
+def test_the_tail_keeps_the_radar_the_fit_used(monkeypatch):
+    """The discovered orbit is radar-refined and the reclaim and verification see the rows,
+    as in _finalize. Without them Bennu's Yarkovsky was judged optically and reverted (dBIC
+    11.4 < 15) where the radar solve keeps it (A2 -4.40e-14)."""
+    import pyroorb.radar as radar
+    seen = {}
+    rows = [{"kind": "delay"}]
+    monkeypatch.setattr(radar, "refine_radar",
+                        lambda f, r, oc, verbose=False: (seen.setdefault("radar", r), f)[1])
+    api = _tail(monkeypatch,
+                lambda f, r, oc: (seen.setdefault("reclaim", r), f)[1],
+                lambda f, r: (seen.setdefault("verify", r), f)[1])
+    display, auto = api.post_discovery_tail(_Orbit("yarkovsky"), {}, rows)
+    assert seen == {"radar": rows, "reclaim": rows, "verify": rows} and auto == "yarkovsky"
+    seen.clear()
+    api.post_discovery_tail(_Orbit("yarkovsky"), {})              # no radar: none applied
+    assert "radar" not in seen and seen["verify"] == []

@@ -948,6 +948,20 @@ class ItfConfig:
     # mag warning must stay a caution, not a veto") was working around.
     warn_mag_resid: float = 0.7                # mag; mean tracklet |obs - computed|
     warn_mag_p: float = 0.05                   # two-tailed t-test vs zero
+    # Which photometric outliers are a CAUTION (a doubt about the linkage)
+    # rather than a diagnostic.  Only a LINKED tracklet, and only from this
+    # mean |dmag|.  A tracklet of the object's own published arc names no
+    # linked data, and the test runs over every tracklet of the arc, so a long
+    # arc finds a "significant" 0.7 mag tracklet by chance.  Adjudicated
+    # against the MPC's own filings (25,621 linked searches), the 452 resolved
+    # finds whose only caution was own-arc photometry held 0-1 wrong links,
+    # no worse than clean finds.  Linked-tracklet photometry did carry
+    # signal: every wrong link it flagged sat at |dmag| >= 1.2, and in two of
+    # three it named the wrong tracklet itself.  None was found in the 244
+    # resolved finds between 0.7 and 1.0 mag.  The rest is still computed at
+    # warn_mag_resid, reported as a diagnostic, and still withdraws a fragile
+    # three-thin confirmation exactly as before.
+    warn_mag_linked_resid: float = 1.0         # mag; linked tracklets only
     # ---- partial pickup of a designated (pseudo-ITF) object (itf/pickup.py) --
     # A document names DESIGNATIONS; the search links TRACKLETS.  When it takes
     # only part of a designated object, the archive's other tracklets are

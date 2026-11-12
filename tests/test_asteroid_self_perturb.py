@@ -116,6 +116,7 @@ def test_context_names_the_excluded_body():
 def test_without_a_kernel_the_context_stays_gravity(monkeypatch):
     import pyroorb.force_assist as fa
     monkeypatch.setattr(fa, "asteroid_kernel_path", lambda: None)
+    monkeypatch.setattr(fa, "_field_kernel", lambda: None)   # nor the bundled kernel's 16
     with fa.perturbers_off_for("1 Ceres"):
         assert fa._use_asteroids(True) is False
         assert fa._epsilon(True) == fa.IAS15_EPSILON

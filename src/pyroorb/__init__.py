@@ -276,14 +276,20 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
         some long arcs it changes which observations end up rejected; without it the fit uses
         nothing but the observations given.
     perturbers : str, default "auto"
-        ``"auto"``: after the fit, screen the massive asteroids (the 16 of JPL's sb441-n16
-        and the other 327 with DE440 masses) for the chi2 each would remove from these
-        observations, rejected ones included, and refit with every body worth at least 1 --
-        kept only if it lowers the chi2 on the same observations. ``fit.perturber_screen``
+        ``"auto"``: after the gravity fit, screen the massive asteroids (the 16 of JPL's
+        sb441-n16 and the other 327 with DE440 masses) for the chi2 each would remove from
+        these observations, rejected ones included, and refit with every body worth at least
+        1 -- kept only if it lowers the chi2 on the same observations. ``fit.perturber_screen``
         records the outcome; ``fit.asteroids`` is then True (the 16) or a set of the extra
-        bodies. Needs the extra-perturber kernel (``pyroorb-fetch-data --perturbers``) and an
-        arc within 1900-2100; otherwise, or with ``"off"`` (or ``PYROORB_PERTURBERS=off``),
-        the fit is returned as the engine made it.
+        bodies. Needs the extra-perturber kernel (shipped with the package) and an arc within
+        1900-2100. With ``nongrav="auto"`` the non-gravitational model is decided AFTER the
+        screen, in the field it settled: a perturber is known physics with no free parameter,
+        and a model found first could absorb its signature. With ``"off"`` (or
+        ``PYROORB_PERTURBERS=off``) the fit is returned as the engine made it, its nongrav
+        model decided inside the fit.
+        ``"all"``: no screen -- the fit is redone with every massive asteroid of that kernel
+        (343, the object itself excepted) whether or not it matters, and kept whatever the
+        chi2 says; ``fit.perturbers_all`` is then True. It costs 5-18x a fit in the 16.
 
     Returns
     -------
@@ -306,8 +312,8 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
     """
     from pyroorb import fit_object as _fit_object
     pkey = str(perturbers or "off").strip().lower()
-    if pkey not in ("auto", "off"):
-        raise ValueError(f"perturbers must be 'auto' or 'off', not {perturbers!r}")
+    if pkey not in ("auto", "off", "all"):
+        raise ValueError(f"perturbers must be 'auto', 'all' or 'off', not {perturbers!r}")
     key = "auto" if nongrav is None else str(nongrav).lower()
     forced = key in _FORCED_NONGRAV
     if not (key in _NONGRAV or forced):
@@ -330,11 +336,25 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
         # fetch_mpc_seed reads meta["designation"] (what the CLI's fetch puts there)
         seed = _fit_object.fetch_mpc_seed(records, {"designation": designation, **(meta or {})})
     table = _table(obscodes)
+    # With a perturber field to settle, the engine fits gravity and automatic nongrav discovery
+    # runs AFTER the screen, in the field it chose (fit_object.discover_nongrav_after_field): a
+    # perturber is known physics with no free parameter, and an A1/A2 found first could absorb
+    # its signature. perturbers="off" calls the engine exactly as before.
+    screened = pkey in ("auto", "all") and center is None
+    discover_after = screened and not forced and _NONGRAV[key] is None
     fit = _fit_object.fit_orbit(records, table, desig=designation, meta=meta,
-                                force=False, auto_nongrav=False if forced else _NONGRAV[key],
+                                force=False,
+                                auto_nongrav=(False if forced or discover_after
+                                              else _NONGRAV[key]),
                                 center=center,
                                 auto_center=None if detect_satellite else False,
                                 mpc_seed=seed)
+    if pkey == "all" and center is None:
+        fit = _fit_object.refine_perturbers(fit, mode="all")
+        skipped = (fit.perturber_screen or {}).get("skipped")
+        if skipped:
+            _warnings.warn(f"{designation}: perturbers='all' did not run ({skipped})",
+                           UserWarning, stacklevel=2)
     if pkey == "auto" and center is None:
         fit = _fit_object.refine_perturbers(fit)
         extra = getattr(fit, "extra_perturbers", None)
@@ -343,6 +363,9 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
             _warnings.warn(f"{designation}: integrated with asteroid perturbers beyond the 16 -- "
                            f"{_pt.summary(extra)} (fit.extra_perturbers)",
                            PerturbersAddedWarning, stacklevel=2)
+    if discover_after:
+        fit, _model = _fit_object.discover_nongrav_after_field(
+            fit, table, (meta or {}).get("radar") or [])
     if forced:
         # What notebooks 05 and 06 did by hand: the model on the gravity fit's observation
         # set, kept whether or not it improves the fit, then the radar folded back in (the
@@ -360,7 +383,7 @@ def fit_orbit(observations, designation=None, *, obscodes=None, nongrav="auto",
     return fit
 
 
-def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None):
+def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None, perturbers=None):
     """The same orbit solved again on exactly the observations you choose, with no rejection.
 
     :func:`fit_orbit` decides for itself which observations to reject. This holds the set
@@ -387,6 +410,10 @@ def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None):
         says so when ``fit`` itself had used radar.
     obscodes : dict, optional
         An observatory table for the radar stations, as in :func:`fit_orbit`.
+    perturbers : str, optional
+        The asteroid field to solve in: ``"off"`` (planets only), ``"16"`` (the 16 most
+        massive), ``"all"`` (every massive asteroid of the perturber kernel, 343). Default:
+        ``fit``'s own field, extra bodies included.
 
     Returns
     -------
@@ -414,6 +441,19 @@ def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None):
         raise ValueError(f"{int(mask.sum())} observations cannot determine {n_params} "
                          f"parameters")
     asteroids = _p.fit_asteroids(fit)        # False, True (the 16) or a Field (16 + extras)
+    if perturbers is not None:
+        pk = str(perturbers).strip().lower()
+        if pk == "all":
+            from pyroorb import perturbers as _pt
+            asteroids = _pt.all_field(exclude=_pt.self_number(fit))
+            if asteroids is None:
+                raise ValueError("perturbers='all' needs the extra-perturber kernel")
+        elif pk in ("16", "on"):
+            asteroids = True
+        elif pk in ("off", "none", "0"):
+            asteroids = False
+        else:
+            raise ValueError(f"perturbers must be 'off', '16' or 'all', not {perturbers!r}")
     if model == "none":
         out = _fo.refit_force_model(fit, asteroids, mask=mask,
                                     seed=_np.asarray(fit._state, float)[:6], drop_nongrav=True)

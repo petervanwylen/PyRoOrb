@@ -435,9 +435,26 @@ def _radar_block(fit):
 
 
 def fit_asteroids_extras(fit):
-    """The extra perturbers (beyond the 16) a fit integrates, sorted; [] for none."""
+    """The extra perturbers (beyond the 16) a fit integrates, sorted; [] for none, and for the
+    whole kernel field (named by `perturbers_all` instead of 327 numbers)."""
+    from pyroorb import perturbers as _pt
     a = getattr(fit, "asteroids", False)
+    if _pt.is_all(a):
+        return []
     return sorted(int(n) for n in a) if isinstance(a, frozenset) else []
+
+
+def _pt_is_all(fit):
+    from pyroorb import perturbers as _pt
+    return _pt.is_all(getattr(fit, "asteroids", False))
+
+
+def perturbers_all_count():
+    """How many bodies the "all" toggle integrates (16 + the rest of the kernel); 0 without the
+    extra-perturber kernel, which hides that toggle."""
+    from pyroorb import perturbers as _pt
+    a = _pt.all_extras()
+    return 16 + len(a) if a else 0
 
 
 def serialise_fit(fit):
@@ -721,6 +738,9 @@ def serialise_fit(fit):
         # Extra perturbers beyond the 16 (MP numbers) the orbit is integrated with, and what
         # the screen found for each (name, dchi2, closest approach): the Force model panel's line.
         "asteroid_extras": fit_asteroids_extras(fit),
+        # True in the whole kernel field (the "all" toggle); the count labels that toggle
+        "perturbers_all": _pt_is_all(fit),
+        "perturbers_all_count": perturbers_all_count(),
         "extra_perturbers": [dict(e) for e in getattr(fit, "extra_perturbers", None) or []],
         # Radar (delay/Doppler) rows folded into the fit, or None. The orbit is already
         # radar-refined (fit_orbit); this surfaces it for the UI. Mirrors the CLI radar report.
@@ -3171,7 +3191,8 @@ def set_asteroids(sid, on, mask_list=None):
     building both force models off the pure-gravity baseline. This touches ONLY the force-model
     selector -- any active nongrav model and element constraints are KEPT and re-applied on the
     new base (they all compose). If no kernel is available, ON gracefully stays gravity (the
-    payload reports the true state)."""
+    payload reports the true state). `on` "all" solves in the whole extra-perturber kernel
+    (every massive asteroid it holds, the object itself excepted), screened or not."""
     s = _SESSIONS.get(sid)
     if not s or "grav_pure" not in s:
         return {"ok": False, "error": "session expired -- re-fit the object", "expired": True}
@@ -3186,6 +3207,12 @@ def set_asteroids(sid, on, mask_list=None):
     # exclusion is unavailable the engine stays on gravity; banner it then.
     sp = guards.self_perturber_name(fit=s["grav_pure"])
     seed = None
+    want_all = isinstance(on, str) and on.strip().lower() == "all"
+    if want_all:
+        from pyroorb import perturbers as _pt
+        all_field = _pt.all_field(exclude=_pt.self_number(s["grav_pure"]))
+        if all_field is None:
+            return {"ok": False, "error": "the extra-perturber kernel is not installed"}
     if bool(on):
         # seed the asteroid fit from a good asteroid state (avoids the spurious near-gravity
         # local min on perturber-dependent obs sets); compute + cache it once if absent.
@@ -3198,9 +3225,10 @@ def set_asteroids(sid, on, mask_list=None):
                 s["ast_state"] = None
         seed = s.get("ast_state")
     try:
-        want = (s.get("auto_field") or True) if bool(on) else False
+        want = (all_field if want_all
+                else (s.get("auto_field") or True) if bool(on) else False)
         base = fo.refit_force_model(s["grav_pure"], want, mask=mask, seed=seed)
-        if want and s.get("auto_detail") and isinstance(base.asteroids, frozenset):
+        if want and not want_all and s.get("auto_detail") and isinstance(base.asteroids, frozenset):
             detail = [e for e in s["auto_detail"] if int(e["number"]) in base.asteroids]
             base._ctx["meta"] = {**(base._ctx.get("meta") or {}), "extra_perturbers": detail}
             base.extra_perturbers = detail
@@ -3427,33 +3455,10 @@ def run_fit(desig, force=False):
                                     "duplicates_dropped": meta.get("duplicates_dropped") or []})
 
 
-def post_discovery_tail(display, obscodes):
-    """fit_object._finalize's POST-DISCOVERY tail, run on the web's discovered orbit:
-    the final stale-exclusion reclaim and then the delivered verification. Returns
-    ``(display, auto_model)`` -- the orbit to show and the model it actually carries.
-
-    Split out of :func:`fit_obs_list` so it can be tested with stubs, and so the failure
-    handling is one thing you can read. ONE try per step, and neither of them silent: a
-    single ``except Exception: pass`` around the pair (the first version) put back the
-    swallow that ``_delivered_verification`` is emphatic about -- "FAIL LOUD, never
-    open" -- one level up, on the surface most people actually look at, and left
-    ``auto_model`` holding the PRE-tail model whenever the reclaim raised, so the model
-    dropdown pre-selected something the displayed orbit no longer carried. The gate
-    records its own internal errors; only what ESCAPES to here can be reported by us, and
-    ``nongrav_warning`` is the advisory channel the panel renders. `auto_model` is re-read
-    from the delivered orbit unconditionally, so the two can no longer disagree."""
-    try:
-        display = fo._final_reclaim(display, [], obscodes)
-    except Exception as ex:
-        fo._ng_warn_on(display, f"the post-delivery reclaim did not complete "
-                                f"({type(ex).__name__}: {ex}) -- this is the pre-reclaim orbit")
-    try:
-        display = fo._delivered_verification(display, [])
-    except Exception as ex:
-        fo._ng_warn_on(display, f"the delivered-model verification did not complete "
-                                f"({type(ex).__name__}: {ex}) -- the model was kept and is "
-                                f"UNVERIFIED; treat the coefficients as provisional")
-    return display, getattr(display, "nongrav_model", None)
+def post_discovery_tail(display, obscodes, radar_rows=()):
+    """The web's name for :func:`fit_object.post_discovery_tail` (the radar refine, the final
+    reclaim and the delivered verification, each failing loud); returns ``(display, model)``."""
+    return fo.post_discovery_tail(display, obscodes, radar_rows)
 
 
 def fit_obs_list(obs, meta, obscodes, force=False, meta_extra=None):
@@ -3495,36 +3500,14 @@ def fit_obs_list(obs, meta, obscodes, force=False, meta_extra=None):
             fit.perturber_screen = info
     except Exception:
         fit = grav
-    # Automatic non-gravitational discovery (the same two routines the CLI runs by default).
-    # `fit` (gravity/asteroid) stays the session baseline the dropdown reseeds from; we DISPLAY
-    # the discovered orbit and pre-select its model. COMET out-gassing (discover_comet_nongrav,
-    # triggered by a C//P/ designation or a cometary Tisserand) runs FIRST and WINS the overlap:
-    # if it applies, the asteroid Yarkovsky/SRP discovery is skipped; if it only triggers-but-
-    # declines, the asteroid path still runs (a low-q object can be Yarkovsky-not-outgassing).
-    # Mirrors fit_object._finalize so the web result matches the CLI -- INCLUDING the
-    # post-discovery tail (stale-exclusion reclaim + the delivered verification), which is
-    # where a basin-escape phantom is exposed: 2012 VP6's yarkovsky clears every
-    # in-discovery bar and only dies at the final pinned-A=0 refit, which runs AFTER the
-    # reclaim's delivery-grade rebuild has walked the co-adapted (state, A) pair into its
-    # real basin. Without this tail the web showed VP6 as an auto-yarkovsky the CLI
-    # (correctly) refuses -- a web/CLI divergence. Radar is CLI-only here, so the
-    # tail runs with no radar rows (the verification's radar suppression never engages).
-    auto_model, display = None, fit
-    try:
-        cg_fit, cg_info = fo.discover_comet_nongrav(fit)
-        if cg_info.get("applied"):
-            auto_model, display = cg_info["model"], cg_fit
-    except Exception:
-        pass
-    if auto_model is None:
-        try:
-            ng_fit, ng_info = fo.discover_nongrav(fit)
-            if ng_info.get("applied"):
-                auto_model, display = ng_info["model"], ng_fit
-        except Exception:
-            pass
-    if auto_model is not None:
-        display, auto_model = post_discovery_tail(display, obscodes)
+    # Automatic non-gravitational discovery IN THE SETTLED FIELD -- the one stage the CLI and
+    # the public fit_orbit run too (fit_object.discover_nongrav_after_field): comet out-gassing
+    # first, then Yarkovsky/SRP, then the post-discovery tail (radar refine, reclaim, delivered
+    # verification -- where a basin-escape phantom such as 2012 VP6's yarkovsky dies). `fit`
+    # (gravity/asteroid) stays the session baseline the dropdown reseeds from; the discovered
+    # orbit is DISPLAYED and its model pre-selected.
+    display, auto_model = fo.discover_nongrav_after_field(fit, obscodes,
+                                                          (meta or {}).get("radar") or [])
     payload = serialise_fit(display)
     payload["nongrav_auto"] = auto_model
     # True only when the gated polish KEPT the 16 perturbers because they meaningfully
@@ -3831,7 +3814,9 @@ def session_from_job(job_id):
         if gfit is pure:
             gfit2 = pure2
         else:                                   # the asteroid-polished baseline
-            ev_a, ctx_a = fo.with_force_model(ctx, True, gfit)
+            # in the template's OWN field: the screen's 16 + extras (a perturbers.Field), not
+            # the bare 16 -- `True` here silently dropped e.g. (471) Papagena for 352870
+            ev_a, ctx_a = fo.with_force_model(ctx, gfit.asteroids or True, gfit)
             ev_a.nongrav = None
             gfit2 = _copy_mod.copy(gfit)
             gfit2._ctx = ctx_a
@@ -3849,6 +3834,10 @@ def session_from_job(job_id):
             "grav_fit": gfit2, "grav_pure": pure2,
             "model": tmpl.get("model"), "constraints": dict(tmpl.get("constraints") or {}),
             "asteroids": bool(tmpl.get("asteroids")),
+            # the screen's field and what it found, so toggling the perturbers off and back
+            # on restores the 16 + extras (set_asteroids), not the bare 16
+            "auto_field": tmpl.get("auto_field"),
+            "auto_detail": [dict(e) for e in tmpl.get("auto_detail") or []],
             "ast_state": (None if ast_state is None
                           else np.asarray(ast_state, dtype=float).copy()),
             # Read-mostly carry-overs from the template: the DISPLAYED orbit (which

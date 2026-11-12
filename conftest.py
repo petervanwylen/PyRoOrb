@@ -14,8 +14,10 @@ The default run is truly offline -- what continuous integration sees:
   moves), and tests that need the 645 MB asteroid kernel skip without it.
 * **The station table** is the copy bundled with the package, and is never downloaded.
 """
+import atexit
 import ipaddress
 import os
+import shutil
 import socket
 import sys
 import tempfile
@@ -26,6 +28,9 @@ from pyroorb import datadirs  # noqa: E402
 os.environ.setdefault("PYROORB_EPHEM_DIR", str(datadirs.table_dir("ephem")))
 os.environ.setdefault("PYROORB_DEBIAS_DIR", str(datadirs.table_dir("debias")))
 _CACHE = tempfile.mkdtemp(prefix="pyroorb-test-cache-")
+# Removed when the process exits (each xdist worker owns one): left behind, one per session
+# and per worker, they reached 2 174 folders and 2.6 GB of the temporary disk.
+atexit.register(shutil.rmtree, _CACHE, ignore_errors=True)
 os.environ["PYROORB_CACHE_DIR"] = _CACHE
 os.environ["PYROORB_OBSCODES_REFRESH"] = "never"
 os.environ["PYROORB_OBSCODES_PATH"] = os.path.join(_CACHE, "no-obscodes-cache", "ObsCodes.htm")

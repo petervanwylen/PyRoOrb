@@ -1773,7 +1773,10 @@ def _deliver_nongrav_orbit(ctx, fit, model, result, mask, ng_diag=None,
         # perturbers is judged planets-only and every displayed residual carries the ~0.4"
         # divergence. with_force_model re-binds them through the ctx backend, so for one of
         # the 16 perturber objects the exclusion survives (a web re-fit, a jackknife).
-        field = ctx.get("asteroids")
+        # the field the solve ran in: the caller's when it names one (a Field asked of a
+        # gravity or +16 fit), else the ctx's own; reading only the ctx delivered a solve made
+        # in a Field pinned and labelled +16, its residuals rebuilt without the extra bodies
+        field = asteroids if isinstance(asteroids, frozenset) and asteroids else ctx.get("asteroids")
         ev2, ctx2 = with_force_model(ctx, field if isinstance(field, frozenset) and field
                                      else True)
     else:
@@ -5046,9 +5049,18 @@ def _force_model_label(ctx, asteroids, fit=None):
         return name                             # rebound 8-planet: no perturbers either way
     if not asteroids:
         return "ASSIST(DE440+GR)"
+    from pyroorb import perturbers as _pt
+    sp = excluded_body(ctx.get("backend"))
+    if _pt.is_all(asteroids):
+        # the whole kernel: counted, not listed (327 numbers would bury the tag)
+        n = 16 + len(asteroids)
+        if sp is not None and _self_excluding(ctx.get("backend")):
+            return f"ASSIST(DE440+GR+{n - 1}ast, excl. {sp})"
+        if sp is not None:
+            return "ASSIST(DE440+GR, +16ast off: self-perturber)"
+        return f"ASSIST(DE440+GR+{n}ast)"
     more = ("".join(f"+({n})" for n in sorted(asteroids))
             if isinstance(asteroids, frozenset) else "")
-    sp = excluded_body(ctx.get("backend"))
     if sp is not None:
         if _self_excluding(ctx.get("backend")):
             return f"ASSIST(DE440+GR+15ast{more}, excl. {sp})"
@@ -5171,8 +5183,101 @@ def refine_asteroids(fit, force=False, max_iter=6, verbose=False, mask=None):
     return fit2
 
 
-def refine_perturbers(fit, max_iter=6, verbose=False):
+def post_discovery_tail(f, obscodes, radar_rows=(), verbose=False):
+    """_finalize's POST-DISCOVERY tail for an orbit whose nongrav model was discovered on a
+    FINISHED fit (discover_nongrav_after_field): the radar refine, the final stale-exclusion
+    reclaim and the delivered verification, with the radar rows exactly as _finalize passes
+    them. Returns ``(f, model)`` -- the orbit and the model it actually carries.
+
+    The radar rows matter: without them the discovered orbit stayed optical-only and the
+    verification judged it optically where _finalize lets radar adjudicate. Measured on the
+    radar fixtures with a nongrav model: Bennu's Yarkovsky was reverted (optical dBIC 11.4 <
+    15, where the radar solve gives A2 -4.40e-14) and 2003 HM kept A2 -2.6e-14 at 0.71" where
+    the radar solve gives -1.17e-13 at 0.50".
+
+    ONE try per step, none of them silent: a blanket ``except Exception: pass`` put back the
+    swallow _delivered_verification is emphatic about ("fail loud, never open"), and left the
+    reported model holding the PRE-tail model whenever a step raised. Each failure lands on
+    ``nongrav_warning``, the advisory channel the CLI and the web panel render, and the model
+    is re-read from the delivered orbit unconditionally."""
+    radar_rows = list(radar_rows or [])
+    if radar_rows and os.environ.get("PYROORB_RADAR", "1") != "0":
+        try:
+            import pyroorb.radar as _radar
+            f = _radar.refine_radar(f, radar_rows, obscodes, verbose=verbose)
+        except Exception as ex:
+            _ng_warn_on(f, f"the radar refine of the discovered orbit did not complete "
+                           f"({type(ex).__name__}: {ex}) -- this orbit is optical only")
+    try:
+        f = _final_reclaim(f, radar_rows, obscodes)
+    except Exception as ex:
+        _ng_warn_on(f, f"the post-delivery reclaim did not complete "
+                       f"({type(ex).__name__}: {ex}) -- this is the pre-reclaim orbit")
+    try:
+        f = _delivered_verification(f, radar_rows)
+    except Exception as ex:
+        _ng_warn_on(f, f"the delivered-model verification did not complete "
+                       f"({type(ex).__name__}: {ex}) -- the model was kept and is "
+                       f"UNVERIFIED; treat the coefficients as provisional")
+    return f, getattr(f, "nongrav_model", None)
+
+
+def discover_nongrav_after_field(fit, obscodes, radar_rows=(), auto_nongrav=None,
+                                 verbose=False):
+    """Non-gravitational discovery on a FINISHED fit whose asteroid field is already settled
+    (the perturber screen has run), then the post-discovery tail. Returns ``(fit, model)``.
+
+    The order is the rule: a perturber is known physics with a known mass and no free
+    parameter, so the field is settled first and a nongrav model must then earn its place
+    in it -- never the reverse, where A1/A2 can absorb an unmodelled encounter and the
+    screen, skipping a nongrav fit, never sees it. Every surface that screens perturbers
+    (the public fit_orbit, the CLI, the web fit) discovers through here, so they deliver the
+    same orbit.
+
+    The same two systems as _finalize, under the same switches (`auto_nongrav`, else
+    PYROORB_AUTO_COMET_NONGRAV / PYROORB_AUTO_NONGRAV): the comet path runs first and wins
+    the overlap; a comet path that triggers but declines leaves the asteroid path its chance.
+    A planetocentric orbit is never given one. The discovery record lands on the delivered
+    orbit as ``nongrav_discovery``, as _finalize does."""
+    if getattr(fit, "center", None) is not None:
+        return fit, getattr(fit, "nongrav_model", None)
+    do_comet = (auto_nongrav if auto_nongrav is not None
+                else os.environ.get("PYROORB_AUTO_COMET_NONGRAV", "1") != "0")
+    do_auto = (auto_nongrav if auto_nongrav is not None
+               else os.environ.get("PYROORB_AUTO_NONGRAV", "1") != "0")
+    model, found, record = None, fit, {}
+    if do_comet:
+        try:
+            f_c, cinfo = discover_comet_nongrav(fit, verbose=verbose)
+            record["comet"] = cinfo
+            if cinfo.get("applied"):
+                model, found = cinfo["model"], f_c
+        except Exception as ex:
+            if verbose:
+                print(f"  discover_comet_nongrav skipped: {type(ex).__name__}: {ex}")
+    if model is None and do_auto:
+        try:
+            f_a, ainfo = discover_nongrav(fit, verbose=verbose)
+            record["asteroid"] = ainfo
+            if ainfo.get("applied"):
+                model, found = ainfo["model"], f_a
+        except Exception as ex:
+            if verbose:
+                print(f"  discover_nongrav skipped: {type(ex).__name__}: {ex}")
+    if model is None:
+        if record:
+            fit.nongrav_discovery = record
+        return fit, getattr(fit, "nongrav_model", None)
+    found.nongrav_discovery = record
+    return post_discovery_tail(found, obscodes, radar_rows, verbose=verbose)
+
+
+def refine_perturbers(fit, max_iter=6, verbose=False, mode="auto"):
     """Add the asteroid perturbers the observations call for (perturbers.screen), and refit.
+
+    ``mode="all"`` skips the screen: the fit is redone in the whole kernel field (the 16 and
+    every other body, the object itself excepted; ``perturbers.all_field``) and kept whatever
+    the chi2 says -- the caller asked for that field, not for a judgement (perturb_with_all).
 
     The screen scores every perturber not yet in the fit's field by the chi2 the observations
     would gain with it (linear, all observations, rejected ones included); bodies at
@@ -5202,6 +5307,10 @@ def refine_perturbers(fit, max_iter=6, verbose=False):
     ctx = getattr(fit, "_ctx", None)
     if ctx is None:
         return done(fit, skipped="no fit context")
+    if mode == "all":
+        return perturb_with_all(fit, max_iter=max_iter, verbose=verbose)
+    if mode != "auto":
+        raise ValueError(f"mode must be 'auto' or 'all', not {mode!r}")
     if not _pt.enabled():
         return done(fit, skipped="switched off")
     if not is_assist(ctx["backend"]) or _pt.kernel_path() is None:
@@ -5281,6 +5390,75 @@ def refine_perturbers(fit, max_iter=6, verbose=False):
         print(f"  perturbers: {fit.force_model} -> {fit2.force_model} (picks {sc.picks}, same-obs "
               f"chi2 gain {gain:.1f}; {int(mask0.sum())} -> {int(mask_a.sum())} obs)")
     return done(fit2, kept=True, extras=fit2.extra_perturbers, **info)
+
+
+def perturb_with_all(fit, max_iter=6, verbose=False):
+    """`fit` redone in the whole extra-perturber kernel (the 16 + every other body, 343 in all,
+    the object itself excepted), kept unconditionally: the field asked for, not one the screen
+    judged. A gravity orbit is refitted warm with redemption and rejection as refine_perturbers
+    does; an orbit with a non-gravitational model re-solves state and coefficients on its own
+    observations (refine_nongrav). ``perturber_screen`` says {"mode": "all", "bodies",
+    "seconds", "gain"} (gain: the same-observation chi2 drop, information only) or
+    {"skipped": reason}. Measured cost: 5-18x a solve in the 16 (0.6-5.5 s per solve on 100-4300
+    observations)."""
+    import time
+    import pyroorb.arc_extend as _ae
+    from pyroorb import perturbers as _pt
+
+    def done(f, **info):
+        f.perturber_screen = info
+        return f
+
+    ctx = getattr(fit, "_ctx", None)
+    if ctx is None:
+        return done(fit, skipped="no fit context")
+    if not is_assist(ctx["backend"]) or _pt.kernel_path() is None:
+        return done(fit, skipped="no extra-perturber kernel")
+    sp = self_perturber_name(fit=fit)
+    if sp is not None and not _self_excluding(ctx["backend"]):
+        return done(fit, skipped=f"({sp}) is a perturber its backend cannot exclude")
+    new = _pt.all_field(exclude=_pt.self_number(fit))
+    if new is None:
+        return done(fit, skipped="no extra-perturber kernel")
+    cpu0 = time.process_time()
+    mask0 = np.asarray(fit._mask, dtype=bool)
+
+    def chi2(e, st, m):
+        return e.rms_norm(st, m) ** 2 * 2 * int(m.sum())
+
+    if getattr(fit, "nongrav_model", None):
+        fit2 = refine_nongrav(fit, model=fit.nongrav_model, mask=mask0, revert_if_worse=False,
+                              seed_state=np.asarray(fit._state, float), asteroids=new)
+        n = 16 + len(new) - (1 if sp is not None else 0)
+        return done(fit2, mode="all", bodies=n, seconds=round(time.process_time() - cpu0, 2))
+    ev = ctx["ev"]
+    ev2, ctx2 = with_force_model(ctx, new, fit)
+    if not ctx2["asteroids"]:
+        return done(fit, skipped="perturbers unavailable for this object")
+    ev2.nongrav = None
+    mask_a = mask0.copy()
+    state = np.asarray(fit._state, float).copy()
+    span0 = _ae._included_span(ev2, mask_a)
+    for _ in range(max_iter):
+        state, _ = ev2.fit(state, mask_a, thin=False)
+        before = mask_a.copy()
+        _ae.auto_reject_within_arc(ev2, mask_a, state, orig_span=span0)
+        if np.array_equal(mask_a, before):
+            break
+    state, mask_a = _ae._final_redeem(ev2, state, mask_a, [], verbose)
+    state, result = ev2.fit(state, mask_a, thin=False)
+    ctx2["meta"] = {**(ctx2.get("meta") or {}), "extra_perturbers": []}
+    fit2 = _build_orbit(ctx2, state, mask_a, result, fit.history)
+    gain = None
+    if np.array_equal(mask_a, mask0):
+        gain = round(chi2(ev, np.asarray(fit._state, float), mask0) - chi2(ev2, state, mask0), 2)
+    n = 16 + len(new) - (1 if sp is not None else 0)
+    if verbose:
+        print(f"  perturbers: all {n} -> {fit2.force_model}"
+              f"{'' if gain is None else f' (same-obs chi2 change {-gain:+.1f})'}; "
+              f"{int(mask0.sum())} -> {int(mask_a.sum())} obs")
+    return done(fit2, mode="all", bodies=n, seconds=round(time.process_time() - cpu0, 2),
+                gain=gain)
 
 
 def refit_force_model(fit, asteroids, mask=None, seed=None, max_nfev=200, drop_nongrav=False):
@@ -7047,6 +7225,13 @@ class FittedOrbit:
         self._state_cov = self._compute_state_cov()
         self._elem_cov = self._compute_elem_cov()
 
+    @property
+    def perturbers_all(self):
+        """True when the orbit was fitted in the whole asteroid-perturber kernel (the 16 and
+        every other massive asteroid it holds), as ``fit_orbit(perturbers="all")`` asks."""
+        from pyroorb import perturbers as _pt
+        return _pt.is_all(self.asteroids)
+
     # --- covariance machinery -------------------------------------------
     def _param_inverse(self):
         """`s^2 (J^T J)^-1` over the WHOLE solved parameter vector, in the LM's own units.
@@ -8183,6 +8368,8 @@ class FittedOrbit:
             # (number, name, dchi2, closest approach) in "extra_perturbers"
             "asteroids": bool(self.asteroids),
             "extra_perturbers": [dict(e) for e in self.extra_perturbers],
+            # True in the whole kernel field (perturbers="all"), which names no bodies
+            "perturbers_all": self.perturbers_all,
             "self_perturber": self.self_perturber,
         }
         for nm in ELEM_NAMES:

@@ -1,15 +1,21 @@
 """Build the extra-perturber kernel (perturbers.KERNEL_NAME) from JPL's sb441-n373.
 
 sb441-n373.bsp holds the 343 DE441 small-body perturbers plus 30 trans-Neptunian objects over
-DE441's whole span -- 15 GB. Only the records inside 1900-2100 are read, over HTTP range requests
-(~165 MB), and written as ONE Sun-centred DAF/SPK of type 2 that ASSIST loads as its asteroid
-file:
+DE441's whole span -- 15 GB. Only the records inside the windows below are read, over HTTP range
+requests (~175 MB), and written as ONE Sun-centred DAF/SPK of type 2 that ASSIST loads as its
+asteroid file:
 
-* the 16 bodies of sb441-n16 are JPL's records verbatim, so a fit in the 16 integrates exactly
-  as with sb441-n16 inside the window;
+* the 16 bodies of sb441-n16 are JPL's records verbatim over 1800-2200 (BIG16_START_YEAR ..
+  BIG16_STOP_YEAR), so a fit in the 16 integrates exactly as with sb441-n16 there. The wider span
+  is for the default install, which has no sb441-n16 to fall back to: every numbered asteroid
+  observed before 1900 (409 in MPCORB, from (1) Ceres in 1801) keeps the 16 instead of dropping
+  to planets-only, at 7.6 MB for the extra two centuries;
 * the other 327 asteroids with a DE440 mass are re-fitted per body to the cheapest record
   layout that stays within TOL_KM of JPL (eccentric Mars-crossers such as (433) Eros need short
-  records near perihelion; a single 128-day layout left them 1000-2000 km off).
+  records near perihelion; a single 128-day layout left them 1000-2000 km off), over 1900-2100
+  (START_YEAR .. STOP_YEAR). A field with any of them is therefore bounded by 1900-2100, the
+  16 alone by 1800-2200 (perturbers.window: each compacted Ephem covers the intersection of
+  its bodies' segments).
 
 ASSIST's reader fixes the layout: a target's segment is found from the span of its FIRST
 segment, so each target gets exactly one segment; record size, interval and coefficient count
@@ -23,6 +29,7 @@ import numpy as np
 
 N373_URL = "https://ssd.jpl.nasa.gov/ftp/eph/small_bodies/asteroids_de441/sb441-n373.bsp"
 START_YEAR, STOP_YEAR = 1900, 2100
+BIG16_START_YEAR, BIG16_STOP_YEAR = 1800, 2200
 TOL_KM = 20.0
 BIG16 = (1, 2, 3, 4, 7, 10, 15, 16, 31, 52, 65, 87, 88, 107, 511, 704)
 DAY = 86400.0
@@ -35,10 +42,20 @@ CHOICES = sorted(((d, n) for d in (32, 64, 128, 256, 512) for n in range(6, 17))
                  key=lambda c: ((2 + 3 * c[1]) / c[0], -c[0]))
 
 
-def _range(url, a, b):
+def _range(url, a, b, tries=4):
+    """Bytes [a, b) of `url`. A build makes ~700 range requests, 8 at a time, so a transient
+    gateway or connection error is retried (2, 4, 8 s) rather than ending the build."""
+    import time
     req = urllib.request.Request(url, headers={"Range": f"bytes={a}-{b - 1}"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        data = r.read()
+    for k in range(tries):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                data = r.read()
+            break
+        except OSError:                       # URLError, HTTPError and timeouts are OSErrors
+            if k == tries - 1:
+                raise
+            time.sleep(2.0 * 2 ** k)
     if len(data) != b - a:
         raise IOError(f"range {a}-{b} returned {len(data)} bytes")
     return data
@@ -151,7 +168,7 @@ def _write_spk(path, segments, comment, template_fr):
 
 # The SHA-256 of the kernel bundled with the package (perturbers.BUNDLED_KERNEL), the build
 # this module made from sb441-n373 at TOL_KM; a test checks the shipped file against it.
-KERNEL_SHA256 = "e930bf3f32d710dee130613c3409d6e0b411cc0925a1574e5a1960373d53fb29"
+KERNEL_SHA256 = "e3c9361cf2096d47845ccd174247edc63ab2e37c6608d84cc58af8c4bf1ba4db"
 
 
 def comment_text(n_refit, tol_km, worst_km):
@@ -172,11 +189,12 @@ def comment_text(n_refit, tol_km, worst_km):
         "Park, R. S., Folkner, W. M., Williams, J. G., Boggs, D. H., 2021, AJ 161, 105.\n"
         "Courtesy NASA/JPL-Caltech.\n"
         "\n"
-        f"MODIFICATIONS: cut to {START_YEAR}-{STOP_YEAR}; one segment per body; the 343 asteroids with "
-        "a DE440\n"
-        "header mass (the trans-Neptunian objects left out). The 16 bodies of sb441-n16 are JPL's\n"
-        f"records verbatim; the other {n_refit} are re-fitted per body to the cheapest Chebyshev\n"
-        f"record layout within {tol_km:g} km of JPL (worst {worst_km:.1f} km).\n"
+        "MODIFICATIONS: one segment per body; the 343 asteroids with a DE440 header mass (the\n"
+        "trans-Neptunian objects left out). The 16 bodies of sb441-n16 are JPL's records verbatim,\n"
+        f"cut to {BIG16_START_YEAR}-{BIG16_STOP_YEAR}; the other {n_refit} are cut to "
+        f"{START_YEAR}-{STOP_YEAR} and re-fitted per\n"
+        f"body to the cheapest Chebyshev record layout within {tol_km:g} km of JPL "
+        f"(worst {worst_km:.1f} km).\n"
         "VALIDATION: read back with jplephem and ASSIST; the 16 bit-identical to sb441-n16.\n"
         "Masses are not in this file (ASSIST joins the DE440 header GMs; PyRoOrb may override).\n"
         "\n"
@@ -186,22 +204,31 @@ def comment_text(n_refit, tol_km, worst_km):
 
 
 def build(out_path, planets_path, url=N373_URL, tol_km=TOL_KM, verbose=True, workers=8):
-    """Read n373's 1900-2100 records and write the kernel to `out_path`; returns the path."""
+    """Read n373's records (the 16 over 1800-2200, the rest over 1900-2100) and write the
+    kernel to `out_path`; returns the path."""
     read = lambda a, b: _range(url, a, b)
     fr, segs = _summaries(read)
     gm = de440_masses(planets_path)
     t0 = (START_YEAR - 2000) * 365.25 * DAY
     t1 = (STOP_YEAR - 2000) * 365.25 * DAY
+
+    def span(n):
+        if n in BIG16:
+            return ((BIG16_START_YEAR - 2000) * 365.25 * DAY,
+                    (BIG16_STOP_YEAR - 2000) * 365.25 * DAY)
+        return t0, t1
+
     jobs = [s for s in segs if 0 < s[2] - 2000000 < 8000 and s[2] - 2000000 in gm
-            and s[0] <= t0 and s[1] >= t1]
+            and s[0] <= span(s[2] - 2000000)[0] and s[1] >= span(s[2] - 2000000)[1]]
     if {s[2] - 2000000 for s in jobs} != set(gm):
         raise ValueError("n373 does not cover the window with one segment per DE440-mass asteroid")
 
     def one(s):
         init, intlen, rsize, _ = struct.unpack("<4d", read((s[7] - 4) * 8, s[7] * 8))
         rsize = int(rsize)
-        i0 = int((t0 - init) // intlen)
-        i1 = int(np.ceil((t1 - init) / intlen))
+        a0, a1 = span(s[2] - 2000000)
+        i0 = int((a0 - init) // intlen)
+        i1 = int(np.ceil((a1 - init) / intlen))
         a = (s[6] - 1) * 8 + i0 * rsize * 8
         data = np.frombuffer(read(a, a + (i1 - i0) * rsize * 8), "<f8").reshape(i1 - i0, rsize)
         return s[2] - 2000000, data, init + i0 * intlen, intlen

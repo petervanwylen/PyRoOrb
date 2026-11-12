@@ -2327,7 +2327,8 @@ def _accept_ctx(cfg=None, seed_pre=0.30, **kw):
 
 
 def _run_accept(monkeypatch, *, seed_post, seed_pre=0.30, promoted=False,
-                mag=None, cfg=None, seed_chi2_per_dof=1.0, trend=None):
+                mag=None, cfg=None, seed_chi2_per_dof=1.0, trend=None,
+                coh=None):
     """Drive `_judge` on an accepted profile past everything that needs a real fit, so what is
     under test is only its verdict: seed rms `seed_pre` -> `seed_post`, an
     optional magnitude warning, and whether a 1.75 profile was confirmed as 3."""
@@ -2352,9 +2353,10 @@ def _run_accept(monkeypatch, *, seed_post, seed_pre=0.30, promoted=False,
         "partial_nights": [], "shed_obs": 0, "kept_obs": 6})
     monkeypatch.setattr(S, "display_obs80", lambda c, o: o)
     monkeypatch.setattr(ident_check, "coherent_offset_misfit",
-                        lambda fit, noise_floor=None: None)
+                        lambda fit, noise_floor=None: coh)
     monkeypatch.setattr(S, "measure_trends", lambda fit, linked, seed=None, detailed=False: trend)
-    monkeypatch.setattr(S, "mag_outlier_tracklet", lambda *a, **kw: mag)
+    monkeypatch.setattr(S, "mag_outlier_tracklet",
+                        mag if callable(mag) else (lambda *a, **kw: mag))
     monkeypatch.setattr(S, "worst_mag_residual", lambda fit: (0.1, None))
     monkeypatch.setattr(S, "build_linkage",
                         lambda comb, cfg, **kw: ({"links": {"link_0": {}}}, None))
@@ -2443,6 +2445,80 @@ def test_a_confirmed_175_profile_is_withdrawn_by_any_warning(monkeypatch):
     # ...but a confirmed 1.75 with NOTHING to say against it still submits
     clean = _run_accept(monkeypatch, seed_post=0.31, promoted=True)
     assert clean.verdict is SearchVerdict.LINKED and clean.linkage
+
+
+def _mag_by_subset(whole, linked):
+    """A ``mag_outlier_tracklet`` stand-in: ``whole`` for the whole-arc call,
+    ``linked`` for the linked-tracklets-only call (``jd_subset``)."""
+    def f(fit, floor, p_max=0.05, jd_subset=None):
+        return linked if jd_subset is not None else whole
+    return f
+
+
+def test_own_arc_photometry_is_a_diagnostic_that_still_withdraws_a_175(monkeypatch):
+    """A photometric outlier on the object's OWN published arc names no linked
+    data (ItfConfig.warn_mag_linked_resid): it is filed as a diagnostic, so the
+    linkage is clean.  On a three-thin confirmation it still withdraws the
+    upgrade, as every caution did, and is quoted among the warnings that say why."""
+    import pyroorb.itf.search as S
+    own = {"station": "G96", "n": 4, "p": 0.01, "mean": 0.8, "jd": 2459000.5}
+    monkeypatch.setattr(S, "_mag_tracklet_is_own", lambda c, t, m: True)
+    monkeypatch.setattr(S, "_linked_jds", lambda c, t: {2459100.5})
+    mag = _mag_by_subset(own, None)
+    ok = _run_accept(monkeypatch, seed_post=0.31, mag=mag)
+    assert ok.verdict is SearchVerdict.LINKED and ok.linkage and not ok.warnings, ok.warnings
+    assert any(d.startswith(S.OWN_DATA_NOTE) and "OWN published arc" in d
+               for d in ok.diagnostics), ok.diagnostics
+    frag = _run_accept(monkeypatch, seed_post=0.31, mag=mag, promoted=True)
+    assert frag.verdict is SearchVerdict.POSSIBLE and frag.vetting["confirm_withdrawn"]
+    assert any(w.startswith(S.OWN_DATA_NOTE) for w in frag.warnings), frag.warnings
+
+
+def test_an_offset_night_of_the_own_arc_is_a_diagnostic(monkeypatch):
+    """A coherently offset night of the object's OWN arc is bad astrometry in the
+    seed, not a doubt about the linkage: a diagnostic, so the linkage is clean.
+    The same offset on a LINKED night stays a caution; a three-thin confirmation
+    is withdrawn by either, as before."""
+    import pyroorb.itf.search as S
+    coh = "the 2011-03-10 tracklet sits -2.69\" off in Dec (5x the pre-link residual level, n=3)"
+    monkeypatch.setattr(S, "_own_nights_as_ident", lambda c, f: ["2011-03-10"])
+    own = _run_accept(monkeypatch, seed_post=0.31, coh=coh)
+    assert own.verdict is SearchVerdict.LINKED and own.linkage and not own.warnings, own.warnings
+    assert any(d.startswith(S.OWN_DATA_NOTE) and "OWN published arc" in d
+               for d in own.diagnostics), own.diagnostics
+    frag = _run_accept(monkeypatch, seed_post=0.31, coh=coh, promoted=True)
+    assert frag.verdict is SearchVerdict.POSSIBLE and frag.vetting["confirm_withdrawn"]
+    monkeypatch.setattr(S, "_own_nights_as_ident", lambda c, f: [])
+    lnk = _run_accept(monkeypatch, seed_post=0.31, coh=coh)
+    assert lnk.verdict is SearchVerdict.LINKED and len(lnk.warnings) == 1
+    assert lnk.warnings[0].startswith("a linked night is systematically offset")
+
+
+def test_linked_photometry_warns_only_from_the_linked_floor(monkeypatch):
+    """A LINKED tracklet's photometry is a caution from warn_mag_linked_resid
+    (1.0 mag) up, a diagnostic below it.  And the linked tracklets are tested on
+    their own: an own-arc tracklet that wins the whole-arc test must not hide a
+    linked one 1.3 mag off (2016 UP224's wrong tracklet was a single linked
+    observation at +1.3)."""
+    import pyroorb.itf.search as S
+    monkeypatch.setattr(S, "_linked_jds", lambda c, t: {2459100.5})
+    small = {"station": "F51", "n": 3, "p": 0.01, "mean": -0.9}
+    monkeypatch.setattr(S, "_mag_tracklet_is_own", lambda c, t, m: False)
+    quiet = _run_accept(monkeypatch, seed_post=0.31, mag=_mag_by_subset(small, None))
+    assert quiet.verdict is SearchVerdict.LINKED and not quiet.warnings, quiet.warnings
+    assert any(d.startswith(S.OWN_DATA_NOTE) for d in quiet.diagnostics)
+    big = {"station": "F51", "n": 3, "p": 0.01, "mean": -1.2}
+    loud = _run_accept(monkeypatch, seed_post=0.31, mag=_mag_by_subset(big, None))
+    assert loud.verdict is SearchVerdict.LINKED and len(loud.warnings) == 1
+    assert "a linked tracklet" in loud.warnings[0] and "-1.2 mag" in loud.warnings[0]
+    # the whole-arc winner is own-arc; the linked-only test still finds the W84
+    own = {"station": "G96", "n": 5, "p": 1e-6, "mean": 0.8, "jd": 2459000.5}
+    lone = {"station": "W84", "n": 1, "p": None, "mean": 1.3, "jd": 2459100.5}
+    monkeypatch.setattr(S, "_mag_tracklet_is_own", lambda c, t, m: True)
+    hid = _run_accept(monkeypatch, seed_post=0.31, mag=_mag_by_subset(own, lone))
+    assert len(hid.warnings) == 1 and "W84" in hid.warnings[0], hid.warnings
+    assert "a linked tracklet" in hid.warnings[0]
+    assert hid.vetting["mag_tracklet"]["station"] == "W84"
 
 
 def test_a_seed_degradation_owned_by_the_seed_opposition_keeps_the_175(monkeypatch):

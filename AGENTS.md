@@ -11,7 +11,7 @@ only with a measurement, and update its line here when you do.
 - `arc_extend.py` — extension, outlier rejection, cluster activation, single-night dropping.
 - `forward_model.py` / `force_assist.py` — rebound 8-planet and ASSIST (DE440+GR) propagators + batch sweeps.
   `perturbers.py` — the field (the 16 + extra bodies, `Field`) and the screen that fills it;
-  `perturber_kernel.py` — its 343-body 1900-2100 kernel, SHIPPED in the package
+  `perturber_kernel.py` — its 343-body 1900-2100 kernel (the 16: 1800-2200), SHIPPED in the package
   (`perturbers.BUNDLED_KERNEL`, `src/pyroorb/data/`, SHA-256 `KERNEL_SHA256` tested; its position
   table goes to the cache, never the package), rebuilt from JPL's sb441-n373 by `build`; the comment area names
   PyRoOrb as producer of a modified, non-JPL kernel (NAIF modified-kernel rules, JPL data-use policy).
@@ -41,8 +41,10 @@ only with a measurement, and update its line here when you do.
   (stable / provisional); `tests/test_public_api.py` fails on an exported or listed name
   without a docstring, and on a notebook cell importing an internal module unmarked.
   Everything else is internal. New public options are spellings of engine arguments whose
-  defaults call the engine exactly as before (`test_fit_options_reach_the_engine_unchanged`);
-  `perturbers="auto"` adds a post-fit step (`refine_perturbers`), the engine call unchanged.
+  defaults call the engine exactly as before under `perturbers="off"`
+  (`test_fit_options_reach_the_engine_unchanged`); with the screen on (`"auto"`, `"all"`, the
+  default) the engine fits gravity, `refine_perturbers` settles the field, and nongrav discovery
+  runs after it (`fit_object.discover_nongrav_after_field`; see the order rule below).
 
 ## Testing
 
@@ -98,6 +100,10 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **Residual trends are diagnostics, not gates** (`itf/residual_trend.py`; withdrawn as a gate); they ARE review warnings in batch CSVs; the two-axis walk
   (`two_axis_trend`) is a search warning. Leave-out confirmation can demote a caution
   (`itf/leaveout.py`, never on 1.75→3).
+- **The object's own arc is data quality, not a link doubt** (`search._extension_check`): photometry is a
+  caution only on a LINKED tracklet at >= 1.0 mag (`ItfConfig.warn_mag_linked_resid`, linked tracklets
+  tested on their own), an offset night only on a linked night; the rest is a diagnostic
+  (`OWN_DATA_NOTE`) that still withdraws a 1.75→3 confirmation (`ExtensionCheck.withdraws`).
 - **Ranker = v4 only**; harness plants must not leak labels
   (`tests/test_itf_harness_leaks.py`). Continuous LOV refine (`itf/lov_refine.py`) runs
   ONLY after the whole fan failed — acting on it mid-scan causes wrong links; there its
@@ -152,9 +158,10 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   most 8; any pick brings the 16), the refit is warm with redemption/rejection, and kept only on
   a same-obs chi2 gain. Passes under 0.002 au are taken as an analytic impulse (sampling scored
   a 0.00006 au pass 5 vs a refit gain of 1670). `asteroids` is False / True / `Field` (frozen
-  set of extras, truthy); the kernel covers 1900-2100 and a sweep outside it runs in
-  sb441-n16 (`force_assist._integrate_split`), or planets-only where sb441-n16 is absent (the
-  default install: the 16 then come from the kernel, `force_assist.asteroids_available`). It
+  set of extras, truthy); the kernel covers 1900-2100 (the 16 alone 1800-2200, so every
+  asteroid observed since 1801 keeps them on the default install) and a sweep outside a field's
+  window runs wholly in the 16 (sb441-n16, else the kernel's), else planets-only, with a
+  once-per-process warning (`force_assist._fallback_ephem`). It
   runs after public `fit_orbit`, the CLI, the web fit and identification services'
   identification fits (`itf.fitter.refine_trial`). ITF screens the SEED once per search and,
   when the refit keeps bodies beyond the 16, every trial fit runs in that field
@@ -163,6 +170,12 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   are never screened themselves. Off by `perturbers="off"`, `--perturbers off`,
   `PYROORB_PERTURBERS=off` (the web then falls back to the gated +16 polish). Cost of the
   default on 34 mixed objects: 1.52x the gravity fit's CPU (web 1.14x its old polish).
+  **Every body on request** (`perturbers="all"`, `--perturbers all`, the web "+343 ast" toggle,
+  `refit(perturbers="all")`; `fit_object.perturb_with_all`, `perturbers.all_field`): no screen,
+  the whole kernel (343, the object itself excepted), kept whatever the chi2 says; labelled
+  `+343ast` (counted, not listed), `FittedOrbit.perturbers_all`. 5-18x a solve in the 16.
+  A non-gravitational orbit keeps its model (`_deliver_nongrav_orbit` delivers the field the
+  solve ran in -- read from the ctx alone it came back pinned +16).
 - **Perturber masses: SiMDA beyond the 16, DE440 for the 16** (`perturbers.mass_table`,
   `data/perturber_masses.json`, applied in `perturbers.ephem_for` and `perturbers.gm`): SiMDA's
   compiled mass (Kretlow 2020, EPSC2020-690) for the 165 bodies outside the 16 with SiMDA rank
@@ -200,6 +213,13 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   (`popprior.most_probable_lov_fit`); an asked-for orbit is judged by its ARC (`optin_source`, set by
   `popprior.most_probable_fit`, honoured by `constraint.assess`).
 - **Asteroid nongrav discovery gates on q < 1.4 au**, not a (`NONGRAV_Q_MAX_AU`; drift is earned at perihelion).
+- **Perturbers before nongravs** (`fit_object.discover_nongrav_after_field`): a perturber is
+  known physics with a known mass and no free parameter, so the asteroid field is settled first
+  and a nongrav model must earn its place in that field -- A1/A2 found first could absorb an
+  encounter the screen then never sees (it skips nongrav fits). One stage for the public
+  `fit_orbit`, the CLI and the web: comet then asteroid discovery, then `post_discovery_tail`
+  (radar refine, reclaim, delivered verification, radar rows passed as `_finalize` passes them).
+  The internal `fit_object.fit_orbit` (goldens, ITF trials) keeps discovery inside `_finalize`.
 - **Nongrav discovery by BIC** (`_ng_choice`, `NONGRAV_BIC_MARGIN` 15; comet ladder
   `_comet_step_justified`); negative A1 refused; exact 0.0 = stall; marginal models
   jackknife-verified (`nongrav_jackknife_detail`, by tracklets, never warm-started).

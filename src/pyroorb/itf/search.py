@@ -2881,6 +2881,8 @@ class ExtensionCheck:
     held: list = field(default_factory=list)       # cautions that may never
                                         # take a submission away
     diagnostics: list = field(default_factory=list)
+    withdraws: list = field(default_factory=list)  # diagnostics that still
+                                        # withdraw a three-thin confirmation
     seed_caution: str | None = None
     seed_degraded: bool = False         # materially worse: demotes to 0.6
     magt: dict | None = None
@@ -2934,9 +2936,18 @@ def _extension_check(ctx, a):
     if coh:
         # say WHOSE night: the offender can be the object's own (2011 QH108)
         own_nights = _own_nights_as_ident(ctx, trial.fit)
-        whose = ("a night of the object's OWN published arc"
-                 if any(n in coh for n in own_nights) else "a linked night")
-        x.cautions.append(f"{whose} is systematically offset: {coh}")
+        own_night = any(n in coh for n in own_nights)
+        whose = ("a night of the object's OWN published arc" if own_night
+                 else "a linked night")
+        text = f"{whose} is systematically offset: {coh}"
+        if own_night:
+            # names no linked data: bad astrometry in the seed.  A seed the
+            # link BENT is the seed-degradation caution, which stays one.
+            note = f"{OWN_DATA_NOTE} {text}"
+            x.diagnostics.append(note)
+            x.withdraws.append(note)
+        else:
+            x.cautions.append(text)
     # Residual ORDER rather than size (itf/residual_trend.py): a DIAGNOSTIC
     # only -- it flags about as many correct tracklets as wrong ones.
     linked = _linked_ids(ctx, a.combined)
@@ -2948,23 +2959,34 @@ def _extension_check(ctx, a):
     # Photometry of whole TRACKLETS: a caution, never a veto -- reported
     # magnitudes are too unreliable to refuse a good astrometric match
     # (2015 BO519).
+    # Only a LINKED tracklet at warn_mag_linked_resid is a caution; the
+    # whole-arc outlier at warn_mag_resid is a diagnostic that still withdraws
+    # a three-thin confirmation (see ItfConfig.warn_mag_linked_resid).  The
+    # linked tracklets are tested on their own: the whole-arc test reports
+    # one tracklet, and an own-arc one would otherwise hide a linked one.
     magt = mag_outlier_tracklet(trial.fit, cfg.warn_mag_resid, cfg.warn_mag_p)
     if magt:
-        sig = ("single observation" if magt["p"] is None
-               else f"{magt['n']} obs, p={magt['p']:.2g}")
         # say WHOSE tracklet: on the object's own, "possible different body"
         # is false (2025 NX363)
-        magt["own"] = _mag_tracklet_is_own(ctx, trial, magt)
-        whose = ("the object's OWN published arc" if magt["own"]
-                 else "a linked tracklet")
-        tail = "" if magt["own"] else " (possible different body)"
-        when = ("" if magt.get("jd") is None
-                else f", {_night_label(magt['jd'])}")
-        x.cautions.append(
-            f"a tracklet of {whose} ({magt['station']}{when}, {sig}) averages "
-            f"{magt['mean']:+.1f} mag from the object's predicted brightness"
-            f"{tail}")
-    x.magt = magt
+        magt = dict(magt, own=_mag_tracklet_is_own(ctx, trial, magt))
+    linked_mag = None
+    if magt and not magt["own"] and abs(magt["mean"]) >= cfg.warn_mag_linked_resid:
+        linked_mag = magt
+    elif magt:
+        jds = _linked_jds(ctx, trial)
+        if jds:
+            linked_mag = mag_outlier_tracklet(trial.fit, cfg.warn_mag_linked_resid,
+                                              cfg.warn_mag_p, jd_subset=jds)
+            if linked_mag:
+                linked_mag = dict(linked_mag, own=False)
+    if linked_mag:
+        x.cautions.append(_mag_caution(linked_mag))
+    elif magt:
+        note = f"{OWN_DATA_NOTE} {_mag_caution(magt)}"
+        x.diagnostics.append(note)
+        x.withdraws.append(note)
+    magt = linked_mag or magt
+    x.magt = linked_mag
     # Partial pickup of a designated object whose other tracklets misfit
     # (itf/pickup.py).  A designation the check could not MEASURE is held: an
     # unreachable database is absence of evidence and must not take a
@@ -3157,7 +3179,7 @@ def _accepted(ctx, result, a, x, tracklets_all):
     result.diagnostics.extend(x.diagnostics)
     result.vetting = vetting
     vetting["diagnostics"] = list(result.diagnostics)
-    withdrawing = list(x.cautions)
+    withdrawing = list(x.cautions) + list(x.withdraws)
     if (a.confirmed and x.seed_caution is not None and not x.seed_degraded
             and _seed_opp_holds(ctx, trial, a.obs_out)):
         withdrawing.remove(x.seed_caution)
@@ -3187,6 +3209,10 @@ def _accepted(ctx, result, a, x, tracklets_all):
         _demote_to_possible(ctx, result, trial, a.obs_out, vetting, flag, why,
                             head, f"linkage DEMOTED to possible (status 0.6, "
                                   f"not submittable): {why}")
+        # a diagnostic that withdrew the confirmation is one of "the
+        # warning(s) below" the head points at
+        if not x.seed_degraded:
+            result.warnings.extend(w for w in x.withdraws if w in withdrawing)
         result.warnings.extend(x.held)
         vetting["warnings"] = list(result.warnings)
         return result
@@ -3545,6 +3571,34 @@ def _linked_ids(ctx, combined):
     """The ITF observation ids in ``combined`` -- everything that is not the
     object's own seed astrometry."""
     return obs_ids(combined) - getattr(ctx, "pub_ids", set())
+
+
+#: prefix of a data-quality finding filed as a diagnostic rather than a caution:
+#: a coherently offset night of the object's own arc, or a photometric outlier
+#: that is not a linked tracklet at ``warn_mag_linked_resid``.  Among MPC-resolved
+#: finds whose only cautions were these, none proved a wrong link (own-arc
+#: photometry 0-1 of 452 after adjudication, own-arc offsets 0 of 20).
+OWN_DATA_NOTE = "data quality, not a doubt about the linkage:"
+
+
+def _mag_caution(magt):
+    """The words for a photometric outlier tracklet (:func:`mag_outlier_tracklet`
+    plus its ``own`` flag)."""
+    sig = ("single observation" if magt["p"] is None
+           else f"{magt['n']} obs, p={magt['p']:.2g}")
+    whose = "the object's OWN published arc" if magt["own"] else "a linked tracklet"
+    tail = "" if magt["own"] else " (possible different body)"
+    when = "" if magt.get("jd") is None else f", {_night_label(magt['jd'])}"
+    return (f"a tracklet of {whose} ({magt['station']}{when}, {sig}) averages "
+            f"{magt['mean']:+.1f} mag from the object's predicted brightness{tail}")
+
+
+def _linked_jds(ctx, trial):
+    """The epochs (jd rounded to 1e-5 d, ``mag_outlier_tracklet``'s
+    ``jd_subset`` key) of the fit's observations that are not the object's own."""
+    pub_ids = getattr(ctx, "pub_ids", set())
+    return {round(o["jd_utc"], 5) for o in getattr(trial.fit, "_obs", ())
+            if o.get("obs80_line") and obs_unique_id(o["obs80_line"]) not in pub_ids}
 
 
 def _mag_tracklet_is_own(ctx, trial, magt):
