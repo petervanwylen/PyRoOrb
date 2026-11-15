@@ -52,7 +52,7 @@ KEEP_DATA=0
 CLONED=0
 DIR_GIVEN=0; [ -n "${PYROORB_DIR:-}" ] && DIR_GIVEN=1
 # The commands put on PATH (pyproject.toml [project.scripts]) and where their links go.
-COMMANDS="pyroorb pyroorb-web pyroorb-itf pyroorb-fetch-data"
+COMMANDS="pyroorb pyroorb-web pyroorb-itf pyroorb-fetch-data pyroorb-skycheck"
 BIN="$HOME/.local/bin"
 
 say()  { printf '\033[1m==> %s\033[0m\n' "$*"; }

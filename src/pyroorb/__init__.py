@@ -1028,6 +1028,105 @@ def export(fit, format="mpcorb"):
 # Every console entry point loads the `.env` settings file BEFORE importing the module it runs:
 # several settings (the ephemeris and debias folders) are read once at import time.
 
+def check_field(ra, dec, time, *, radius_arcmin=None, obscode="500", mag_limit=None,
+                comets=True, neocp=False, obscodes=None, refresh=True):
+    """The catalogued objects in a field: an MPChecker-style query.
+
+    Every asteroid and comet the MPC publishes an orbit for (and, for a recent time, every
+    object on the NEO Confirmation Page) is placed as seen from the observatory, by
+    numerical integration of the orbits near the field.
+
+    Parameters
+    ----------
+    ra, dec : float or str
+        Field centre: degrees, or sexagesimal strings (RA in hours, '12 34 56.7').
+    time : float, str or datetime
+        UTC: a Julian date, an ISO string or 'YYYY MM DD.ddddd'.
+    radius_arcmin : float, optional
+        Search radius (default 15').
+    obscode : str
+        MPC observatory code (default '500', the geocentre).
+    mag_limit : float, optional
+        Faintest magnitude to report.
+    comets : bool
+        Include comets.
+    neocp : bool
+        Also check NEO Confirmation Page objects (for a ``time`` within 30 days); default
+        False, the published catalogue only.
+    obscodes : dict, optional
+        An observatory table to use instead of the bundled MPC table.
+    refresh : bool
+        Download the MPC's orbit files first when they are more than a day old (the first
+        call downloads ~90 MB and builds the catalogue, a few minutes).
+
+    Returns
+    -------
+    FieldCheck
+        ``objects``: one dict per object, nearest first -- designation, kind, astrometric
+        position, offset from the centre (arcsec), magnitude, motion (arcsec/min), distances,
+        phase, elongation, U; ``table()`` gives them as text. Positions are best within a
+        year of the catalogue's epoch.
+    """
+    from pyroorb import skycheck as _skycheck
+    opts = {} if radius_arcmin is None else {"radius_arcmin": radius_arcmin}
+    return _skycheck.check_field(ra, dec, time, obscode=obscode, mag_limit=mag_limit,
+                                 comets=comets, neocp=neocp, obscodes=obscodes,
+                                 refresh=refresh, **opts)
+
+
+def identify_tracklets(observations, *, radius_arcmin=None, match_arcsec=None,
+                       motion_arcsec=None, comets=True, neocp=False, obscodes=None,
+                       refresh=True):
+    """Which catalogued object each tracklet of some astrometry is.
+
+    The observations are grouped into tracklets -- one station, one object, a few hours: by
+    the submitter's tracklet id (ADES trkSub) when present, else by designation, closing four
+    hours after the first observation -- and each tracklet is checked once against every
+    catalogued object near it. A candidate matches when its mean offset (observed minus
+    predicted) is within ``match_arcsec`` and the positions follow its predicted motion to
+    ``motion_arcsec`` rms once that offset is removed (comets and fast movers get wider
+    tolerances: no non-gravitational terms in the published comet elements, and a short-arc
+    orbit's rate error grows with the rate). Measured on 18,249 published tracklets from 11
+    stations: every one correctly identified or reported as ambiguous or unmatched, none
+    wrongly.
+
+    Parameters
+    ----------
+    observations : Observations, list of dict, str or path
+        What :func:`read_observations` returns, or a file / text for it to read.
+    radius_arcmin : float, optional
+        How far from a tracklet a candidate may be predicted (default 15').
+    match_arcsec, motion_arcsec : float, optional
+        The matching tolerances (defaults 30" and 4").
+    comets, neocp, obscodes, refresh
+        As for :func:`check_field`.
+
+    Returns
+    -------
+    list of TrackletCheck
+        One per tracklet, in time order: ``indices`` into the observations, ``obscode``,
+        ``candidates`` (dicts as in :func:`check_field` plus ``mean_offset``, ``motion_rms``
+        and ``match``), ``identification`` (a designation, or None) and ``ambiguous`` (more
+        than one match, none clearly nearest).
+    """
+    from pyroorb import skycheck as _skycheck
+    opts = {k: v for k, v in (("radius_arcmin", radius_arcmin), ("match_arcsec", match_arcsec),
+                              ("motion_arcsec", motion_arcsec)) if v is not None}
+    return _skycheck.identify(observations, comets=comets, neocp=neocp, obscodes=obscodes,
+                              refresh=refresh, **opts)
+
+
+def _skycheck():
+    """Console entry point (`pyroorb-skycheck field|identify|update`) — known objects in a
+    field, or the known object each tracklet of a file is."""
+    from pyroorb.envfile import load_env_file
+    load_env_file()
+    from pyroorb.console import utf8_stdio
+    utf8_stdio()
+    from pyroorb.skycheck.__main__ import main
+    return main()
+
+
 def _cli():
     """Console entry point (`pyroorb ...`) — the fit_object CLI; reads sys.argv."""
     from pyroorb.envfile import load_env_file
@@ -1074,7 +1173,7 @@ def _fetch_data():
 __all__ = ["load_settings", "read_observations", "fetch_observations", "fit_orbit", "refit",
            "asteroid_perturbers", "ephemeris", "export", "digest2_scores", "propagate",
            "osculating_elements", "close_approaches", "body_states", "radar_residuals",
-           "radar_prediction",
+           "radar_prediction", "check_field", "identify_tracklets",
            "sample_orbits", "range_posterior", "most_probable_orbit", "OrbitEnsemble",
            "FittedOrbit", "Observations", "UndeterminedOrbitWarning", "PerturbersAddedWarning",
            "obscodes",

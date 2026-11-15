@@ -86,6 +86,17 @@ Ensembles of orbits
    :members: propagate, elements, element_percentiles, bound_fraction, sky_positions,
              close_approaches
 
+Known objects in the sky
+------------------------
+
+An MPChecker-style check against every orbit the MPC publishes (``MPCORB.DAT``, the comet
+elements, the NEO Confirmation Page), downloaded and refreshed daily. Also on the command line
+as ``pyroorb-skycheck field|identify|update``, and in the web UI.
+
+.. autofunction:: check_field
+
+.. autofunction:: identify_tracklets
+
 Short arcs and the population prior
 -----------------------------------
 

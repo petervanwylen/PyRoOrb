@@ -61,7 +61,10 @@ _BUCKETS = {
 _MAX_CLIENTS = int(os.environ.get("PYROORB_RL_MAX_CLIENTS") or 4096)
 
 # A client with a full bucket and no recent activity is indistinguishable from
-# one that never visited, so it can be forgotten.
+# one that never visited, so it can be forgotten -- but only once its bucket HAS
+# refilled. A slow bucket (one an hour) is not full after this long, and
+# forgetting it early hands the client a fresh burst: ten submissions every
+# quarter hour against a stated ten an hour.
 _IDLE_SECS = 900.0
 
 _DISABLED = (os.environ.get("PYROORB_RL_DISABLED") or "").lower() in ("1", "true", "yes")
@@ -69,32 +72,60 @@ _DISABLED = (os.environ.get("PYROORB_RL_DISABLED") or "").lower() in ("1", "true
 _LOCK = threading.Lock()
 _STATE = {}          # (client, bucket) -> [tokens, last_seen]
 
+#: The client every caller shares: ``check(EVERYONE, bucket)`` bounds an endpoint for all
+#: clients together, whatever identity each claims.  Its slots are never evicted to make room
+#: for others -- the table is filled by forgeable identities, and evicting the shared slot
+#: would hand everyone a fresh burst after a few thousand forged requests to any endpoint.
+EVERYONE = "*"
+
 
 def client_of(handler):
     """Who to charge.  See IDENTITY in the module docstring -- forgeable, and
-    deliberately used anyway."""
+    deliberately used anyway.  Never :data:`EVERYONE` (a forged header naming it
+    is charged as its own client)."""
     xff = handler.headers.get("X-Forwarded-For")
+    who = None
     if xff:
         first = xff.split(",")[0].strip()
         if first:
-            return first[:64]
-    try:
-        return str(handler.client_address[0])[:64]
-    except Exception:
-        return "?"
+            who = first[:64]
+    if who is None:
+        try:
+            who = str(handler.client_address[0])[:64]
+        except Exception:
+            who = "?"
+    return "?" + who if who == EVERYONE else who
+
+
+def _refilled(bucket, slot, now):
+    """Whether ``slot`` (tokens, last_seen) of ``bucket`` is full again by ``now``."""
+    spec = _BUCKETS.get(bucket)
+    if spec is None:
+        return True
+    cap, rate = spec
+    return slot[0] + (now - slot[1]) * rate >= cap
 
 
 def _evict(now):
-    """Forget idle clients; if still over the cap, forget the least recently
-    seen.  Caller holds the lock."""
+    """Forget idle clients whose bucket has refilled; if still over the cap,
+    forget the least recently seen.  Caller holds the lock."""
     for k, v in list(_STATE.items()):
-        if now - v[1] > _IDLE_SECS:
+        if now - v[1] > _IDLE_SECS and _refilled(k[1], v, now):
             _STATE.pop(k, None)
     if len(_STATE) <= _MAX_CLIENTS:
         return
-    for k, _v in sorted(_STATE.items(), key=lambda kv: kv[1][1])[
+    clients = [kv for kv in _STATE.items() if kv[0][0] != EVERYONE]   # shared slots stay
+    for k, _v in sorted(clients, key=lambda kv: kv[1][1])[
             : len(_STATE) - _MAX_CLIENTS]:
         _STATE.pop(k, None)
+
+
+def register(bucket, burst, rate):
+    """Add a bucket for an endpoint the server learns about at start-up (a web add-on):
+    ``burst`` requests at once, ``rate`` per second sustained. A bucket that already
+    exists keeps its size, so registering twice (a reloaded add-on) changes nothing."""
+    with _LOCK:
+        _BUCKETS.setdefault(str(bucket), (int(burst), float(rate)))
 
 
 def check(client, bucket, cost=1.0):

@@ -768,9 +768,9 @@ def serialise_fit(fit):
         "orbit_family": (_orbit_family_block(getattr(fit, "optin_source", None) or fit)
                          if constraint_warning else None),
         "nominal_optin": optin or None,
-        # digest2 for every single tracklet, determined or not, and every suppressed banner
-        # (the note used to appear only under the banner, so a tracklet whose
-        # distance the profile DID pin showed none). Both flavours; the page toggles raw/no-ID.
+        # digest2 for an arc that is ONE tracklet, determined or not (several tracklets are
+        # scored one by one in the observations table, never as one object). Both flavours;
+        # the page toggles raw/no-ID.
         "digest2": _digest2_block(fit, constraint_warning),
         # Whether the observations table offers the tracklet-by-tracklet digest2 column
         # (q < 1.8); the scores themselves are fetched on demand (d2_tracklets).
@@ -783,20 +783,15 @@ D2_TRACKLETS_MAX = 2000        # tracklets scored per request (a few ms each)
 
 
 def _digest2_block(fit, constraint_warning=None):
-    """d2score.scores for the arc as fitted when it is a single tracklet (arc within
-    constraint.SR_SINGLE_TRACKLET_MAX, one opposition) or the orbit is suppressed; else None."""
+    """digest2 for the arc as fitted when it is ONE tracklet (d2score.arc_scores), determined
+    or not; else None. digest2 scores tracklets: an arc of several (two nights, or two stations
+    in one night) is scored tracklet by tracklet in the observations table (d2_tracklets),
+    never as one object."""
     if constraint_warning and constraint_warning.get("digest2"):
         return constraint_warning["digest2"]
     try:
-        arc = float(fit.arc_length_days() or 0.0)
-        single = arc <= constraint.SR_SINGLE_TRACKLET_MAX and (fit.n_oppositions() or 0) <= 1
-    except Exception:
-        single = False
-    if not (single or constraint_warning):
-        return None
-    try:
         from pyroorb import d2score
-        return d2score.scores(fit.included_observations())
+        return d2score.arc_scores(fit.included_observations())
     except Exception:
         return None
 
@@ -3461,6 +3456,28 @@ def post_discovery_tail(display, obscodes, radar_rows=()):
     return fo.post_discovery_tail(display, obscodes, radar_rows)
 
 
+def announce_field(fit, grav):
+    """Whether the fit page flashes the asteroid-field banner for `fit` (the kept field) over
+    `grav` (its gravity baseline) -- the payload's ``asteroids_auto``.
+
+    True when the field was kept and is worth announcing: the banner invites the viewer to
+    A/B the force model. A field of the 16 alone is announced only when it visibly lowered
+    the same-obs RMS: the screen keeps a field on any same-obs chi2 gain (a real body has no
+    free parameter), which can sit far below the displayed precision (2011 WK115: gain 2.5,
+    RMS 0.0009" lower), and "the 16 improved this orbit" then promises a difference the
+    toggle does not show. The margin is the gated polish's (ASTEROID_KEEP_RMS; refine_asteroids
+    enforces it itself). A field with extra bodies is always announced: the banner names each
+    encounter, and its gain over gravity alone can understate it (352870: Papagena's pull
+    cancels Ceres's, 0.012" over gravity, chi2 346 over the 16). A manual toggle goes through
+    serialise_fit without this flag, so it never re-fires the banner."""
+    screen = getattr(fit, "perturber_screen", None) or {}
+    return bool(getattr(fit, "asteroids", False)) and (
+        not getattr(grav, "asteroids", False)
+        or fit_asteroids_extras(fit) != fit_asteroids_extras(grav)) and (
+        bool(fit_asteroids_extras(fit)) or screen.get("rms_drop") is None
+        or screen["rms_drop"] > fo.ASTEROID_KEEP_RMS)
+
+
 def fit_obs_list(obs, meta, obscodes, force=False, meta_extra=None):
     """Fit a ready parsed-obs list (the shared core of ``run_fit`` and
     ``add_observations``): pure-gravity baseline -> asteroid polish -> auto-nongrav
@@ -3510,14 +3527,7 @@ def fit_obs_list(obs, meta, obscodes, force=False, meta_extra=None):
                                                           (meta or {}).get("radar") or [])
     payload = serialise_fit(display)
     payload["nongrav_auto"] = auto_model
-    # True only when the gated polish KEPT the 16 perturbers because they meaningfully
-    # lowered the same-obs RMS (refine_asteroids reverts to gravity otherwise). The front
-    # end flashes a one-shot banner inviting the user to A/B the force model. A manual
-    # +16-ast toggle (force=True) goes through serialise_fit without this flag, so it
-    # never re-fires the banner.
-    payload["asteroids_auto"] = bool(getattr(fit, "asteroids", False)) and (
-        not getattr(grav, "asteroids", False)
-        or fit_asteroids_extras(fit) != fit_asteroids_extras(grav))
+    payload["asteroids_auto"] = announce_field(fit, grav)
     # What the perturber screen did, for the fit page: picks, top scores, whether kept.
     payload["perturbers"] = getattr(fit, "perturber_screen", None)
     # If THIS object is one of the 16 +16ast perturbers, tell the front end so it can label

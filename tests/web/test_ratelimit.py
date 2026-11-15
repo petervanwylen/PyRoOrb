@@ -95,6 +95,44 @@ def test_the_client_table_is_bounded(monkeypatch):
     assert len(ratelimit._STATE) <= 50
 
 
+def test_a_flood_of_forged_clients_never_evicts_the_shared_slot(monkeypatch):
+    """The all-clients bucket bounds an endpoint whatever identity each request claims. Kept in
+    the same table as the forgeable per-client slots, a few thousand forged requests to ANY
+    endpoint pushed it out as the least recently seen, and it came back full."""
+    monkeypatch.setattr(ratelimit, "_DISABLED", False)
+    monkeypatch.setattr(ratelimit, "_MAX_CLIENTS", 50)
+    monkeypatch.setitem(ratelimit._BUCKETS, "_all", (2, 0.0))
+    assert ratelimit.check(ratelimit.EVERYONE, "_all")[0]
+    assert ratelimit.check(ratelimit.EVERYONE, "_all")[0]
+    for i in range(500):
+        ratelimit.check(f"forged{i}", "fit")
+    assert len(ratelimit._STATE) <= 51
+    assert not ratelimit.check(ratelimit.EVERYONE, "_all")[0]
+
+
+def test_no_client_is_ever_identified_as_everyone():
+    who = ratelimit.client_of(_FakeHandler(xff=ratelimit.EVERYONE))
+    assert who != ratelimit.EVERYONE and ratelimit.client_of(_FakeHandler(peer="*")) != "*"
+
+
+def test_an_idle_client_is_forgotten_only_once_its_bucket_has_refilled(monkeypatch):
+    """Forgetting an emptied slow bucket after the idle time handed back a full burst: ten an
+    hour became ten every quarter hour. A refilled one is still forgotten (the table's bound)."""
+    monkeypatch.setattr(ratelimit, "_DISABLED", False)
+    monkeypatch.setitem(ratelimit._BUCKETS, "_slow", (10, 10 / 3600.0))
+    clock = [1_000_000.0]
+    monkeypatch.setattr(ratelimit.time, "time", lambda: clock[0])
+    assert all(ratelimit.check("c", "_slow")[0] for _ in range(10))
+    clock[0] += ratelimit._IDLE_SECS + 1
+    ratelimit.check("other", "fit")                     # any call runs the eviction
+    got = sum(ratelimit.check("c", "_slow")[0] for _ in range(10))
+    assert got == 2                                      # 901 s at 10/h refills 2.5, not 10
+    ratelimit.check("d", "fit")
+    clock[0] += ratelimit._IDLE_SECS + 1                 # "fit" refills 12 in a minute
+    ratelimit.check("e", "fit")
+    assert ("d", "fit") not in ratelimit._STATE and ("c", "_slow") in ratelimit._STATE
+
+
 def test_refusal_says_when_to_come_back():
     body = ratelimit.refusal("fit", 12.0)
     assert body["ok"] is False and body["rate_limited"] is True
@@ -221,3 +259,18 @@ def test_the_body_cap_is_sane():
     """Unbounded Content-Length meant one POST could ask the process to
     allocate anything it liked -- before any queue could see it."""
     assert 1024 * 1024 <= server._MAX_BODY_BYTES <= 64 * 1024 * 1024
+
+
+def test_a_registered_bucket_limits_and_keeps_its_first_size(monkeypatch):
+    monkeypatch.setattr(ratelimit, "_DISABLED", False)
+    monkeypatch.setitem(ratelimit._BUCKETS, "_addon_test", (2, 0.0))
+    ratelimit.register("_addon_test", 50, 1.0)          # already there: unchanged
+    assert ratelimit._BUCKETS["_addon_test"] == (2, 0.0)
+    monkeypatch.delitem(ratelimit._BUCKETS, "_addon_test")
+    ratelimit.register("_addon_test", 2, 0.0)
+    try:
+        assert ratelimit.check("c", "_addon_test")[0]
+        assert ratelimit.check("c", "_addon_test")[0]
+        assert not ratelimit.check("c", "_addon_test")[0]
+    finally:
+        ratelimit._BUCKETS.pop("_addon_test", None)

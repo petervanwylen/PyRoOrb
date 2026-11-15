@@ -142,7 +142,7 @@ def assess(fit, n_mc=300, rng_seed=0):
           "ranges_method": "mc" | "sr" | None,
           "ranges_pct": [5.0, 95.0],
           "U": float | None,
-          "digest2":  {...} | None,      # d2score.scores: digest2 RAW class scores, display only
+          "digest2":  {...} | None,      # d2score.arc_scores: one tracklet only, display only
           "unconstrained": [...],        # internal; NOT rendered (kept for tests/debugging)
         }
 
@@ -212,13 +212,15 @@ POPULATION_SENTENCE_SCORES = (" PyRoOrb also scores which kinds of object fit, u
 
 
 def _digest2(fit):
-    """digest2's RAW class scores for the arc as fitted (d2score.py), or None. What an arc
-    that cannot determine its orbit CAN say: across every bound orbit it admits, which kinds
-    of object the modelled population puts there. Display only -- a population prior must
-    never decide a hazard or identification question (see d2score's docstring)."""
+    """digest2's class scores for the arc as fitted when it is ONE tracklet (d2score.arc_scores),
+    else None: digest2 scores tracklets, and an arc of several is scored tracklet by tracklet
+    (the observations table's column), never as one object. What a tracklet that cannot
+    determine its orbit CAN say: across every bound orbit it admits, which kinds of object the
+    modelled population puts there. Display only -- a population prior must never decide a
+    hazard or identification question (see d2score's docstring)."""
     try:
         from pyroorb import d2score
-        return d2score.scores(fit.included_observations())
+        return d2score.arc_scores(fit.included_observations())
     except Exception:
         return None
 

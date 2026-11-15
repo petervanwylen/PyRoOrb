@@ -743,6 +743,8 @@ def _print_linkage(fit, do_submit=False):
     print(f"  {'clean identification' if verdict['clean'] else verdict['reason']}")
     for c in verdict["cautions"]:
         print(f"  CAUTION: {c}")
+    for n in verdict.get("notes") or ():
+        print(f"  NOTE: {n}")
     if not verdict.get("submittable", True):
         # Reported, never sent -- the same rule that leaves the web UI's button down. The CAUSE
         # is the verdict's to state, not this line's: it used to assert "an identification with

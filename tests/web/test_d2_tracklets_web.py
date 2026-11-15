@@ -1,5 +1,5 @@
-"""digest2 on the web payload: a top-level `digest2` block on EVERY single
-tracklet, determined or not, and the tracklet-by-tracklet scores for the observations table
+"""digest2 on the web payload: a top-level `digest2` block only when the arc is ONE
+tracklet, determined or not (several tracklets are never scored as one object), and the tracklet-by-tracklet scores for the observations table
 (engine_api.d2_tracklets), offered for q < 1.8 only."""
 import json, os, sys, warnings
 warnings.filterwarnings("ignore")
@@ -19,14 +19,24 @@ def _c46_fit():
     return fo.fit_orbit(d["obs"], obs_sources.load_obscodes(), desig="C46MAH1", meta=d["meta"])
 
 
-def test_a_determined_tracklet_still_carries_digest2():
-    """C46MAH1's distance IS measured, so there is no banner -- the case that used to show no
-    digest2 at all."""
+def test_two_tracklets_get_no_object_level_digest2():
+    """C46MAH1 is two tracklets (703 and Q06, one night): digest2 scores each in the
+    observations table, never the pair as one object."""
     p = E.serialise_fit(_c46_fit())
     assert not p["orbit_suppressed"] and p["constraint"] is None
-    d2 = p["digest2"]
-    assert d2 and d2["shown"] and d2["shown_noid"] and d2["scores"]["NEO"] > 90
+    assert p["digest2"] is None
     assert p["d2_tracklets"]["eligible"]             # q ~ 0.71
+
+
+def test_a_determined_single_tracklet_carries_digest2():
+    """A determined orbit on one tracklet still carries the note (it used to appear only under
+    the unconstrained banner)."""
+    d = json.load(open(os.path.join(_MVP, "tests", "range_fixtures", "C46MAH1.json"), encoding="utf-8"))
+    obs = [o for o in d["obs"] if o.get("obscode") == "703"]
+    fit = fo.fit_orbit(obs, obs_sources.load_obscodes(), desig="C46MAH1", meta=d["meta"])
+    p = E.serialise_fit(fit)
+    d2 = p["digest2"]
+    assert d2 and d2["shown"] and d2["shown_noid"] and d2["scores"]["NEO"] > 50
 
 
 def test_tracklet_scores_endpoint():

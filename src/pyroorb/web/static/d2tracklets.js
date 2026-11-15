@@ -6,8 +6,8 @@
 // q, or the low end of the fitting family's q when the orbit is suppressed), a "D2 per
 // tracklet" toggle beside "＋ addl info" adds a column right after the station code holding
 // each tracklet's digest2 NEO score on the FIRST row of that tracklet only. A tracklet is one
-// station's observations under the submitter's own tracklet id (ADES trkSub) when there is
-// one, else one station's observations within 4 hours of its first (d2score.tracklets). The
+// station's observations in one night, a 12 h window from its first; the submitter's tracklet
+// id (ADES trkSub) never matters (d2score.tracklets). The
 // scores are fetched on demand from POST /api/d2_tracklets -- an object with a thousand
 // tracklets never pays for them unless asked -- and remembered per payload.
 //
@@ -76,7 +76,7 @@
     th.textContent = `D2 ${flavLabel()}`;
     th.title = (status ? status + " — " : "") +
       "digest2 NEO score for each tracklet (on its first row): one station's observations, " +
-      "by tracklet id where the submitter gave one, else within 4 hours. Click to switch " +
+      "one night (12 h window). Click to switch " +
       `between the raw and no-ID populations (now: ${flavLabel()}).`;
     th.style.cursor = "pointer";
     th.addEventListener("click", () => {

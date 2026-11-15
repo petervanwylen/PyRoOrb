@@ -853,7 +853,7 @@ def clip_doubt(fit):
     if R is None:
         return None
     times = [o["jd_utc"] for o in obs]
-    dropped = ~np.asarray(fit._mask, dtype=bool)
+    dropped = _dropped(fit)                      # pre-existing drops set aside (identify)
     excluded = dropped & ~_duplicate_excluded(          # a cross-listed duplicate is not a drop
         times, [o["obscode"] for o in obs], [o.get("ra_deg") for o in obs],
         [o.get("dec_deg") for o in obs], dropped)
@@ -938,6 +938,133 @@ def exception_shape(fit, _why=None):
 
 
 def identify(fit, _shape=False, _why=None):
+    """:func:`_identify_pass`, and -- when it refuses a link of two or more bodies -- the same gates
+    again with every PRE-EXISTING concern set aside. A link is judged by what it adds: a concern
+    the linked tracklets do not cause, already present in a body's own record, is no reason to
+    refuse the link:
+
+      * a dropped observation its body's OWN record, fitted alone (:func:`solo_fit`), rejects too
+        is not a drop the link made -- it counts for none of the drop gates (whole/partial
+        tracklets, nights per opposition, retention, clip doubt), and is never echoed as an
+        exception (:func:`preexisting_drops`);
+      * a kept fit over the arcsec bars passes when no body fits the joint orbit worse than its own
+        record fits alone (BASELINE_WORSEN_FACTOR / _SLACK), and every body too small to be fitted
+        alone -- the link's new tracklets -- clears the kept-fit bar on its own residuals
+        (:func:`preexisting_misfit`). The new tracklets' fit is never a pre-existing concern.
+
+    Solo fits are made only on this second pass. What was set aside is listed in
+    ``_why["preexisting"]``; a refusal the second pass still makes is the one reported."""
+    out = _identify_pass(fit, _shape, _why)
+    if out is not None or fit.__dict__.get("_pre_drops") is not None:
+        return out
+    if len({_body_key(o) for o in fit._obs}) < 2:
+        return out
+    pre = preexisting_drops(fit)
+    fit.__dict__["_pre_drops"] = pre
+    fit.__dict__["_pre_misfit_ok"] = None                 # asked lazily by _identify_pass
+    why2 = {}
+    out = _identify_pass(fit, _shape, why2)
+    if _why is not None:
+        _why.pop("reason", None)
+        _why.update(why2)
+        notes = []
+        if pre.any():
+            notes.append(f"{int(pre.sum())} rejected observation(s) are rejected by their own "
+                         f"object's record fitted alone too")
+        if fit.__dict__.get("_pre_misfit_ok"):
+            notes.append(fit.__dict__["_pre_misfit_ok"])
+        if out is not None and notes:
+            _why["preexisting"] = notes
+    return out
+
+
+def preexisting_drops(fit):
+    """Boolean per fit._obs: dropped by the joint fit AND by its body's own record fitted alone
+    (:func:`solo_fit`) -- a fault already in the MPC record, not one the link made."""
+    obs = fit._obs
+    drop = ~np.asarray(fit._mask, dtype=bool)
+    pre = np.zeros(len(obs), dtype=bool)
+    key = lambda o: (round(float(o["jd_utc"]), 6), str(o.get("obscode") or ""))
+    for body in sorted({_body_key(obs[i]) for i in np.flatnonzero(drop)}, key=str):
+        solo = solo_fit(fit, body)
+        if solo is None:
+            continue
+        rejected = {key(o) for o, k in zip(solo._obs, solo._mask) if not k}
+        for i in np.flatnonzero(drop):
+            if _body_key(obs[i]) == body and key(obs[i]) in rejected:
+                pre[i] = True
+    return pre
+
+
+def _part_fits(fit, idx):
+    """:func:`kept_obs_fit`'s bar asked of the obs ``idx`` alone: arcsec rms under MAX_KEPT_RMS,
+    or sigma-normalized rms under MAX_KEPT_NRMS with the arcsec rms under RMS_CEILING. Without
+    per-obs sigmas only the arcsec bar is asked."""
+    R = fit._resid_all[idx]
+    rms = float(np.sqrt(np.mean(R ** 2)))
+    if rms < MAX_KEPT_RMS:
+        return True
+    if rms >= RMS_CEILING:
+        return False
+    sra, sdec = getattr(fit, "_sig_ra", None), getattr(fit, "_sig_dec", None)
+    if sra is None or sdec is None:
+        return False
+    v = np.concatenate([R[:, 0] / np.asarray(sra)[idx], R[:, 1] / np.asarray(sdec)[idx]])
+    return float(np.sqrt(np.mean(v ** 2))) < MAX_KEPT_NRMS
+
+
+def preexisting_misfit(fit):
+    """A short note when a kept fit over the bars is NOT the link's doing, else None: every body
+    with a solo fit fits the joint orbit at most BASELINE_WORSEN_FACTOR x + BASELINE_WORSEN_SLACK
+    worse than its record does alone, and every body too small to be fitted alone -- the link's
+    new tracklets, the very thing being judged -- clears the full kept-fit bar on its OWN
+    residuals (:func:`_part_fits`: 0.6", or 2 sigma under 1.5"). RMS_CEILING alone is not that
+    bar: it backstops the sigma clause, and a 0.1"-sigma tracklet 1.4" off is 14 sigma. A body
+    big enough to be fitted alone whose solo fit failed (error, deadline) has no baseline, so
+    no exemption. Nor does a record at or past RMS_CEILING, alone or jointly: no correct record
+    of the 205 regression fixtures fits worse than 0.98" (95th percentile 0.58"), so a record
+    that does is itself suspect (a mislinked record fits badly) and is no baseline; without
+    the ceiling a 3" record let a link through at 3.85". Per-axis rms over kept obs, as
+    rms_residual."""
+    R = getattr(fit, "_resid_all", None)
+    if R is None:
+        return None
+    m = np.asarray(fit._mask, dtype=bool)
+    worst = []
+    for body in sorted({_body_key(o) for o in fit._obs}, key=str):
+        idx = [i for i, o in enumerate(fit._obs) if m[i] and _body_key(o) == body]
+        if not idx:
+            continue
+        joint = float(np.sqrt(np.mean(R[idx] ** 2)))
+        solo = solo_fit(fit, body)
+        if solo is None:
+            if _solo_eligible([o for o in fit._obs if _body_key(o) == body]):
+                return None                               # solo fit failed: no baseline
+            if not _part_fits(fit, idx):
+                return None                               # the NEW observations do not fit
+            continue
+        own = solo.rms_residual()
+        if not (own < RMS_CEILING and joint < RMS_CEILING):
+            return None                                   # no record fits this badly: no baseline
+        if joint > BASELINE_WORSEN_FACTOR * own + BASELINE_WORSEN_SLACK:
+            return None                                   # the link makes this record fit worse
+        worst.append((own, joint, body))
+    if not worst:
+        return None
+    own, joint, body = max(worst)
+    return (f"the kept fit is over the bars because {body}'s own record fits at {own:.2f}\" alone "
+            f"({joint:.2f}\" jointly) -- not made worse by this link")
+
+
+def _dropped(fit):
+    """The joint fit's drops that count against the LINK: rejected, minus the ones its body's
+    own record rejects too (set by :func:`identify`'s second pass)."""
+    d = ~np.asarray(fit._mask, dtype=bool)
+    pre = fit.__dict__.get("_pre_drops")
+    return d & ~pre if pre is not None else d
+
+
+def _identify_pass(fit, _shape=False, _why=None):
     """Return the ident-check identification text for a fitted pair, or None when it is not a
     clean identification.
 
@@ -989,6 +1116,10 @@ def identify(fit, _shape=False, _why=None):
         return _no(f"only {fit.n_observations()} observations survive the fit -- too few to "
                    f"determine an orbit, let alone confirm an identification with it")
     _fits, _fitnote = kept_obs_fit(fit)
+    if not _fits and "_pre_misfit_ok" in fit.__dict__:
+        note = preexisting_misfit(fit)                    # second pass: is the misfit the link's?
+        fit.__dict__["_pre_misfit_ok"] = note
+        _fits = note is not None
     if not _fits:
         return _no(f"the kept observations do not fit the joint orbit: {_fitnote}")
     mask = np.asarray(fit._mask, dtype=bool)
@@ -1001,7 +1132,8 @@ def identify(fit, _shape=False, _why=None):
     # station, same instant, SAME sky position) cross-listed under another designation --
     # de-duplication, not a drop. Position must match: same station + same time is NOT enough
     # (a survey exposure can carry two different objects ~arcmin apart at one instant).
-    excluded = (~mask) & ~_duplicate_excluded(times, codes, ras, decs, ~mask)
+    _drop = _dropped(fit)                         # pre-existing drops set aside (second pass)
+    excluded = _drop & ~_duplicate_excluded(times, codes, ras, decs, _drop)
 
     # both designations must still contribute -- 'A = B' is meaningless if one is fully dropped
     _gone = ({o["designation"] for o in obs}
@@ -1178,6 +1310,7 @@ def identify(fit, _shape=False, _why=None):
         # OBS80 line and so the only step an ADES-sourced fit cannot complete.
         return {"n_except_obs": int(echo.sum()), "n_except_tracklets": len(excepted),
                 "tracklets": [_except_label(obs, tr) for tr in excepted],
+                "except_idx": [list(tr) for tr in excepted],      # fit._obs indices, per tracklet
                 "renderable": all(obs[i].get("obs80_line") for i in range(len(obs)) if echo[i])}
     if not echo.any():
         body = header
@@ -1261,7 +1394,7 @@ def examine_or_no(fit):
         pins the orbit -> route to 'y-examine' for review. NOT auto-confirmed either way;
       * otherwise (both arcs retain the majority and fit sub-arcsec) -> 'y-examine'."""
     kept, n_by_desig, span = {}, {}, {}
-    fmask = np.asarray(fit._mask, dtype=bool)
+    fmask = ~_dropped(fit)              # kept, plus drops the body's own record makes too
     for i, o in enumerate(fit._obs):
         d = o.get("designation"); t = o["jd_utc"]
         n_by_desig[d] = n_by_desig.get(d, 0) + 1
@@ -1277,6 +1410,9 @@ def examine_or_no(fit):
     # named retention, so a pair refused for its RESIDUALS was reported as a retention failure
     # (243P + 2025 MT356 printed "min retention 89%" -- 89% passes; the 0.647" rms was the refusal).
     fits, note = kept_obs_fit(fit)
+    if not fits and "_pre_misfit_ok" in fit.__dict__:
+        # identify()'s second pass ran: a misfit that is the records' own does not block
+        fits = (fit.__dict__["_pre_misfit_ok"] or preexisting_misfit(fit)) is not None
     if not fits:
         return "no", note
     doubt = clip_doubt(fit)
@@ -1357,6 +1493,167 @@ def _element(fit, name):
         return None
 
 
+# --- PRE-EXISTING faults: judged against each body's OWN record, fitted alone -------------------
+# An identification can only be blamed for what it CHANGES. A residual trend in an apparition that
+# holds one body's observations alone, or a tracklet the joint fit excepts, may already be there
+# when that body's record is fitted with nothing joined to it -- a fault in the MPC's record, which
+# the identification neither introduces nor claims. Measured on the idqueue's held links
+# (2026-11-12, 292 held): 41 of 125 'y-systematic' holds trended in an old apparition of ONE
+# designation whose own record trends there too, and 24 of 39 'y2' holds excepted a tracklet the
+# designation's own fit already rejects (2018 XS4's 107 night of 2018-12-14, 2019 UO13's N55 night
+# of 2019-10-31). Fitted alone, 33 of 61 designations with >= 200 obs trip systematic_misfit on
+# their own record -- the gate's false-positive floor on long records. So both verdicts now ask
+# the body's solo fit first, and only what the LINK adds counts.
+BASELINE_WORSEN_FACTOR = 1.25  # a pre-existing trend still counts when the joint fit makes it this
+BASELINE_WORSEN_SLACK = 0.10   # many times (plus this many arcsec) larger than the body alone shows
+SOLO_MIN_OBS = 6               # a body needs this many obs, over 2+ nights, to be fitted alone
+SOLO_MAX_SEC = 120.0           # wall-clock bound on one solo fit; past it, no baseline (no exemption)
+SYS_SE_STATION_TAU = True      # the identification verdict's significance arm also counts each
+                               # night's station offset (nightmodel tau) as noise, as the trend arm
+                               # does. A correct orbit leaves nights displaced by the station's own
+                               # offsets; measured against SE alone that reads as structure. Random
+                               # MPC objects with 200-1500 obs (fitted +16ast, 2026-11-12): the
+                               # gate fired on 13 of 50 of their own CORRECT records (26%), 4 of 50
+                               # (8%) with tau. Every PAIR_/GUARD_ fixture keeps its verdict with
+                               # tau -- all known-bogus pairs (HV328, EW228, TJ205, NF505, DS43,
+                               # OC732) still fire; the only change in 108 fixtures is the
+                               # single-object SYS_2016UJ137, which is why systematic_misfit (the
+                               # single-object banner) keeps the plain SE.
+
+
+def _body_key(o):
+    """Which BODY an observation belongs to: one record can carry several labels (415989's
+    record holds '415989', '2002 AC19' and '2005 UV74' obs), all with one ``packed_perm``."""
+    return o.get("packed_perm") or o.get("designation")
+
+
+def _fit_alone(fit, sub):
+    """``sub`` (one body's obs) fitted as a single object, in the joint fit's force model."""
+    import contextlib
+    from pyroorb import deadline, force_assist
+    from pyroorb.fit_object import fit_orbit
+    from pyroorb.obs_sources import load_obscodes
+    label = sub[0].get("designation") or "object"
+    field = getattr(fit, "asteroids", None)
+    forced = (force_assist.perturbers_on_for(
+        "ident", field=field if isinstance(field, frozenset) else None)
+        if field else contextlib.nullcontext())
+    with deadline.deadline(SOLO_MAX_SEC, label="solo baseline fit"), forced:
+        return fit_orbit(sub, load_obscodes(), desig=label,
+                         meta={"designation": label, "n_requested": 1})
+
+
+def _solo_eligible(sub):
+    """True when a body's obs ``sub`` are enough to fit it alone (SOLO_MIN_OBS over 2+ nights) --
+    so a None from :func:`solo_fit` means the fit FAILED, not that there was nothing to fit."""
+    return (len(sub) >= SOLO_MIN_OBS
+            and len(_split(sorted(float(o["jd_utc"]) for o in sub), NIGHT_GAP_DAYS)) >= 2)
+
+
+def solo_fit(fit, body):
+    """The fit of ``body``'s own observations (every one the joint fit carries, kept or not)
+    with nothing joined to it, or None when it has too few obs or cannot be fitted. Cached on
+    the joint fit."""
+    from pyroorb import deadline
+    cache = fit.__dict__.setdefault("_solo_fits", {})
+    if body not in cache:
+        sub = [dict(o) for o in fit._obs if _body_key(o) == body]
+        res = None
+        if _solo_eligible(sub):
+            try:
+                res = _fit_alone(fit, sub)
+            except deadline.DeadlineExceeded:
+                res = None
+            except Exception:                         # noqa: BLE001 -- no baseline, no exemption
+                res = None
+        cache[body] = res
+    return cache[body]
+
+
+def _single_body(fit, idx):
+    """The one body all of ``idx`` (fit._obs indices) belong to, when the fit carries others too;
+    else None (a mixed set, or a fit of one body, has no 'own record' to compare with)."""
+    keys = {_body_key(fit._obs[i]) for i in idx}
+    if len(keys) != 1 or len({_body_key(o) for o in fit._obs}) < 2:
+        return None
+    return next(iter(keys))
+
+
+def _overlaps(a, b):
+    return a["axis"] == b["axis"] and a["lo"] <= b["hi"] and b["lo"] <= a["hi"]
+
+
+def _preexisting_trend(fit, cand, kind):
+    """True when ``cand`` (a :func:`_sys_candidates` row, or a :func:`_trend_candidates` row for
+    ``kind == "trend"``) sits in an apparition of ONE body whose solo fit already shows it: the
+    same axis in an overlapping apparition, dominant and over the relaxed floor (or a firing trend),
+    with the joint fit no more than BASELINE_WORSEN_FACTOR x + BASELINE_WORSEN_SLACK worse."""
+    body = _single_body(fit, cand["app"])
+    if body is None:
+        return False
+    solo = solo_fit(fit, body)
+    if solo is None:
+        return False
+    if kind == "trend":
+        return any(c["fires"] and _overlaps(c, cand) for c in _trend_candidates(solo))
+    return any(_overlaps(c, cand) and c["between"] >= SYS_BETWEEN_CORROB
+               and cand["between"] <= BASELINE_WORSEN_FACTOR * c["between"] + BASELINE_WORSEN_SLACK
+               # the PLAIN dominance test on the solo side: the question there is only whether
+               # the record alone already shows that displacement, and how big -- asking it the
+               # stricter tau-aware test would make the baseline harder to match than the
+               # verdict it is excusing (a trend tau calls noise alone can still fire jointly
+               # on the scatter test)
+               for c in (_sys_candidates(solo) or []))
+
+
+def _strongest_trend(trends):
+    best = None
+    for c in trends:                                  # significant_trend's own pick
+        if best is None or (c["fires"], c["z"]) > (best["fires"], best["z"]):
+            best = c
+    return best
+
+
+def link_systematic(fit):
+    """:func:`systematic_misfit` asked of what the LINK adds: ``(desc, preexisting)``. ``desc`` is
+    the verdict once every apparition whose trend the body's own record already shows is set aside
+    (None when nothing else fires); ``preexisting`` the descriptions so set aside. Solo fits are
+    made only when systematic_misfit fires at all."""
+    cands = _sys_candidates(fit, station_tau=SYS_SE_STATION_TAU)
+    if cands is None:
+        return None, []
+    trends = _trend_candidates(fit)
+    if _sys_compose(cands, _strongest_trend(trends)) is None:
+        return None, []
+    pre, kept = [], []
+    for c in cands:
+        if c["between"] >= SYS_BETWEEN_CORROB and _preexisting_trend(fit, c, "sys"):
+            pre.append(c["desc"])
+        else:
+            kept.append(c)
+    kept_trends = []
+    for c in trends:
+        if c["fires"] and _preexisting_trend(fit, c, "trend"):
+            pre.append(_trend_desc(c))
+        else:
+            kept_trends.append(c)
+    return _sys_compose(kept, _strongest_trend(kept_trends)), pre
+
+
+def preexisting_exception(fit, idx):
+    """True when the excepted tracklet ``idx`` (fit._obs indices) belongs to ONE body whose own
+    record, fitted alone, rejects every one of its observations too."""
+    body = _single_body(fit, idx)
+    if body is None:
+        return False
+    solo = solo_fit(fit, body)
+    if solo is None:
+        return False
+    key = lambda o: (round(float(o["jd_utc"]), 6), str(o.get("obscode") or ""))
+    dropped = {key(o) for o, k in zip(solo._obs, solo._mask) if not k}
+    return all(key(fit._obs[i]) in dropped for i in idx)
+
+
 def linkage_verdict(fit):
     """May the joint fit on screen be OFFERED to a human as an MPC identification, and with what
     cautions?  ``{"offer", "clean", "reason", "cautions"}``.
@@ -1425,6 +1722,19 @@ def linkage_verdict(fit):
     unknown = bool(shape) and bool(shape.get("unknown"))
     is_ident = shape is not None and not unknown
     n_except = shape["n_except_obs"] if is_ident else 0
+    except_labels = list(shape["tracklets"]) if is_ident else []
+    # An excepted tracklet the body's OWN record rejects too is a fault already in the MPC's
+    # record (see BASELINE_WORSEN_FACTOR's block): the identification does not introduce it, so
+    # it does not make the link a y2. Asked only when it would (solo fits cost a fit each).
+    pre_except = []
+    if is_ident and n_except > EXCEPT_CLEAN_MAX_OBS and shape.get("except_idx"):
+        n_except, except_labels = 0, []
+        for tr, label in zip(shape["except_idx"], shape["tracklets"]):
+            if preexisting_exception(fit, tr):
+                pre_except.append(label)
+            else:
+                n_except += len(tr)
+                except_labels.append(label)
     # 'y' vs 'y2', the batch's own split: at most ONE excepted observation is a clean match; more
     # than that, the join is bought by declaring whole tracklets not to be this object, and that
     # claim is the thing a human has to agree with before anything is submitted.
@@ -1455,7 +1765,7 @@ def linkage_verdict(fit):
         # ONE message, not a headline plus a caution repeating it: the exception IS the whole
         # story here, and it ends in an instruction (a Jira ticket) that must not be split off
         # into a second banner the reader might not connect to the first.
-        trks = shape["tracklets"]
+        trks = except_labels
         what = " and ".join(trks) if trks else f"{n_except} observations"
         is_are, that = ("are", "those tracklets") if len(trks) != 1 else ("is", "that tracklet")
         reason = (f"an identification WITH EXCEPTIONS -- the join holds only if the {what} {is_are} "
@@ -1495,7 +1805,22 @@ def linkage_verdict(fit):
     # showed "a clean identification" over a live Submit button). It stays OFFERED, because the
     # fit and its residuals are exactly what a reviewer needs to see, and a real identification
     # can trend (2025 OT173 = 2014 EN155) -- but the engine will not back it.
-    sysmis = systematic_misfit(fit)
+    # Only what the LINK adds is judged: an apparition of one body whose own record trends there
+    # already is set aside (link_systematic; see BASELINE_WORSEN_FACTOR's block) and said aloud
+    # -- as a NOTE, not a caution: it is not a doubt about this link, so it must not count as one
+    # (the idqueue holds a link on its caution count) nor stop a 'y' from coming back clean.
+    sysmis, pre_sys = link_systematic(fit)
+    notes = [f"Set aside as already in the MPC record, not caused by this link: {n}."
+             for n in why.get("preexisting") or ()]
+    if pre_except:
+        is_are = "are" if len(pre_except) != 1 else "is"
+        notes.append(f"Not counted as an exception: the {' and '.join(pre_except)} {is_are} "
+                     f"rejected by that object's own record fitted alone too -- a fault already "
+                     f"in the MPC record, which this identification does not introduce.")
+    if pre_sys and not sysmis and is_ident:
+        notes.append(f"Residual trend already in the MPC record, not counted against this "
+                     f"link: {'; '.join(pre_sys)} -- the same apparition, fitted as that object "
+                     f"alone, trends there too.")
     if sysmis and is_ident:
         if y2:                                    # both faults: the trend leads, the exception
             cautions.append(reason)               # stays as its own caution
@@ -1543,7 +1868,10 @@ def linkage_verdict(fit):
             # write at all. Both stay on screen with their reason; neither raises a button.
             "submittable": submittable,
             "reason": "clean identification" if clean else reason,
-            "cautions": cautions}
+            "cautions": cautions,
+            # what the engine set aside as already in the MPC record (pre-existing faults):
+            # informational, never counted as a caution
+            "notes": notes}
 
 
 def systematic_misfit(fit):
@@ -1570,6 +1898,24 @@ def systematic_misfit(fit):
     >= 8x the scatter within a night, are a trend however small in arcsec (2025 NF505 = 2015 HG272,
     1.26" over four nights at z 14, 11x). Judged on
     INCLUDED obs only (rejected blunders are already gone)."""
+    cands = _sys_candidates(fit)
+    if cands is None:
+        return None
+    return _sys_compose(cands, significant_trend(fit))
+
+
+def _sys_candidates(fit, station_tau=False):
+    """Every apparition x axis whose per-night means DOMINATE their noise (either test of
+    :func:`systematic_misfit`), as dicts ``{"between", "desc", "axis", "app", "lo", "hi"}`` --
+    ``app`` the INCLUDED obs indices of that apparition, ``lo``/``hi`` its time span -- in the
+    order the apparitions and axes were scanned.  No floor is applied here: the absolute floors
+    are the composition's (:func:`_sys_compose`).  None when the fit has fewer than 6 included
+    obs (too few to judge at all).
+
+    ``station_tau``: the significance test's noise also carries each night's station offset
+    (``nightmodel`` tau, the displacement a CORRECT orbit leaves -- what the trend arm already
+    allows for), the identification verdict's reading (:func:`link_systematic`, see
+    SYS_SE_STATION_TAU). Off for :func:`systematic_misfit` itself, the single-object banner."""
     if fit._resid_all is None:
         return None
     m = np.asarray(fit._mask, dtype=bool)
@@ -1579,15 +1925,13 @@ def systematic_misfit(fit):
     idx.sort(key=lambda i: fit._obs[i]["jd_utc"])     # _obs is time-sorted, but be explicit
     times = [fit._obs[i]["jd_utc"] for i in idx]
     R = fit._resid_all
-    worst = None                                      # best axis clearing the STRICT absolute floor
-    corrob = []                                       # per-apparition best axis clearing the RELAXED floor
+    out = []
     for app in _split(times, OPP_GAP_DAYS):
         nights = [ni for ni in _split([times[k] for k in app], NIGHT_GAP_DAYS)
                   if len(ni) >= SYS_MIN_NIGHT_OBS]
         if len(nights) < SYS_MIN_NIGHTS:
             continue                                  # too sparse to tell a trend from noise
-        app_best = None                               # this apparition's strongest ratio-dominant trend
-        for ax in (0, 1):                             # 0 = dRA*cosδ, 1 = dDec
+        for ax in (0, 1):                             # 0 = dRA*cos(dec), 1 = dDec
             vals = [np.array([R[idx[app[k]], ax] for k in ni]) for ni in nights]
             means = np.array([v.mean() for v in vals])
             within = float(np.mean([v.std() for v in vals]))
@@ -1596,6 +1940,13 @@ def systematic_misfit(fit):
             # so ddof=1 is always defined; a 1-obs night would be uninformative, hence the nan.)
             ses = np.array([v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else np.nan
                             for v in vals])
+            if station_tau:
+                from pyroorb import nightmodel
+                taus = []
+                for ni in nights:
+                    cs = [str(fit._obs[idx[app[k]]].get("obscode") or "500") for k in ni]
+                    taus.append(nightmodel.station_params(max(set(cs), key=cs.count))[2 + ax])
+                ses = np.sqrt(ses ** 2 + np.asarray(taus, float) ** 2)
             between = float(np.sqrt(np.mean(means ** 2)))
             if len(means) >= SYS_LOO_MIN_NIGHTS:      # robust: the signal must survive dropping
                 drop = int(np.argmax(np.abs(means)))                    # the single worst night
@@ -1612,33 +1963,45 @@ def systematic_misfit(fit):
             # Written for the banner and the CLI line: WHICH apparition, which axis, and the
             # two scales side by side. The old "RA per-night mean 0.42\" vs within 0.18\"" had no
             # verb and named no apparition, and it was the harshest-coloured banner in the UI.
-            desc = (between,
-                    f"in the {_jd_year(times[app[0]])} apparition the nightly {axis} means "
+            desc = (f"in the {_jd_year(times[app[0]])} apparition the nightly {axis} means "
                     f"drift by {between:.2f}\" while each night scatters only {within:.2f}\""
                     + (f", {between / se:.1f}x the mean's own error" if se > 1e-9 else ""))
-            if between >= SYS_BETWEEN_ARCSEC and (worst is None or between > worst[0]):
-                worst = desc                          # strict fire (absolute floor UNCHANGED)
-            if between >= SYS_BETWEEN_CORROB and (app_best is None or between > app_best[0]):
-                app_best = desc
-        if app_best is not None:
-            corrob.append(app_best)
-    if worst is not None:
-        return worst[1]
+            out.append({"between": between, "desc": desc, "axis": axis,
+                        "app": [idx[k] for k in app],
+                        "lo": float(times[app[0]]), "hi": float(times[app[-1]])})
+    return out
+
+
+def _sys_compose(cands, trend):
+    """:func:`systematic_misfit`'s verdict from its candidates and the trend arm: the strongest
+    apparition over the STRICT floor; else, when SYS_MIN_CORROB_APPS apparitions each clear the
+    RELAXED floor, the strongest of those (corroborated); else a firing trend; else None."""
+    strict = [c for c in cands if c["between"] >= SYS_BETWEEN_ARCSEC]
+    if strict:
+        return max(strict, key=lambda c: c["between"])["desc"]   # first of equals, as before
     # Corroborated relaxation: no single apparition reached the strict 0.5" floor, but if two or
     # more apparitions EACH independently trend (ratio-dominant, >= the relaxed floor) that repeated
     # signature is itself the evidence -- report the strongest such apparition.
+    corrob = {}                                       # apparition -> its strongest axis
+    for c in cands:
+        if c["between"] >= SYS_BETWEEN_CORROB:
+            key = (c["lo"], c["hi"])
+            if key not in corrob or c["between"] > corrob[key]["between"]:
+                corrob[key] = c
     if len(corrob) >= SYS_MIN_CORROB_APPS:
-        best = max(corrob, key=lambda t: t[0])
-        return f"{best[1]} (corroborated across {len(corrob)} apparitions)"
-    trend = significant_trend(fit)
+        best = max(corrob.values(), key=lambda c: c["between"])
+        return f"{best['desc']} (corroborated across {len(corrob)} apparitions)"
     if trend is not None and trend["fires"]:
-        return (f"in the {trend['year']} apparition the nightly {trend['axis']} means walk "
-                f"{trend['swing']:.2f}\" across {trend['nights']} nights in a straight line -- "
-                f"{trend['ratio']:.0f}x the {trend['within']:.2f}\" scatter within a night, and "
-                f"{trend['z']:.1f}x the slope's own error against the stations' night-to-night "
-                f"noise")
+        return _trend_desc(trend)
     return None
 
+
+def _trend_desc(trend):
+    return (f"in the {trend['year']} apparition the nightly {trend['axis']} means walk "
+            f"{trend['swing']:.2f}\" across {trend['nights']} nights in a straight line -- "
+            f"{trend['ratio']:.0f}x the {trend['within']:.2f}\" scatter within a night, and "
+            f"{trend['z']:.1f}x the slope's own error against the stations' night-to-night "
+            f"noise")
 
 def significant_trend(fit):
     """The strongest within-apparition TREND in the station-night mean residuals, as
@@ -1650,17 +2013,27 @@ def significant_trend(fit):
     but flat apparition scores ~0. ``ratio`` is how far: the swing across the apparition over the
     pooled within-night scatter (SYS_TREND_MIN_SWING_RATIO). ``fires`` = both bars cleared; the
     test returned is the strongest (by z) that fires, else the strongest overall."""
+    best = None
+    for cand in _trend_candidates(fit):
+        if best is None or (cand["fires"], cand["z"]) > (best["fires"], best["z"]):
+            best = cand
+    return best
+
+
+def _trend_candidates(fit):
+    """:func:`significant_trend`'s test for EVERY apparition x axis it can judge, each dict also
+    carrying ``app`` (the included obs indices of the apparition) and ``lo``/``hi`` (its span)."""
     from pyroorb import nightmodel
     if fit._resid_all is None:
-        return None
+        return []
     m = np.asarray(fit._mask, dtype=bool)
     idx = sorted((i for i in range(len(fit._obs)) if m[i]), key=lambda i: fit._obs[i]["jd_utc"])
     if len(idx) < 6:
-        return None
+        return []
     R = fit._resid_all
     t = np.array([fit._obs[i]["jd_utc"] for i in idx])
     codes = [str(fit._obs[i].get("obscode") or "500") for i in idx]
-    best = None
+    out = []
     for app in _split(list(t), OPP_GAP_DAYS):
         app = np.asarray(app)
         gid = nightmodel.station_night_index(t[app], [codes[k] for k in app])
@@ -1693,10 +2066,11 @@ def significant_trend(fit):
             cand = {"z": float(z), "ratio": ratio,
                     "fires": bool(z >= SYS_TREND_Z and ratio >= SYS_TREND_MIN_SWING_RATIO),
                     "axis": "RA" if ax == 0 else "Dec", "year": _jd_year(t[app[0]]),
-                    "nights": len(blocks), "swing": swing, "within": within}
-            if best is None or (cand["fires"], cand["z"]) > (best["fires"], best["z"]):
-                best = cand
-    return best
+                    "nights": len(blocks), "swing": swing, "within": within,
+                    "app": [idx[k] for k in app],
+                    "lo": float(t[app[0]]), "hi": float(t[app[-1]])}
+            out.append(cand)
+    return out
 
 
 def short_arc_systematic(fit):

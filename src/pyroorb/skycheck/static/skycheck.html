@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyRoOrb — Sky Check</title>
+<link rel="icon" href="/static/icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/pyroorb-32.png">
+<link rel="stylesheet" href="/static/style.css">
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-956W73JTP9"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-956W73JTP9');
+</script>
+<style>
+  body { display: block; height: auto; overflow: auto; padding: 0 0 60px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 18px 16px; }
+  header.bar { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 16px; }
+  header.bar h1 { font-size: 17px; }
+  header.bar .sub { color: var(--muted); font-size: 12px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tabs button { padding: 6px 14px; border: 1px solid var(--border); background: var(--panel);
+    border-radius: 6px; cursor: pointer; color: inherit; }
+  .tabs button.on { border-color: var(--accent, #4a8); font-weight: 600; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 14px; }
+  .form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px;
+    font-size: 12.5px; align-items: end; }
+  .form label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+  .form label.check { flex-direction: row; align-items: center; }
+  .form input[type=text], .form select { font-family: var(--mono); }
+  textarea { width: 100%; min-height: 160px; font-family: var(--mono); font-size: 12px;
+    box-sizing: border-box; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  .status { color: var(--muted); font-size: 12.5px; }
+  .error { color: var(--bad, #d55); }
+  .notes { font-size: 12.5px; color: var(--muted); margin: 6px 0; }
+  .tablewrap { overflow-x: auto; }
+  table.sc { border-collapse: collapse; width: 100%; font-size: 12px; font-family: var(--mono); }
+  table.sc th, table.sc td { padding: 3px 8px; text-align: right; white-space: nowrap;
+    border-bottom: 1px solid var(--border); }
+  table.sc th { color: var(--muted); font-weight: 500; position: sticky; top: 0;
+    background: var(--panel); }
+  table.sc td.l, table.sc th.l { text-align: left; }
+  tr.match td { font-weight: 600; }
+  .tracklet { margin-bottom: 12px; }
+  .tracklet h3 { font-size: 13px; margin: 0 0 4px; }
+  .tracklet h3 .id { color: var(--good, #4a8); }
+  .tracklet h3 .none { color: var(--muted); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <h1>Sky check</h1>
+    <span class="sub" id="catInfo">loading the orbit catalogue…</span>
+  </header>
+  <div class="tabs">
+    <button id="tabField" class="on">Field</button>
+    <button id="tabIdentify">Identify tracklets</button>
+  </div>
+
+  <section id="paneField" class="panel">
+    <div class="form">
+      <label>RA (deg or HH MM SS.s)<input type="text" id="fRa" placeholder="04 09 32.4"></label>
+      <label>Dec (deg or ±DD MM SS)<input type="text" id="fDec" placeholder="+14 41 33"></label>
+      <label>Time, UTC (ISO, YYYY MM DD.ddd or JD)
+        <input type="text" id="fTime" placeholder="now"></label>
+      <label>Station (MPC code)<input type="text" id="fStation" value="500" size="5"></label>
+      <label>Radius (arcmin)<input type="text" id="fRadius" size="5"></label>
+      <label>Faintest magnitude<input type="text" id="fMag" placeholder="none" size="5"></label>
+      <label class="check"><input type="checkbox" id="fComets" checked> comets</label>
+      <label class="check" title="also the NEO Confirmation Page's unconfirmed objects (times within 30 days)"><input type="checkbox" id="fNeocp"> NEOCP objects</label>
+    </div>
+    <div class="actions"><button id="fGo">Check field</button>
+      <span class="status" id="fStatus"></span></div>
+  </section>
+
+  <section id="paneIdentify" class="panel hidden">
+    <p class="notes">Paste MPC 80-column or ADES (PSV/XML) astrometry. Observations are grouped
+      into tracklets (one station, one object, a few hours) and each tracklet is checked once
+      against every known object near it: a match must sit near ALL its positions and share
+      their motion.</p>
+    <textarea id="iText" spellcheck="false"></textarea>
+    <div class="form" style="margin-top:8px">
+      <label>Radius (arcmin)<input type="text" id="iRadius" size="5"></label>
+      <label>Match within (arcsec)<input type="text" id="iMatch" size="5"></label>
+      <label>Motion rms within (arcsec)<input type="text" id="iMotion" size="5"></label>
+      <label class="check"><input type="checkbox" id="iComets" checked> comets</label>
+      <label class="check" title="also the NEO Confirmation Page's unconfirmed objects (times within 30 days)"><input type="checkbox" id="iNeocp"> NEOCP objects</label>
+    </div>
+    <div class="actions"><button id="iGo">Identify</button>
+      <span class="status" id="iStatus"></span></div>
+  </section>
+
+  <section id="results"></section>
+</div>
+<script src="/static/fitjob.js"></script>
+<script src="/static/skycheck.js"></script>
+</body>
+</html>

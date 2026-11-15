@@ -139,40 +139,45 @@ def scores(obs):
 
 
 # --- tracklet by tracklet ---------------------------------------------------------------------
-TRACKLET_MAX_HOURS = 4.0     # a tracklet without an id is one station's obs
-                             # within 4 hours of its first
+# (a tracklet = one station, one night; see tracklets)
 
 
 def tracklets(obs):
     """Group `obs` (any order) into tracklets: ``[[index, ...], ...]`` (indices into `obs`, each
     group in time order, groups in order of their first observation).
 
-    An observation that carries its submitter's tracklet id (ADES trkSub, kept on NEOCP obs as
-    `trksub`) is grouped by (station, trkSub) -- the observer's own statement of which
-    detections are one tracklet. Every other observation is grouped by station, a tracklet
-    closing TRACKLET_MAX_HOURS after its first observation."""
-    by_id, by_station = {}, {}
+    A tracklet is one station's observations in one night: the observer's 12 h window
+    (orbit_common.NIGHT_WINDOW_DAYS) from that station's first observation of the night.
+    The submitter's tracklet id (ADES trkSub) never matters: observers reuse
+    one trkSub across nights (1997 AU24: 'MH102' on three nights at 807, which grouped five
+    days of astrometry as one tracklet and scored it as one object)."""
+    from pyroorb.orbit_common import NIGHT_WINDOW_DAYS
+    by_station = {}
     order = sorted(range(len(obs)), key=lambda k: obs[k].get("jd_utc") or 0.0)
     groups = []
     for k in order:
         o = obs[k]
         code = str(o.get("obscode") or "")
-        tid = o.get("trksub")
-        if tid:
-            key = (code, str(tid))
-            if key not in by_id:
-                by_id[key] = []
-                groups.append(by_id[key])
-            by_id[key].append(k)
-            continue
         cur = by_station.get(code)
-        if cur is None or (o["jd_utc"] - obs[cur[0]]["jd_utc"]) * 24.0 > TRACKLET_MAX_HOURS:
+        if cur is None or o["jd_utc"] - obs[cur[0]]["jd_utc"] >= NIGHT_WINDOW_DAYS:
             cur = [k]
             by_station[code] = cur
             groups.append(cur)
         else:
             cur.append(k)
     return groups
+
+
+def arc_scores(obs):
+    """:func:`scores` for `obs` as ONE object, or None unless they are a single tracklet
+    (:func:`tracklets`). digest2 is a tracklet classifier: it fits one great circle and one
+    rate to what it is given, so two tracklets (two nights, or two stations on one night) fed
+    as one are scored as a motion no single tracklet shows. An arc of several tracklets is
+    scored tracklet by tracklet (:func:`tracklet_scores`), never as a whole."""
+    obs = [o for o in obs if o.get("jd_utc") is not None]
+    if len(tracklets(obs)) != 1:
+        return None
+    return scores(obs)
 
 
 def tracklet_scores(obs):

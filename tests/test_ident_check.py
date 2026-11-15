@@ -1201,7 +1201,12 @@ def test_an_examine_caution_names_the_refusal_and_labels_the_exculpation():
     # <examine_or_no's reason>", and a 'y-examine' reason is the grounds for NOT calling the link a
     # non-match ("a baseline that long pins the orbit") -- so it announced a doubt, argued the other
     # way, and never said what was wrong. 2025 MT356 is refused for clipping 23 whole tracklets.
+    # Since 2026-11-13 those 23 tracklets are ones 243P's own record rejects too, so the
+    # pre-existing pass (identify's second pass) lets the link through as a y2 -- this test is
+    # about the WORDING of an identify() refusal, so it switches that pass off for this fit.
+    import numpy as np
     fit = _fit(_fix("PAIR_2025MT356"), inject_line=True)
+    fit.__dict__["_pre_drops"] = np.zeros(len(fit._obs), dtype=bool)
     v = ident_check.linkage_verdict(fit)
     assert v["code"] == "y-examine", v
     [c] = [c for c in v["cautions"] if "not confirmed" in c]

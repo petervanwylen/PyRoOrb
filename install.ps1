@@ -81,7 +81,7 @@ $Here = if ($PSScriptRoot -and (Test-Checkout $PSScriptRoot)) { $PSScriptRoot } 
 # The commands put on PATH (pyproject.toml [project.scripts]) and where they go. A copy of a
 # .venv launcher runs from anywhere: it names its .venv's python.exe by full path, and that path
 # is also how the uninstall tells its own copies from another install's.
-$Commands = @("pyroorb", "pyroorb-web", "pyroorb-itf", "pyroorb-fetch-data")
+$Commands = @("pyroorb", "pyroorb-web", "pyroorb-itf", "pyroorb-fetch-data", "pyroorb-skycheck")
 $Bin = Join-Path $HOME ".local\bin"
 function Test-Launcher($file, $venvPy) {     # a .venv launcher; with $venvPy, that .venv's
     if (-not (Test-Path $file)) { return $false }

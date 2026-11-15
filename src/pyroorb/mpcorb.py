@@ -106,6 +106,30 @@ def robust_download(url, dst, thresh=65536, chunk=4 * 1024 * 1024, verbose=True)
     return dst
 
 
+def download_gz_atomic(url, dst, *, download=None, verbose=False):
+    """Download a gzip file to ``dst`` so that no reader ever sees a partial file and no
+    concurrent writer can lose it: the bytes go to a temporary file private to this process
+    and thread, are decompressed end to end, and only then replace ``dst`` (one atomic
+    rename). Several processes refresh MPCORB on one server (the sky check and the NEOCP
+    monitor, at start-up together); with one shared temporary name one writer renamed or
+    deleted the other's file mid-download, and on a fresh server that left no catalogue.
+    Raises on a failed or corrupt download; ``dst`` is then untouched."""
+    import threading
+    download = download or robust_download
+    dst = Path(dst)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(f"{dst.name}.{os.getpid()}.{threading.get_ident()}.part")
+    try:
+        download(url, tmp, verbose=verbose)
+        with gzip.open(tmp, "rb") as f:                   # integrity: decompress it all
+            while f.read(1 << 22):
+                pass
+        os.replace(tmp, dst)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return dst
+
+
 def ensure_mpcorb(verbose=True):
     """Return the path to a valid local MPCORB.DAT.gz, downloading it if the cache is
     absent or fails to decompress."""
@@ -119,10 +143,7 @@ def ensure_mpcorb(verbose=True):
                 print("cached MPCORB is corrupt -- refetching", flush=True)
     if verbose:
         print(f"downloading MPCORB -> {MPCORB_GZ}", flush=True)
-    robust_download(MPCORB_URL, MPCORB_GZ, verbose=verbose)
-    with gzip.open(MPCORB_GZ, "rt", errors="replace") as f:   # validate
-        sum(1 for _ in f)
-    return MPCORB_GZ
+    return download_gz_atomic(MPCORB_URL, MPCORB_GZ, verbose=verbose)
 
 
 # ----------------------------------------------------------------------------- index

@@ -26,6 +26,10 @@ only with a measurement, and update its line here when you do.
 - `datadirs.py` — where files live (per-user cache, reference tables); `localstore.py` —
   `LOCAL_PERSISTENT_FOLDER`, the one setting for restart-surviving storage.
 - `mpcorb.py` — cached MPCORB + `sample_asteroids(n, …)` filtered random sampler.
+- `skycheck/` — the sky check (MPChecker-style): `catalogue.py` (MPCORB + comets in perihelion
+  form, memory-mapped, versioned builds), `conic.py` (vectorised universal-variable two-body),
+  `check.py` (quick pass + ASSIST precise pass), `neocp.py`, `webaddon.py` (`/skycheck`),
+  `pyroorb-skycheck`; public as `check_field` / `identify_tracklets`.
 - `itf/` — ITF search (seed fit → corridor → candidates from `itf.itf_tracklets` → ML-ranked
   trial linkages → recursion → gates → MPC identification JSON, dry-run by default). Needs your
   own SBN database. `pyroorb-itf` / `python -m pyroorb.itf`; see `itf/README.md`.
@@ -240,6 +244,15 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **Text is UTF-8 on every OS**: every text-mode open names `encoding="utf-8"`, and every command
   switches its streams to UTF-8 at start-up (`console.utf8_stdio`, beside `load_env_file`); the
   locale default is cp1252 on Windows (`tests/test_text_encoding.py`).
+- **The sky check never misses through its quick pass** (`skycheck.check`): a two-body
+  candidate test whose margin (`relative_margin`) is the measured two-body-vs-ASSIST maximum
+  x 1.5, as a position error relative to r, divided by the distance from the observer; orbits
+  that pass within 0.2 au of the Earth carry a stored daily ASSIST ephemeris instead
+  (`catalogue.NEAR_AU`), old-epoch asteroids are integrated to the main epoch at build
+  (`catalogue.reosculate`). Every survivor is placed by ASSIST.
+- **A tracklet is checked once, against ALL its positions** (`skycheck.identify`): match =
+  mean offset <= 30" (comets 120") and motion rms <= 4" (+30% of the track for >= 10"/min);
+  several matches identify only when the nearest is 3x and 2" nearer (`skycheck._choose`).
 
 ## Web / ops invariants
 - **`/memory` totals are summed in bytes and rounded once** (`tables_gross_mb`, `tables_combined_mb`, `overlap_mb`); summing per-table rounded figures drifts by 0.005 MB per table.

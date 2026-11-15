@@ -94,11 +94,17 @@ Issues = "https://github.com/petervanwylen/PyRoOrb/issues"
 # `pyroorb` runs a fit from the command line; `pyroorb-web` launches the web UI (honours
 # $PORT / $HOST); `pyroorb-itf` is the ITF CLI (search / recovery-suite / maintain; needs
 # your own SBN database); `pyroorb-fetch-data` downloads the reference tables (DE440, the
-# debias tables; --asteroids adds the 616 MB perturber kernel).
+# debias tables; --asteroids adds the 616 MB perturber kernel); `pyroorb-skycheck` lists the
+# known objects in a field or identifies the tracklets of an astrometry file.
 pyroorb = "pyroorb:_cli"
 pyroorb-web = "pyroorb:_web"
 pyroorb-itf = "pyroorb:_itf"
 pyroorb-fetch-data = "pyroorb:_fetch_data"
+pyroorb-skycheck = "pyroorb:_skycheck"
+
+# The sky check's web page, as an add-on the server discovers (web/addons.py).
+[project.entry-points."pyroorb.web_addons"]
+skycheck = "pyroorb.skycheck.webaddon:ADDON"
 
 [tool.setuptools.packages.find]
 where = ["src"]

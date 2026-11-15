@@ -144,8 +144,9 @@ function flashIdentLinkage(p) {
 }
 
 function flashFitBanners(p) {
-  // Blue: the 16 asteroid perturbers were auto-kept because they meaningfully
-  // lowered the RMS (run_fit sets asteroids_auto; manual toggles never do).
+  // Blue: the asteroid field was auto-kept and is worth announcing -- extra bodies always (each
+  // encounter is named), the 16 alone only when they lowered the same-obs RMS by more than the
+  // displayed precision (run_fit sets asteroids_auto; manual toggles never do).
   // Keyed on the fit, not the session: a payload off the disk cache (a ?object= deeplink,
   // usually) has no session until the viewer clicks, and still deserves the banner -- once.
   const astKey = p.restore || p.refit || p.session;

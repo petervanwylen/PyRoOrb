@@ -295,8 +295,12 @@ def test_only_the_web_fit_pool_sets_a_deadline():
             setters.append(rel)
     # ...plus the ITF search's per-candidate TRIAL fit (itf/fitter.py), which
     # is not a user's fit but one audition inside a search that has its own
-    # budget -- see ItfConfig.trial_fit_max_sec.
-    assert sorted(setters) == ["itf/fitter.py", "web/fitqueue.py"], (
+    # budget -- see ItfConfig.trial_fit_max_sec.  Likewise the identification
+    # check's SOLO baseline fit (ident_check._fit_alone): one body fitted alone
+    # to tell a pre-existing concern from one the link causes; past its bound
+    # (ident_check.SOLO_MAX_SEC) there is simply no baseline and so no
+    # exemption, and the user's own fit is never bounded by it.
+    assert sorted(setters) == ["ident_check.py", "itf/fitter.py", "web/fitqueue.py"], (
         f"a deadline is set outside the web fit pool: {setters}")
 
 

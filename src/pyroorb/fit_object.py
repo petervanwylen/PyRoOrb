@@ -245,7 +245,10 @@ def fit_orbit(obs, obscodes, desig="object", meta=None, verbose=False, force=Fal
     # layer calls fetch_mpc_seed and passes it as `mpc_seed`), so the fit stays deterministic
     # and the offline regression suite -- which never supplies a seed -- keeps the IOD path.
     # Falls back to IOD on any failure (no seed, non-finite state). See _fit_from_mpc_seed.
-    if mpc_seed is not None and _qualifies_for_mpc_seed(obs, meta):
+    # A seed marked ``any_arc`` (a linker's own pair solution) is taken whatever the arc's size:
+    # on 3-night unbound arcs the IOD cascade converged to a bound e ~ 1 orbit 25-456" off for
+    # 9 of 27 linked ISOs whose pair solution already had their true eccentricity.
+    if mpc_seed is not None and (mpc_seed.get("any_arc") or _qualifies_for_mpc_seed(obs, meta)):
         try:
             fast = _fit_from_mpc_seed(obs, obscodes, desig, meta, verbose, mpc_seed)
             if fast is not None:
@@ -5371,17 +5374,25 @@ def refine_perturbers(fit, max_iter=6, verbose=False, mode="auto"):
             s1, _ = e.fit(np.asarray(s, float)[:6].copy(), m, thin=False)
             s2, _ = e.fit(s1, m, thin=False)            # a second pass: one can stop short
             c = chi2(e, s2, m)
-            best = c if best is None else min(best, c)
+            if best is None or c < best[0]:
+                best = (c, s2)
         return best
 
     old_same = chi2(ev, np.asarray(fit._state, float), mask0)
-    new_same = refit_on(ev2, (fit._state, state), mask0)
+    new_same, new_state = refit_on(ev2, (fit._state, state), mask0)
     gain = old_same - new_same
-    if gain <= 0 and (mask_a & ~mask0).any():
-        new_a = chi2(ev2, state, mask_a)
-        old_a = refit_on(ev, (fit._state, state), mask_a)
-        gain = max(gain, old_a - new_a)
-    info = dict(picks=sc.picks, top=top, seconds=round(sc.seconds, 3), gain=round(gain, 2))
+    # The same-obs RMS drop (per-axis arcsec) is what a viewer sees when toggling the field off
+    # and on; the chi2 gain alone keeps a field whose difference is far below the displayed
+    # precision (2011 WK115: gain 2.5 over 1315 obs, RMS 0.0009" lower). Recorded so a surface
+    # can tell "kept" from "visibly improved" (ASTEROID_KEEP_RMS, the polish's margin).
+    rms_drop = ev.rms_arcsec(np.asarray(fit._state, float), mask0) - ev2.rms_arcsec(new_state, mask0)
+    if (mask_a & ~mask0).any() and (gain <= 0 or rms_drop <= ASTEROID_KEEP_RMS):
+        old_a, old_a_state = refit_on(ev, (fit._state, state), mask_a)
+        if gain <= 0:
+            gain = max(gain, old_a - chi2(ev2, state, mask_a))
+        rms_drop = max(rms_drop, ev.rms_arcsec(old_a_state, mask_a) - ev2.rms_arcsec(state, mask_a))
+    info = dict(picks=sc.picks, top=top, seconds=round(sc.seconds, 3), gain=round(gain, 2),
+                rms_drop=round(float(rms_drop), 4))
     if gain <= 0:
         if verbose:
             print(f"  perturbers: picks {sc.picks} gave no same-obs chi2 gain; kept {fit.force_model}")

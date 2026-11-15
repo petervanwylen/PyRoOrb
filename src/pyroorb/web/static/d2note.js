@@ -1,14 +1,14 @@
 "use strict";
-// PyRoOrb web UI — digest2 class scores for a single tracklet or an undetermined orbit.
+// PyRoOrb web UI — digest2 class scores for an arc that is a single tracklet.
 // Vanilla JS, no build step. Loaded AFTER app.js.
 //
 // src/pyroorb/d2score.py runs digest2 (the MPC's short-arc classifier, vendored as src/pyroorb/digest2/) on
 // the fitted arc and ships BOTH flavours as payload.digest2: RAW, the full modelled population
 // ("what kind of object could this be"), and NO-ID, that population minus objects already
 // identifiable ("what kind of NEW object" -- the flavour the MPC posts on the NEOCP).
-// Shown for every single tracklet, determined or not (it used to appear only under
-// the "essentially unconstrained" banner, so a tracklet whose distance WAS pinned showed none),
-// with a raw / no-ID switch. Each score is digest2's own 0-100 number for one class -- the
+// Shown only when the arc is ONE tracklet, determined or not, with a raw / no-ID switch.
+// digest2 scores tracklets: an arc of several gets no object-level note (the server ships
+// none) and is scored tracklet by tracklet in the observations table (d2tracklets.js). Each score is digest2's own 0-100 number for one class -- the
 // classes overlap (NEO contains N22 and N18) and do not sum to 100, so they are listed, never
 // drawn as shares of a whole. Display only: nothing in the engine acts on them.
 //

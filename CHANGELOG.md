@@ -5,6 +5,16 @@ change the Python API. 0.9.1 is the first release on PyPI.
 
 ## Unreleased
 
+- New: a sky check, MPChecker-style. `pyroorb.check_field(ra, dec, time, obscode=...)` lists
+  every catalogued asteroid and comet (and, for recent times, every NEO Confirmation Page
+  object) within a radius of a position, with offsets, magnitude and motion;
+  `pyroorb.identify_tracklets(observations)` groups astrometry into tracklets and names the
+  known object each one is, checking all of a tracklet's positions and its motion. Also
+  `pyroorb-skycheck field|identify|update` and a "Sky check" web page. The orbits are the
+  MPC's own files, downloaded and refreshed daily (~90 MB the first time); positions come from
+  numerical integration of the orbits near the field and are best within a year of the
+  catalogue's epoch. On 18,249 published tracklets from 11 stations over a year, none was
+  identified as the wrong object.
 - Fixed: an ASSIST built against a different REBOUND than the one installed (REBOUND already
   present in an older release when `pip` built ASSIST, a later `pip install -U rebound`, a
   cached ASSIST wheel under `uv`) made the first fit return an unchanged state and then abort
