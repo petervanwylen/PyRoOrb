@@ -165,8 +165,11 @@ class TrackletCheck:
         return "\n".join(rows)
 
 
-_HEADER = (f"{'designation':<18}{'RA':>12}{'Dec':>12}{'dRA\"':>9}{'dDec\"':>9}{'sep\"':>9}"
-           f"{'mag':>6}{'\"/min RA':>10}{'Dec':>7}{'r':>7}{'delta':>7}{'elong':>7}  kind")
+# The arcsecond labels are built outside the f-string: a backslash inside an f-string's braces
+# is a SyntaxError before Python 3.12.
+_DRA, _DDEC, _SEP, _RATE = 'dRA"', 'dDec"', 'sep"', '"/min RA'
+_HEADER = (f"{'designation':<18}{'RA':>12}{'Dec':>12}{_DRA:>9}{_DDEC:>9}{_SEP:>9}"
+           f"{'mag':>6}{_RATE:>10}{'Dec':>7}{'r':>7}{'delta':>7}{'elong':>7}  kind")
 
 
 def _row_text(o):

@@ -71,7 +71,7 @@ function check(cond, what) {
   $("fGo").click();
   for (let k = 0; k < 60 && !/4647/.test($("results").innerHTML); k++) await tick();
   const sent = calls.find((c) => c[0] === "/api/skycheck/field")[1];
-  check(sent.station === "G96" && sent.radius === "3" && sent.neocp === "auto",
+  check(sent.station === "G96" && sent.radius === "3" && sent.neocp === false,
         "the field request carries the form");
   check(calls.some((c) => c[0].startsWith("/api/fit_result")), "a pending stub is polled");
   check(/4647/.test($("results").innerHTML) && /Syuji/.test($("results").innerHTML),

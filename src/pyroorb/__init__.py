@@ -18,7 +18,7 @@ overrides it. Units, frames and time scales are stated once, in ``docs/conventio
 import os as _os
 import warnings as _warnings
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 # The engine loads on first use, not at `import pyroorb`: importing the package (or any
 # light submodule such as pyroorb.datadirs) must not read every module's environment-

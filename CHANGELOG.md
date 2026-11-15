@@ -3,7 +3,7 @@
 PyRoOrb follows semantic versioning from 1.0.0; until then the 0.9.x releases may still
 change the Python API. 0.9.1 is the first release on PyPI.
 
-## Unreleased
+## 0.9.2 - 2026-11-15
 
 - New: a sky check, MPChecker-style. `pyroorb.check_field(ra, dec, time, obscode=...)` lists
   every catalogued asteroid and comet (and, for recent times, every NEO Confirmation Page
