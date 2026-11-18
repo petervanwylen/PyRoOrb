@@ -185,3 +185,54 @@ def test_guard_short_seed_asks_the_seed_too():
     assert not ok and "G96" in why
     assert "G96" in seen
     assert sr.chimera_guard_short_seed("\n".join(seed), "", {}, measure=measure)[0] is False
+
+
+def test_unacceptable_triplets_never_crowd_out_a_pair(monkeypatch):
+    """A triplet over ``trip_chi2_max`` can never be picked, so it is not proposed: six of
+    them must not take every engine-fit slot from a pair that passes."""
+    ids = [f"T{i}" for i in range(13)]
+    monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
+    monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
+    monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {
+        "id": ids, "tdb": [float(i) for i in range(13)]})
+    monkeypatch.setattr(sr, "rank", lambda *a: [{"ci": 12, "chi2": 1.0}])
+    monkeypatch.setattr(sr, "triplets", lambda *a: [
+        {"ci": (2 * i, 2 * i + 1), "chi2": 12.0 + i} for i in range(6)])
+    fitted = []
+
+    def fit(seed, cl, oc, max_sec):
+        fitted.append(cl[0][:2])
+        return {"ok": True, "count": 3 + len(cl), "used": 3 + len(cl), "chi2_dof": 0.5,
+                "max_z": 1.0}
+    monkeypatch.setattr(sr, "_fit_summary", fit)
+
+    class Source:
+        def window_rows(self, a, b):
+            return [{}]
+
+        def tracklet_obs80(self, keys, trksubs=None):
+            return {k: [f"{k}-a", f"{k}-b"] for k in keys}
+    seed = [{"jd_utc": 2460000.5 + 0.01 * i, "obs80_line": "seed"} for i in range(3)]
+    res = sr.sr_search(seed, Source(), {}, cfg=sr.SrConfig())
+    assert fitted == ["T1"]                    # the pair; no triplet was worth a fit
+    assert res.link is not None and res.link.kind == "pair" and res.link.trkids == ["T12"]
+
+
+def test_guard_short_seed_keeps_every_line_whole():
+    """OBS80 is read by column: the first seed line and the first ITF line keep their five
+    leading blank columns, so no observation is lost from a unit or from the leave-out fit
+    (a two-observation tracklet read as one is always refused)."""
+    seed = _tracklet(1, "G96", "SEED001")
+    itf = _tracklet(3, "703", "ZT00001")[:2]
+    units, combos = [], []
+
+    def measure(unit, combined, oc):
+        units.append(list(unit))
+        combos.append(combined)
+        return {"smaj": 0.5, "miss": 0.4, "n_min": len(unit)}
+    ok, why = sr.chimera_guard_short_seed("\n" + "\n".join(seed) + "\n",
+                                          "\n".join(itf) + "\n\n", {}, measure=measure)
+    assert ok, why
+    assert sorted(len(u) for u in units) == [2, 3]
+    assert combos[0].splitlines() == seed + itf
+    assert all(ln[:5] == "     " for u in units for ln in u)

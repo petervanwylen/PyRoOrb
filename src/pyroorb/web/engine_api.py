@@ -2464,6 +2464,13 @@ SR_REVIEW_ONLY = ("found by the single-tracklet search: shown for review, not su
 #: is shown as a caution banner and must be acknowledged before the find can be submitted.
 SR_CHIMERA_CAUTION = ("possible chimera: the single-tracklet link is not confirmed by the "
                       "chimera guard (the tracklets may belong to more than one object): ")
+#: The caution a single-tracklet find carries when the same-apparition search that grew it
+#: judged its own result a possible (0.6).  The find is still judged by the ITF-to-ITF
+#: minimums (a single-tracklet find is a hypothesis the regular search's seed tests cannot
+#: vouch for either way), but the regular search's reason must not vanish: it joins the
+#: warnings, so the user reads and acknowledges it before submitting.
+SR_APPARITION_CAUTION = ("the same-apparition search judged this linkage only a possible "
+                         "(0.6): ")
 
 
 def _sr_guard_caution(seed_text, itf_text, obscodes):
@@ -2605,6 +2612,10 @@ def _sr_web_result(sr, itf, seed_text, obscodes, primaries=(), cfg=None):
         caution = _sr_guard_caution(seed_text, itf_text, obscodes)
         if caution and caution not in warns:
             warns.append(caution)
+        if r.verdict == SearchVerdict.POSSIBLE and doc is not None:
+            demoted = SR_APPARITION_CAUTION + (r.reason or "no reason given")
+            if demoted not in warns:
+                warns.append(demoted)
         return replace(r, verdict=verdict, linkage=doc, reason=why, itf_obs80=itf_text,
                        itf_trksubs=subs, alternative=None, warnings=warns,
                        telemetry={**(r.telemetry or {}),

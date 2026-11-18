@@ -50,14 +50,17 @@ def test_a_neo_is_waived():
     assert v["code"] == "y" and v["submittable"], v
 
 
-def test_a_y2_keeps_its_code_and_names_the_floor():
-    # 2025 OA537's link already needs exceptions (y2, never submittable); the floor rides along
-    # as a caution instead of replacing the exception message.
+def test_a_preexisting_exception_leaves_the_floor_to_decide():
+    # 2025 OA537's link excepts one tracklet, the 3-obs 2019-03-08 T09 tracklet of 2025 PA77,
+    # which that object's own record rejects when fitted alone: a fault already in the MPC
+    # record, not counted against the link (a note, not a y2). What decides it is then the ITF
+    # floor -- apparitions of 1 and 7 nights -- so it is offered for review, never submitted.
     fx = FX.load_fixture(os.path.join(FX.FIX, "PAIR_2025OA537.json"))
     fit = _ident_fit(fx["obs"], fx["meta"]["designations"])
     v = ident_check.linkage_verdict(fit)
-    assert v["code"] == "y2" and not v["submittable"], v
-    assert any("ITF submission floor" in c for c in v["cautions"]), v["cautions"]
+    assert v["code"] == "y-examine" and not v["submittable"], v
+    assert "floor an ITF linkage must meet" in v["reason"], v["reason"]
+    assert any("Not counted as an exception" in n for n in v["notes"]), v["notes"]
 
 
 def test_the_profile_rule_is_one_rule():

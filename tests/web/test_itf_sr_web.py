@@ -324,3 +324,42 @@ def test_an_unreachable_database_is_reported_not_raised(web, monkeypatch):
     web["obs"] = _seed([JD0 + 0.01 * i for i in range(3)])
     out = E.itf_search_web("s", _searcher=_no_regular)
     assert out == {"ok": False, "error": "ITF database unreachable"}
+
+
+def _grown_sr(web, monkeypatch, verdict, reason):
+    """A single-tracklet find meeting the ITF-to-ITF minimums whose same-apparition search
+    added one tracklet and returned ``verdict``."""
+    _judge(monkeypatch, True)
+    import pyroorb.itf.linkage as L
+    monkeypatch.setattr(L, "build_linkage", lambda combined, cfg, **k: (
+        {"links": {"link_0": {}}}, None))
+    web["obs"] = _seed([JD0 + 0.01 * i for i in range(3)])
+    seed_text = "".join(o["_line"] + "\n" for o in web["obs"])
+    sr = _sr_link(JD0)
+    sr_text = "".join(ln + "\n" for k in (101, 102) for ln in sr.link.lines[k])
+    itf_text = _line("PR00009", JD0 + 3.0) + "\n" + _line("PR00009", JD0 + 3.02) + "\n"
+    itf = ItfSearchResult(verdict=verdict, reason=reason, fit=object(),
+                          linkage={"links": {"link_0": {}}}
+                          if verdict == SearchVerdict.LINKED else None,
+                          combined_obs80=seed_text + sr_text + itf_text, itf_obs80=itf_text,
+                          telemetry={"obs_count": 2})
+    return E.itf_search_web("s", _searcher=_no_regular, _sr_searcher=lambda *a: (sr, itf))
+
+
+def test_sr_find_the_apparition_search_called_possible_carries_its_reason(web, monkeypatch):
+    """A find the same-apparition search judged a possible (0.6) is still judged by the
+    ITF-to-ITF minimums, but the regular search's own reason joins the warnings: the user
+    reads and acknowledges it before the find can be submitted."""
+    why = "seed observations fit 1.9x worse under the link"
+    out = _grown_sr(web, monkeypatch, SearchVerdict.POSSIBLE, why)
+    blk = out["itf"]
+    assert blk["found"] is True and blk["possible"] is False
+    cautions = [w for w in blk["warnings"] if w.startswith(E.SR_APPARITION_CAUTION)]
+    assert cautions == [E.SR_APPARITION_CAUTION + why]
+    assert cautions[0] in E._SESSIONS[out["session"]]["itf_warnings"]
+
+
+def test_a_linked_apparition_result_carries_no_possible_caution(web, monkeypatch):
+    out = _grown_sr(web, monkeypatch, SearchVerdict.LINKED, "linked")
+    assert out["itf"]["possible"] is False
+    assert not [w for w in out["itf"]["warnings"] if w.startswith(E.SR_APPARITION_CAUTION)]

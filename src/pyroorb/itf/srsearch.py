@@ -95,8 +95,9 @@ class SrConfig:
     prior_cap: float = 8.0
     trip_top: int = 60             # best pair solutions combined into triplets
     trip_md_max: float = 50.0      # compatibility (Mahalanobis in log rho, rhodot)
-    trip_propose_chi2: float = 25.0
-    trip_chi2_max: float = 9.0     # a triplet is ACCEPTED only at or under this 6-dof chi2
+    # a triplet is proposed AND accepted only at or under this 6-dof chi2: one above it can
+    # never be picked, so proposing it only takes an engine-fit slot from a pair
+    trip_chi2_max: float = 9.0
     pair_propose_chi2: float = 12.0
     fits: int = 6                  # engine fits of the top proposals
     fit_max_sec: float = 20.0
@@ -740,7 +741,7 @@ def sr_search(seed_obs, source, obscodes, cfg=None, log=None):
     res.seconds["search"] = round(time.time() - t, 2)
     props, seen = [], set()
     for tr in trips:
-        if tr["chi2"] > cfg.trip_propose_chi2:
+        if tr["chi2"] > cfg.trip_chi2_max:
             break
         key = tuple(sorted(cand["id"][c] for c in tr["ci"]))
         if key not in seen:
@@ -1017,5 +1018,7 @@ def chimera_guard_short_seed(seed_text, itf_text, obscodes, measure=None):
     object); only asking the rest to predict the SEED exposes the outsider."""
     if not (itf_text or "").strip():
         return False, "no ITF tracklet to judge"
-    combined = "\n".join(x for x in ((seed_text or "").strip(), itf_text.strip()) if x) + "\n"
+    # blank lines dropped, every line kept whole: an OBS80 line is read by column, and an
+    # unnumbered or ITF line starts with five blank columns that a .strip() would eat
+    combined = "\n".join(_guard_lines(seed_text) + _guard_lines(itf_text)) + "\n"
     return chimera_guard(combined, combined, obscodes, measure=measure, what="tracklet")

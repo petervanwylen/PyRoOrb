@@ -1713,6 +1713,23 @@ def _profile_nongrav_sigmas(backend, t0, state6, A_hat, free_idx, gr, scale,
     return sig
 
 
+def _nongrav_field(asteroids, ctx):
+    """The asteroid field a non-gravitational refit SOLVES and is DELIVERED in -- one answer
+    for both, so the coefficients are never fitted in one field and verified in another.
+
+    A ``perturbers.Field`` the caller names wins; a plain True ("perturbers on") keeps the
+    fit's own screened Field when it has one, else the 16; False is off.  A plain True read
+    as the 16 solved the A's of a fit whose screen kept an extra body (Fortuna for 2016
+    RM33) without that body, then delivered and verified them with it: the coefficients
+    could absorb the very encounter the screen had found."""
+    if not asteroids:
+        return False
+    if isinstance(asteroids, frozenset):
+        return asteroids
+    own = ctx.get("asteroids") if ctx else None
+    return own if isinstance(own, frozenset) and own else True
+
+
 def _deliver_nongrav_orbit(ctx, fit, model, result, mask, ng_diag=None,
                            profile_sigmas=True, extra_meta=None, asteroids=False):
     """Assemble the delivered FittedOrbit for a converged (6+k)-parameter non-gravitational LM.
@@ -1779,9 +1796,7 @@ def _deliver_nongrav_orbit(ctx, fit, model, result, mask, ng_diag=None,
         # the field the solve ran in: the caller's when it names one (a Field asked of a
         # gravity or +16 fit), else the ctx's own; reading only the ctx delivered a solve made
         # in a Field pinned and labelled +16, its residuals rebuilt without the extra bodies
-        field = asteroids if isinstance(asteroids, frozenset) and asteroids else ctx.get("asteroids")
-        ev2, ctx2 = with_force_model(ctx, field if isinstance(field, frozenset) and field
-                                     else True)
+        ev2, ctx2 = with_force_model(ctx, _nongrav_field(asteroids, ctx))
     else:
         ev2 = _copy.copy(ctx["ev"])
         ctx2 = dict(ctx)
@@ -1869,10 +1884,11 @@ def refine_nongrav(fit, model="comet2", max_nfev=200, verbose=False,
         raise RuntimeError("non-gravitational refit needs the ASSIST backend "
                            "(force_assist); the rebound 8-planet backend has no nongrav force")
     if asteroids:
-        # The whole refit -- LM residuals, rescue profile, corrector -- under the
-        # 16-perturber model; the delivered ctx carries the same wrapper (see
-        # _deliver_nongrav_orbit) so nothing downstream drifts back to planets-only.
-        backend = _AsteroidForce(backend, asteroids)
+        # The whole refit -- LM residuals, rescue profile, corrector -- in the field the
+        # orbit is delivered in (_nongrav_field, also asked by _deliver_nongrav_orbit), so the
+        # coefficients are solved where they are labelled and verified, and nothing
+        # downstream drifts back to planets-only or to the 16 without the screened bodies.
+        backend = _AsteroidForce(backend, _nongrav_field(asteroids, ctx))
     ev = ctx["ev"]
     # The phase-bridge link relaxation (Evaluator.relax_link_opposition) inflated a far
     # apparition's sigmas so the gravity-only reject loop would keep its coherent offset. That

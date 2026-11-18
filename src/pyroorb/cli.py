@@ -192,99 +192,52 @@ def _ident_check_one(d1, d2, out_path, obscodes, force=False):
         print(f"[ident-check] {d1} + {d2}: no observations", file=sys.stderr)
         print("[ident-check-class] no", file=sys.stderr); return "no"
     fit = fit_orbit(obs, obscodes, desig=meta["designation"], meta=meta, verbose=False, force=force)
-    text = ident_check.identify(fit)
     stat = (f"{fit.n_observations()}/{fit.n_total_observations()} obs, "
             f"{fit.n_excluded()} dropped, rms {fit.rms_residual():.2f}\"")
-    if text:
-        # SYSTEMATIC-residual audit (one cheap pass over the residuals the fit already produced --
-        # no per-object re-fit): a link whose kept obs fit at an acceptable OVERALL rms but show a
-        # per-apparition residual TREND is two arcs the main linker forced together (e.g. 2014 HV328
-        # = 2025 OV408 at 0.50"). Downgrade to 'y-systematic' -- "be skeptical" -- and do NOT write
-        # it as a confirmed identification; a human reviews it (it may still be real, like the
-        # genuine 2025 OT173 = 2014 EN155 whose 2014 nights trend).
-        # ...unless BOTH sides are SHORT arcs, in which case the trend is decisive rather than
-        # suspicious: with no curvature on either side there is nothing for a reviewer to weigh
-        # the systematic against, a nongrav large enough to walk the residuals would have been
-        # auto-detected, and the joint orbit plainly does not thread both arcs -- a flat 'no'
-        # (ident_check.short_arc_systematic; 2025 OC732 + 2014 HJ409).
-        fatal_sys = ident_check.short_arc_systematic(fit)
-        sysdesc = None if fatal_sys else ident_check.systematic_misfit(fit)
-        if fatal_sys:
-            code = "no"
-            print(f"[ident-check] {d1} + {d2}: no clean match ({stat}; {fatal_sys})",
-                  file=sys.stderr)
-        elif sysdesc:
-            code = "y-systematic"
-            print(f"[ident-check] {d1} + {d2}: SYSTEMATIC residual ({stat}; {sysdesc}) -- not "
-                  f"auto-confirmed [{code}]", file=sys.stderr)
-        else:
-            # classify by the number of EXCEPTED obs (the except-block lines -- the header
-            # carries ' = ', a photometric FLAG starts with '#'): 'y' = clean / <=1 excepted,
-            # 'y2' = needs tracklet exception(s). identify() lists only wholly-dropped
-            # tracklets with every obs > EXCEPT_MIN_RESID_ARCSEC; isolated outliers the fit
-            # excludes are bad OBSERVATIONS, not exceptions, and don't push 'y' to 'y2'.
-            # ...counted here from the rendered record, but the y/y2 THRESHOLD lives in
-            # ident_check (EXCEPT_CLEAN_MAX_OBS), so the web UI's y2 caution splits at the same
-            # place this code does (ident_check.exception_shape / linkage_verdict).
-            n_drops = sum(1 for ln in text.splitlines() if " = " not in ln and not ln.startswith("#"))
-            code = "y" if n_drops <= ident_check.EXCEPT_CLEAN_MAX_OBS else "y2"
-            # THIN-COLLAPSED-ARC false-positive flag (advisory): the drops make the code look like a
-            # clean y/y2, but if the match rests on ONE designation collapsed to a single sub-day
-            # tracklet -- its own longer arc gutted -- the link isn't independently confirmed on that
-            # side and is more likely a false positive than a real ID. Never a rejection: still
-            # emitted, but the classify code gains a '-falsepos?' suffix and the written record a
-            # '# FLAG' comment so a human looks before submitting. (ident_check.thin_arc_falsepos.)
-            fpdesc = ident_check.thin_arc_falsepos(fit)
-            if fpdesc:
-                code = code + "-falsepos?"
-                text = (f"# FLAG false-positive risk: {fpdesc} -- examine before submitting\n"
-                        + text)
-                print(f"[ident-check] {d1} + {d2}: MATCH but FALSE-POSITIVE RISK ({stat}; {fpdesc}) "
-                      f"[{code}]", file=sys.stderr)
-            else:
-                print(f"[ident-check] {d1} + {d2}: MATCH ({stat}) [{code}]", file=sys.stderr)
-            with open(out_path, "a", encoding="utf-8") as out:
-                out.write(text + "\n"); out.flush()
-    else:
-        # Not a CLEAN identification -> AMBIGUOUS link worth a human look ('y-examine') or a clear
-        # non-match ('no'). The decision (retention / short+short / baseline) lives in the pure
-        # _examine_or_no helper so it is unit-testable offline.
-        code, reason = _examine_or_no(fit)
-        label = "EXAMINE" if code == "y-examine" else "no clean match"
+    # ONE verdict for every surface: the code, its reason, the cautions and the advisory flags
+    # all come from ident_check.linkage_verdict, the rule the web UI and this command's own
+    # --submit-linkage ask. This function only renders it as the batch's classify code and
+    # writes the record of a y / y2. (It kept its own copy of the gates until the copy lost
+    # the ITF submission floor and the pre-existing-fault rule: a thin non-NEO link was
+    # written here as a confirmed 'y' that the web refused, and a trend already in one body's
+    # own record made a 'y-systematic' here that the web called clean.)
+    v = ident_check.linkage_verdict(fit)
+    code = v["code"]
+    flags = v.get("flags") or {}
+    written = code in ("y", "y2")
+    text = ident_check.identify(fit) if written else None
+    if written and not text:
+        # the verdict is an identification, but no record renders (identify() echoes verbatim
+        # OBS80 lines, and this fit carries none): nothing can be written, so it is no match
+        # for the file's readers -- 'unknown', the verdict's own code for a link it cannot back
+        print(f"[ident-check] {d1} + {d2}: identification ({stat}; {v['reason']}) but no record "
+              f"could be rendered -- not written [unknown]", file=sys.stderr)
+        code, written = "unknown", False
+    if written:
+        if flags.get("falsepos"):
+            code = code + "-falsepos?"
+            text = (f"# FLAG false-positive risk: {flags['falsepos']} -- examine before "
+                    f"submitting\n" + text)
+        print(f"[ident-check] {d1} + {d2}: MATCH ({stat}) [{code}]", file=sys.stderr)
+        with open(out_path, "a", encoding="utf-8") as out:
+            out.write(text + "\n"); out.flush()
+    elif code != "unknown":
+        label = {"no": "no clean match", "y-examine": "EXAMINE",
+                 "y-systematic": "SYSTEMATIC residual -- not auto-confirmed"}.get(code, code)
         tag = f" [{code}]" if code != "no" else ""
-        if code == "y-examine":
-            # A 'y-examine' reason is the grounds for NOT calling it a non-match -- an exculpation
-            # -- so print it as that, beside the defect identify() actually refused on. Printed
-            # bare, it read as the doubt ("EXAMINE (...; a baseline that long pins the orbit)").
-            why = {}
-            ident_check.exception_shape(fit, _why=why)
-            refused = f"refused: {why['reason']}; " if why.get("reason") else ""
-            print(f"[ident-check] {d1} + {d2}: {label} ({stat}; {refused}kept as a candidate "
-                  f"because {reason}){tag}", file=sys.stderr)
-        else:
-            print(f"[ident-check] {d1} + {d2}: {label} ({stat}; {reason}){tag}", file=sys.stderr)
-    # SHORT-LINK suffix: an identification carried by fewer than ident_check.THIN_LINK_MIN_OBS
-    # observations is barely over-determined -- every other gate judges what the fit DROPPED, so a
-    # tiny link that drops nothing passes them all on almost no evidence. Advisory ONLY (still
-    # written, still a y/y2), but the code says '-short' so a bulk scan can pull those out for a
-    # human look. (J99K17K = K16L89L: an immaculate-looking 9/9 @ 0.56" 'y'.)
+        print(f"[ident-check] {d1} + {d2}: {label} ({stat}; {v['reason']}){tag}",
+              file=sys.stderr)
+    for note in v.get("notes") or ():
+        print(f"[ident-check]   note: {note}", file=sys.stderr)
+    for caution in v.get("cautions") or ():
+        print(f"[ident-check]   caution: {caution}", file=sys.stderr)
+    # advisory suffixes (never a refusal): '-short' (ident_check.thin_link) and
+    # '-mag?'/'-mag'/'-mag!' (the cross-opposition implied-H tier) on every non-'no' code
     if code != "no":
-        thin = ident_check.thin_link(fit)
-        if thin:
+        if flags.get("short"):
             code = code + "-short"
-            print(f"[ident-check] {d1} + {d2}: SHORT link ({thin}) -> [{code}]", file=sys.stderr)
-    # Photometric mismatch suffix: a cross-opposition implied-H disagreement (the `_mag_stats` dH x p
-    # grid) marks an otherwise-positive classification for a closer look -- 'y'/'y2'/'y-examine' gain
-    # a suffix by tier: '-mag?' (advisory), '-mag' (flag), '-mag!' (strong). Advisory ONLY (we never
-    # reject on photometry -- some survey mags are junk), but a brightness disagreement shouldn't hide
-    # behind a clean code. (2016 LW90 = 2002 GX31: a tight 0.27" link but implied H~7.2 vs H~9.0 ->
-    # 'y-mag'.) 'no' is already a non-match, so it is left alone.
-    if code != "no":
-        st = ident_check._mag_stats(fit)
-        if st and st["tier"] is not None:
-            code = code + "-mag" + st["tier"]
-            print(f"[ident-check] {d1} + {d2}: photometric FLAG dH={st['dH']:.2f} mag "
-                  f"p={st['p']:.1g} -> [{code}]", file=sys.stderr)
+        if flags.get("mag") is not None:
+            code = code + "-mag" + flags["mag"]
     print(f"[ident-check-class] {code}", file=sys.stderr)
     return code
 
@@ -310,19 +263,25 @@ def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=120):
 
     Also writes a companion CLASSIFICATION file next to `out_path` -- one row per pair, in
     input order: `d1<TAB>d2<TAB>code<TAB>secs` (secs = wall-clock for that pair, so a bulk scan
-    can surface the slow-non-match tail without re-timing):
+    can surface the slow-non-match tail without re-timing). The code is
+    ident_check.linkage_verdict's, the verdict the web UI shows for the same fit:
       * `no`        -- not an identification;
-      * `y`         -- a clean match (at most one dropped obs);
+      * `y`         -- a clean match (at most one excepted obs; a tracklet the body's own
+                       record rejects too is not counted);
       * `y2`        -- a match needing a clean tracklet exception or two;
-      * `y-examine` -- NOT a clean match, but the joint fit retains a strong majority
-                       (>= MPC_MIN_RETENTION) of BOTH designations' obs and fits sub-arcsec, so
-                       the rejections just aren't a clean tracklet drop -- worth a human look.
+      * `y-examine` -- NOT a clean match, but worth a human look: the joint fit retains a
+                       strong majority (>= MPC_MIN_RETENTION) of BOTH designations' obs and fits
+                       sub-arcsec, or the identification falls short of the ITF submission floor
+                       (ident_check.itf_muster_problem; NEOs waived).
                        (A chimera linked only by discarding the bulk of one arc is a 'no'.)
       * `y-systematic` -- the kept obs fit at an acceptable OVERALL rms but a per-apparition
-                       residual TREND betrays two arcs forced together (ident_check.systematic_misfit):
-                       be skeptical -- a human reviews it; not auto-confirmed. When BOTH sides are
-                       SHORT arcs (ident_check.short_arc_systematic) there is nothing for a
-                       reviewer to weigh the trend against, and it is a plain `no` instead.
+                       residual TREND the link itself causes betrays two arcs forced together
+                       (ident_check.link_systematic; a trend already in one body's own record is
+                       a note, not a doubt): be skeptical -- a human reviews it; not
+                       auto-confirmed. When BOTH sides are SHORT arcs
+                       (ident_check.short_arc_systematic) it is a plain `no` instead.
+      * `unknown`   -- the engine could not judge it (or could not render the record of a match):
+                       never written, worth a re-run or a look by hand.
     A `y`/`y2` may carry advisory suffixes (still written, flagged for review): `-falsepos?` when
     the match rests on ONE side collapsed to a single sub-day tracklet (ident_check.thin_arc_falsepos
     -- more likely a false positive than a real ID), `-short` when fewer than

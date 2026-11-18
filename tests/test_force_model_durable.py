@@ -272,3 +272,41 @@ def test_pinning_to_the_same_value_keeps_the_wrapper():
     off = fm.pin(forced, False)
     assert off is not forced and fm.pinned_asteroids(off) is False
     assert not isinstance(off, fo._AsteroidForce)
+
+
+# --- a non-gravitational refit solves where it is delivered ----------------------------------
+
+def test_the_nongrav_field_is_one_answer_for_solve_and_delivery():
+    from pyroorb.perturbers import Field
+    fortuna = Field({19})
+    assert fo._nongrav_field(False, {"asteroids": fortuna}) is False
+    assert fo._nongrav_field(True, {"asteroids": fortuna}) is fortuna   # the fit's own screen
+    assert fo._nongrav_field(True, {"asteroids": True}) is True
+    assert fo._nongrav_field(True, {}) is True
+    other = Field({29})
+    assert fo._nongrav_field(other, {"asteroids": fortuna}) is other    # a named field wins
+    assert fo._nongrav_field(Field(), {}) == Field()                    # the 16, as a Field
+
+
+def test_a_nongrav_refit_of_a_screened_fit_solves_in_its_field(monkeypatch):
+    """Perturbers on (True) for a fit whose screen kept Fortuna: the A's are solved WITH
+    Fortuna, the field the orbit is then delivered and verified in -- never the bare 16."""
+    from pyroorb.perturbers import Field
+
+    class _AssistNg(_Assist):
+        def predict_radec_jac_ng(self, *a, asteroids=None, **k):
+            return asteroids
+    pinned = []
+
+    class Stop(Exception):
+        pass
+
+    def force(backend, asteroids=True):
+        pinned.append(asteroids)
+        raise Stop
+    monkeypatch.setattr(fo, "_AsteroidForce", force)
+    fortuna = Field({19})
+    fit = types.SimpleNamespace(_ctx={"backend": _AssistNg(), "asteroids": fortuna})
+    with pytest.raises(Stop):
+        fo.refine_nongrav(fit, "yarkovsky", asteroids=True)
+    assert pinned == [fortuna]

@@ -1799,6 +1799,11 @@ def linkage_verdict(fit):
         cautions.append(f"Short link: {thin}. A handful of observations spread over two "
                         f"designations barely over-determines a 6-parameter orbit, so a wrong "
                         f"pairing threads it almost as easily as the right one.")
+    falsepos = thin_arc_falsepos(fit, is_ident=is_ident) if is_ident else None
+    if falsepos:
+        cautions.append(f"False-positive risk: {falsepos}. The dropped nights of that side are "
+                        f"the curvature that would have tested the link, so the match is "
+                        f"mostly the other arc fitting itself.")
     # SYSTEMATIC residual trend. On an accepted identification this is not an advisory -- it is the
     # batch's 'y-systematic', which is NOT written and NOT auto-confirmed, so the UI must not paint
     # it as clean or offer to transmit it either (2014 HV328 = 2025 OV408, a known-bogus link,
@@ -1871,7 +1876,11 @@ def linkage_verdict(fit):
             "cautions": cautions,
             # what the engine set aside as already in the MPC record (pre-existing faults):
             # informational, never counted as a caution
-            "notes": notes}
+            "notes": notes,
+            # the advisory flags behind three of the cautions, for a reader that names them
+            # (the batch's '-falsepos?' / '-short' / '-mag?|-mag|-mag!' suffixes)
+            "flags": {"falsepos": falsepos, "short": thin,
+                      "mag": st["tier"] if st and st["tier"] is not None else None}}
 
 
 def systematic_misfit(fit):
@@ -2151,7 +2160,7 @@ def coherent_offset_misfit(fit, noise_floor):
     return worst[1] if worst else None
 
 
-def thin_arc_falsepos(fit):
+def thin_arc_falsepos(fit, is_ident=None):
     """Advisory FALSE-POSITIVE flag: an emitted identification whose match rests on ONE side
     collapsing to a single sub-day tracklet. Returns a short description, or None.
 
@@ -2166,9 +2175,11 @@ def thin_arc_falsepos(fit):
     comment). An inherently single-night tracklet linked to a known object -- the common LEGITIMATE
     identification -- keeps its whole arc, so kept span ~= full span and it is NOT flagged.
 
-    Judged on INCLUDED obs only. Returns None unless the pair actually forms an identification."""
-    if identify(fit) is None:
-        return None                                  # not an emitted ID -> nothing to flag
+    Judged on INCLUDED obs only. Returns None unless the pair actually forms an identification:
+    ``is_ident`` is the caller's answer to that (linkage_verdict passes its own, judged by the
+    exception shape); None asks identify()."""
+    if not (identify(fit) is not None if is_ident is None else is_ident):
+        return None                                  # not an identification -> nothing to flag
     mask = np.asarray(fit._mask, dtype=bool)
     obs = fit._obs
     by = {}

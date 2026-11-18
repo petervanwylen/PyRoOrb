@@ -151,6 +151,9 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **An identification fit (>= 2 designations requested) runs +16ast from the first step**,
   ungated (`fit_object.fit_orbit`, `force_assist.perturbers_on_for`; `_AsteroidForce` on the
   ctx): the gated polish starts from the gravity linker's links, too late to undo a refusal.
+- **One identification verdict for every surface** (`ident_check.linkage_verdict`): the web
+  UI, `--submit-linkage` and the `--ident-check` batch (`cli._ident_check_one` only renders its
+  code, reason, cautions and `flags` as the classify code and the written record).
 - **An identification is held to the ITF submission floor** (`ident_check.itf_muster_problem`,
   asked by `linkage_verdict`): the MPC night profile (`mpcrules.opp_profile_counts_ok`) and the
   anchor apparition (`anchor.anchor_problem_points`) on the kept observations, NEOs waived
@@ -180,8 +183,10 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   `refit(perturbers="all")`; `fit_object.perturb_with_all`, `perturbers.all_field`): no screen,
   the whole kernel (343, the object itself excepted), kept whatever the chi2 says; labelled
   `+343ast` (counted, not listed), `FittedOrbit.perturbers_all`. 5-18x a solve in the 16.
-  A non-gravitational orbit keeps its model (`_deliver_nongrav_orbit` delivers the field the
-  solve ran in -- read from the ctx alone it came back pinned +16).
+  A non-gravitational orbit is solved and delivered in ONE field (`fit_object._nongrav_field`,
+  asked by `refine_nongrav` and `_deliver_nongrav_orbit`): perturbers on keeps the fit's own
+  screened Field -- solved in the bare 16, a fit that kept Fortuna had its A's fitted without
+  the encounter they were then verified with.
 - **Perturber masses: SiMDA beyond the 16, DE440 for the 16** (`perturbers.mass_table`,
   `data/perturber_masses.json`, applied in `perturbers.ephem_for` and `perturbers.gm`): SiMDA's
   compiled mass (Kretlow 2020, EPSC2020-690) for the 165 bodies outside the 16 with SiMDA rank
