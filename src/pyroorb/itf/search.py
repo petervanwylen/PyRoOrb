@@ -3235,7 +3235,7 @@ def _accepted(ctx, result, a, x, tracklets_all):
     # added only now, past the withdrawal, so they warn without demoting
     result.warnings.extend(x.held)
     _leaveout_cautions(ctx, result, vetting, a.obs_out, a.combined, x.magt,
-                       a.confirmed)
+                       a.confirmed, n_opps=a.profile.n_oppositions)
     vetting["warnings"] = list(result.warnings)
     vetting["diagnostics"] = list(result.diagnostics)
     ctx.log(f"linkage accepted: used {trial.used}/{trial.count}, "
@@ -3986,7 +3986,8 @@ def _seed_offending_night(ctx, trial, warn_lvl):
              f"bad astrometry in the seed, not a contaminant in the ITF"), ids)
 
 
-def _leaveout_cautions(ctx, result, vetting, obs_out, combined, magt, promoted_175):
+def _leaveout_cautions(ctx, result, vetting, obs_out, combined, magt, promoted_175,
+                       n_opps=None):
     """Move the in-scope cautions the leave-out orbit vouches for from
     ``result.warnings`` to ``result.diagnostics`` (:mod:`itf.leaveout`).
 
@@ -4001,7 +4002,7 @@ def _leaveout_cautions(ctx, result, vetting, obs_out, combined, magt, promoted_1
     result.warnings, result.diagnostics, record = leaveout.confirm_cautions(
         result.warnings, result.diagnostics, obs_out, combined, ctx.obscodes,
         registry=_ctx_registry(ctx), mag_tracklet=magt,
-        max_sec=cfg.trial_fit_max_sec or None, log=ctx.log)
+        max_sec=cfg.trial_fit_max_sec or None, log=ctx.log, n_opps=n_opps)
     if record:
         vetting["leaveout"] = [{k: v for k, v in r.items() if k != "text"} for r in record]
     vetting["diagnostics"] = list(result.diagnostics)

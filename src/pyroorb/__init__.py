@@ -1029,7 +1029,7 @@ def export(fit, format="mpcorb"):
 # several settings (the ephemeris and debias folders) are read once at import time.
 
 def check_field(ra, dec, time, *, radius_arcmin=None, obscode="500", mag_limit=None,
-                comets=True, neocp=False, obscodes=None, refresh=True):
+                comets=True, neocp=False, obscodes=None, refresh=True, max_days=None):
     """The catalogued objects in a field: an MPChecker-style query.
 
     Every asteroid and comet the MPC publishes an orbit for (and, for a recent time, every
@@ -1058,6 +1058,9 @@ def check_field(ra, dec, time, *, radius_arcmin=None, obscode="500", mag_limit=N
     refresh : bool
         Download the MPC's orbit files first when they are more than a day old (the first
         call downloads ~90 MB and builds the catalogue, a few minutes).
+    max_days : float, optional
+        Refuse a time farther than this (days) from the catalogue's epoch: a check's cost grows
+        steeply with that distance (twenty years back, hours). None (default): no limit.
 
     Returns
     -------
@@ -1066,17 +1069,22 @@ def check_field(ra, dec, time, *, radius_arcmin=None, obscode="500", mag_limit=N
         position, offset from the centre (arcsec), magnitude, motion (arcsec/min), distances,
         phase, elongation, U; ``table()`` gives them as text. Positions are best within a
         year of the catalogue's epoch.
+
+    Raises
+    ------
+    pyroorb.skycheck.TooFarFromEpoch
+        When ``time`` is farther from the catalogue's epoch than ``max_days``.
     """
     from pyroorb import skycheck as _skycheck
     opts = {} if radius_arcmin is None else {"radius_arcmin": radius_arcmin}
     return _skycheck.check_field(ra, dec, time, obscode=obscode, mag_limit=mag_limit,
                                  comets=comets, neocp=neocp, obscodes=obscodes,
-                                 refresh=refresh, **opts)
+                                 refresh=refresh, max_days=max_days, **opts)
 
 
 def identify_tracklets(observations, *, radius_arcmin=None, match_arcsec=None,
                        motion_arcsec=None, comets=True, neocp=False, obscodes=None,
-                       refresh=True):
+                       refresh=True, max_days=None):
     """Which catalogued object each tracklet of some astrometry is.
 
     The observations are grouped into tracklets -- one station, one object, a few hours: by
@@ -1098,7 +1106,7 @@ def identify_tracklets(observations, *, radius_arcmin=None, match_arcsec=None,
         How far from a tracklet a candidate may be predicted (default 15').
     match_arcsec, motion_arcsec : float, optional
         The matching tolerances (defaults 30" and 4").
-    comets, neocp, obscodes, refresh
+    comets, neocp, obscodes, refresh, max_days
         As for :func:`check_field`.
 
     Returns
@@ -1107,13 +1115,14 @@ def identify_tracklets(observations, *, radius_arcmin=None, match_arcsec=None,
         One per tracklet, in time order: ``indices`` into the observations, ``obscode``,
         ``candidates`` (dicts as in :func:`check_field` plus ``mean_offset``, ``motion_rms``
         and ``match``), ``identification`` (a designation, or None) and ``ambiguous`` (more
-        than one match, none clearly nearest).
+        than one match, none clearly nearest). ``refused`` says why a tracklet was not checked
+        (farther from the catalogue's epoch than ``max_days``), None when it was.
     """
     from pyroorb import skycheck as _skycheck
     opts = {k: v for k, v in (("radius_arcmin", radius_arcmin), ("match_arcsec", match_arcsec),
                               ("motion_arcsec", motion_arcsec)) if v is not None}
     return _skycheck.identify(observations, comets=comets, neocp=neocp, obscodes=obscodes,
-                              refresh=refresh, **opts)
+                              refresh=refresh, max_days=max_days, **opts)
 
 
 def _skycheck():

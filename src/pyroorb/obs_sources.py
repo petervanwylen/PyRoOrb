@@ -17,6 +17,7 @@ module-level import would cycle). fit_object re-exports these names for compatib
 import json, logging, os, re, sys, threading, urllib.error, urllib.request
 from pathlib import Path
 import numpy as np
+from pyroorb.console import for_log  # client designations in the log, escaped and cut
 from pyroorb import orbit_common                 # the shared "same physical detection" predicate
 from astropy.time import Time
 from astropy.coordinates import (get_body_barycentric, ITRS, GCRS, CartesianRepresentation)
@@ -769,7 +770,7 @@ def fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
     # UNPACKED, because that is the spelling every obs carries: a caller who typed
     # the packed form must still be recognisable as having requested it.
     meta.setdefault("requested_designations",
-                    [ensure_unpacked(str(d))
+                    [requested_id(d)
                      for d in ([desigs] if isinstance(desigs, str)
                                else list(desigs))])
     if obs and not meta.get("radar"):
@@ -791,7 +792,10 @@ def fetch_failure_message(meta):
     the shared plain-text form for the CLI, --ident-check and the ITF seed fetch."""
     failed = (meta or {}).get("fetch_errors") or {}
     if not failed:
-        return None
+        # Not a transport failure, but refused for the same reason: a trksub that names
+        # several tracklets (or one already designated) contributed no rows, so fitting the
+        # rest answers from less than was asked for.
+        return trksub_message(meta)
     names = sorted(failed)
     detail = str(failed[names[0]]).split(";")[0].strip()
     return (f"the MPC did not answer for {', '.join(names)} ({detail}) -- a transport "
@@ -814,10 +818,15 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
     from pyroorb.ades import fetch_combined_ades, fetch_combined_neocp, is_neocp_desig
     cache_dir = cache_dir or (datadirs.cache_dir())
     desig_list = [desigs] if isinstance(desigs, str) else list(desigs)
+    # Pre-screen: a token that cannot be a published designation (a NEOCP id, a
+    # submitter's trksub) is known in advance to HTTP-500 the whole-batch request below,
+    # so a request carrying one skips straight to the per-designation path, where such a
+    # token is routed temporary-first (see _fetch_temporary).
+    temporary = {d for d in desig_list if routes_as_temporary(d)}
     # Fast path: a single whole-batch fetch from the published-obs API. This is the
     # common case (every designation is a published object) and returns immediately,
     # byte-for-byte as before.
-    if prefer_ades:
+    if prefer_ades and not temporary:
         try:
             obs, meta = fetch_combined_ades(desigs, obscodes, cache_dir=cache_dir)
             if obs:
@@ -828,14 +837,15 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
     # The published-obs API (ADES + OBS80) shares one backend that HTTP-500s on a
     # designation it can't find, so guard the OBS80 attempt: a failure here is the
     # signal to try the NEOCP, not a reason to abort.
-    try:
-        obs, meta = fetch_combined(desigs, obscodes, cache_dir=cache_dir)
-        if obs:
-            meta["format"] = "OBS80"
-            return obs, meta
-    except Exception as ex:
-        _close_error(ex)
-        _log.info("OBS80 batch unavailable: %s", ex)
+    if not temporary:
+        try:
+            obs, meta = fetch_combined(desigs, obscodes, cache_dir=cache_dir)
+            if obs:
+                meta["format"] = "OBS80"
+                return obs, meta
+        except Exception as ex:
+            _close_error(ex)
+            _log.info("OBS80 batch unavailable: %s", ex)
     # Per-designation fallback. The whole-batch fetch above is all-or-nothing: a
     # single designation the published API can't find -- typically an unconfirmed
     # NEOCP / temporary tracklet -- HTTP-500s the entire request, taking its published
@@ -853,22 +863,36 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
     # transport failures are KEPT, per designation, and travel out on the meta for the
     # caller to phrase.  A designation with no error and no rows really is empty.
     merged, used_neocp, used_sbn = [], False, False
-    fetch_errors = {}
+    fetch_errors, fetch_errors_public = {}, {}
+    unresolved = {}              # token -> its tracklets, when a trksub needs the user's word
     for d in desig_list:
+        if d in temporary:
+            one, why, src = _fetch_temporary(d, obscodes, cache_dir, prefer_ades, unresolved)
+            used_neocp |= src == "NEOCP"
+            used_sbn |= src == "SBN"
+            if not one and d in unresolved:
+                continue         # not empty, not a failure: a question (see trksub_question)
+            if not one:
+                if why:
+                    _record_failure(d, why, fetch_errors, fetch_errors_public)
+                else:
+                    _log.warning("no observations found for %s", for_log(d))
+            merged += one
+            continue
         one, why = [], []
         if prefer_ades:
             try:
                 one, _ = fetch_combined_ades([d], obscodes, cache_dir=cache_dir)
             except Exception as ex:
                 _close_error(ex)
-                why.append(f"ADES: {type(ex).__name__}: {ex}")
+                why.append(_Failure("ADES", ex))
                 one = []
         if not one:
             try:
                 one, _ = fetch_combined([d], obscodes, cache_dir=cache_dir)
             except Exception as ex:
                 _close_error(ex)
-                why.append(f"OBS80: {type(ex).__name__}: {ex}")
+                why.append(_Failure("OBS80", ex))
                 one = []
         if not one and is_neocp_desig(d):
             try:
@@ -878,7 +902,7 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
                     _log.info("fetched %d obs for %s from the NEOCP", len(one), d)
             except Exception as ex:
                 _close_error(ex)
-                why.append(f"NEOCP: {type(ex).__name__}: {ex}")
+                why.append(_Failure("NEOCP", ex))
                 _log.info("NEOCP fetch failed for %s: %s", d, ex)
         if not one:
             one = _fetch_from_sbn(d, obscodes, why)
@@ -886,16 +910,18 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
                 used_sbn = True
         if not one:
             if why:
-                fetch_errors[d] = "; ".join(why)
-                _log.warning("could not reach the MPC for %s: %s", d, why[0])
+                _record_failure(d, why, fetch_errors, fetch_errors_public)
             else:
-                _log.warning("no observations found for %s", d)
+                _log.warning("no observations found for %s", for_log(d))
         merged += one
     if not merged:
         meta = {"designation": desig_list[0] if desig_list else str(desigs),
                 "designations": [], "combined": False, "other_designations": [],
                 "fetch_errors": fetch_errors,
+                "fetch_errors_public": fetch_errors_public,
                 "format": "OBS80"}
+        if unresolved:
+            meta["trksub_unresolved"] = unresolved
         return merged, meta
     merged.sort(key=lambda o: o["jd_utc"])
     present = sorted({o["designation"] for o in merged})
@@ -909,12 +935,179 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
             # the fit silently proceeds on half its evidence and reports success --
             # a wrong answer that looks like a right one.
             "fetch_errors": fetch_errors,
+            "fetch_errors_public": fetch_errors_public,
             "format": "ADES"}
+    if unresolved:
+        # Like fetch_errors, carried on the success path too: the rows that DID arrive are
+        # the other designations' alone, and fitting them answers a different question.
+        meta["trksub_unresolved"] = unresolved
     if used_neocp:
         meta["source"] = "NEOCP"
     elif used_sbn:
         meta["source"] = "SBN"
     return merged, meta
+
+
+def routes_as_temporary(token):
+    """True when ``token`` is fetched temporary-first (NEOCP, then the SBN replica's
+    trksubs, the published-obs API only last) rather than API-first.
+
+    That is every space-free token of seven characters or fewer (or a qualified
+    ``trksub@stn[/date]``) that is NOT a published designation by the packing rules
+    (:func:`is_published_designation` -- which, unlike a "starts with J or K" test, also
+    knows packed numbers, ``I``-century and survey forms and extended packing) -- EXCEPT
+    a letters-only token, which is far likelier a name ('Eros') than a trksub and stays
+    API-first.  The order only decides which source is asked first; every token still
+    reaches every source, so a wrong guess costs a round trip, not an answer."""
+    from pyroorb import sbn_obs
+    s = str(token or "").strip()
+    parts = sbn_obs.split_trksub(s)
+    if parts is None:
+        return False
+    if parts[1]:
+        return True                      # qualified: a trksub by construction
+    return not is_published_designation(s) and not s.isalpha()
+
+
+def requested_id(token):
+    """The id a requested token's observations are filed under: a qualified trksub
+    (``H005311@568/2015-01-26``) is its bare trksub, anything else unpacked."""
+    from pyroorb import sbn_obs
+    parts = sbn_obs.split_trksub(token)
+    if parts and parts[1]:
+        return parts[0]
+    return ensure_unpacked(str(token))
+
+
+def _fetch_temporary(d, obscodes, cache_dir, prefer_ades, unresolved):
+    """``(obs, why, source)`` for one temporary token: the NEOCP first, then the SBN
+    replica's trksubs, then the published-obs API (a letters-only trksub or a name the
+    pre-screen guessed wrong still lands).
+
+    The NEOCP comes first because a live NEOCP object is ALSO in ``obs_sbn`` under its
+    trksub -- but only the submitter's own rows (A11JXBy: 3 of its obs, from 734), and
+    sometimes the label belongs to a different, designated tracklet (gb00884 = a 2024 HP
+    tracklet from G19): the replica would answer, and answer wrong.  A qualified token
+    names a replica tracklet and asks only the replica.
+
+    When the replica finds tracklets but cannot fetch them -- several match, or the match
+    already carries a designation -- the token's tracklets go into ``unresolved`` and the
+    result is empty: see :func:`trksub_question`."""
+    from pyroorb.ades import fetch_combined_ades, fetch_combined_neocp
+    from pyroorb import sbn_obs
+    one, why = [], []
+    qualified = bool((sbn_obs.split_trksub(d) or (None, None))[1])
+    if not qualified:
+        try:
+            one, _ = fetch_combined_neocp([d], obscodes, cache_dir=cache_dir)
+            if one:
+                _log.info("fetched %d obs for %s from the NEOCP", len(one), d)
+                return one, why, "NEOCP"
+        except Exception as ex:
+            _close_error(ex)
+            why.append(_Failure("NEOCP", ex))
+    if sbn_obs.available():
+        from pyroorb.ades import records_to_obs
+        try:
+            trk, recs = sbn_obs.lookup_trksub(d)
+        except Exception as ex:
+            why.append(_Failure("SBN", ex))
+            trk, recs = [], []
+        if recs:
+            one = records_to_obs(recs, obscodes)
+            if one:
+                print(f"(fetched {len(one)} obs for trksub {d} from the SBN replica)")
+                return one, why, "SBN"
+        if trk:
+            unresolved[d] = trk
+            return [], why, None
+    if qualified:
+        return [], why, None
+    for fetch, tag in ((fetch_combined_ades, "ADES"), (fetch_combined, "OBS80")):
+        if tag == "ADES" and not prefer_ades:
+            continue
+        try:
+            one, _ = fetch([d], obscodes, cache_dir=cache_dir)
+            if one:
+                return one, why, None
+        except Exception as ex:
+            _close_error(ex)
+            why.append(_Failure(tag, ex))
+    return [], why, None
+
+
+def trksub_question(meta):
+    """``{token: {"designated": [...], "choices": [...]}}`` for every trksub the fetch could
+    not use without the user's word, or {} -- the structured form the web answers with.
+
+    ``designated``: tracklets the token names that are already filed under a designation
+    ("H005311 is already 2016 FV237"), each with ``designation``.  ``choices``: the
+    undesignated tracklets when there are several, each with ``token`` (the qualified id
+    that fetches exactly it) -- the user picks one, or all of them."""
+    from pyroorb import sbn_obs
+    out = {}
+    for tok, trk in ((meta or {}).get("trksub_unresolved") or {}).items():
+        # A short trksub can name thousands of tracklets ('00001': 1,941, nearly all of
+        # them designated), so both lists are capped: designated ones summarised one per
+        # designation, choices to what a person can read -- with the totals, so the page can
+        # say how many it left out and that '@station' narrows the list.
+        by_des = {}
+        for t in trk:
+            if t.get("designation"):
+                by_des.setdefault(t["designation"], t)
+        des = list(by_des.values())
+        free = [dict(t, token=sbn_obs.qualified_token(t)) for t in trk if not t.get("designation")]
+        out[tok] = {"designated": des[:TRKSUB_MAX_DESIGNATED], "n_designated": len(des),
+                    "choices": free[:TRKSUB_MAX_CHOICES], "n_choices": len(free)}
+    return out
+
+
+TRKSUB_MAX_DESIGNATED = 8        # designations listed for one typed trksub
+TRKSUB_MAX_CHOICES = 30          # undesignated tracklets offered for one typed trksub
+
+
+def trksub_message(meta):
+    """One plain sentence (or a few) for :func:`trksub_question`, else None."""
+    q = trksub_question(meta)
+    if not q:
+        return None
+    parts = []
+    for tok, a in q.items():
+        for t in a["designated"]:
+            parts.append(f"{tok} ({t['stn']}, {t['date']}, {t['n_obs']} obs) is already "
+                         f"{t['designation']} -- use that designation")
+        if a["n_designated"] > len(a["designated"]):
+            parts.append(f"{tok} is also filed under "
+                         f"{a['n_designated'] - len(a['designated'])} more designations")
+        listed = ", ".join(f"{c['token']} ({c['n_obs']} obs)" for c in a["choices"])
+        more = a["n_choices"] - len(a["choices"])
+        if a["n_choices"] > 1:
+            parts.append(f"{tok} names {a['n_choices']} undesignated tracklets; name the "
+                         f"one you mean (or several): {listed}"
+                         + (f" (and {more} more -- add @station to narrow)" if more else ""))
+        elif a["choices"]:
+            parts.append(f"its undesignated tracklet is {listed}")
+    return "; ".join(parts) + "."
+
+
+class _Failure(str):
+    """One source's failure for ``why``: the full ``"TAG: Type: message"`` as the string
+    (the server log, the CLI, ``meta["fetch_errors"]``) and ``public``, ``"TAG: Type"``
+    alone -- a database or socket error's message names the server (host, port, user,
+    file paths), so a web caller sees only which source failed and how
+    (``meta["fetch_errors_public"]``)."""
+
+    def __new__(cls, tag, ex):
+        self = super().__new__(cls, f"{tag}: {type(ex).__name__}: {ex}")
+        self.public = f"{tag}: {type(ex).__name__}"
+        return self
+
+
+def _record_failure(d, why, fetch_errors, fetch_errors_public):
+    """File designation ``d``'s failures (``why``) in both records and log them in full."""
+    fetch_errors[d] = "; ".join(why)
+    fetch_errors_public[d] = "; ".join(getattr(w, "public", None) or "failed" for w in why)
+    _log.warning("could not reach the MPC for %s: %s", for_log(d), fetch_errors[d])
 
 
 def _fetch_from_sbn(desig, obscodes, why):
@@ -929,7 +1122,7 @@ def _fetch_from_sbn(desig, obscodes, why):
     try:
         one = records_to_obs(sbn_obs.fetch_records(desig), obscodes)
     except Exception as ex:
-        why.append(f"SBN: {type(ex).__name__}: {ex}")
+        why.append(_Failure("SBN", ex))
         return []
     if one:
         print(f"(fetched {len(one)} obs for {desig} from the SBN replica)")

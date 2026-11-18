@@ -113,6 +113,8 @@ from pyroorb.web import fitcache    # noqa: E402  (reuse / re-derive a fit for e
 from pyroorb.web import webmem      # noqa: E402  (the /memory attribution page)
 from pyroorb.web import ratelimit   # noqa: E402  (per-client limits on the costly routes)
 from pyroorb.web import addons      # noqa: E402  (web add-ons: routes/pages/menu links registered at start)
+from pyroorb.console import for_log  # noqa: E402  (client text in the log, escaped and cut)
+from pyroorb.web import errors  # noqa: E402  (what a failed request may say about its exception)
 
 _STATIC = os.path.join(_HERE, "static")
 _CTYPE = {".html": "text/html; charset=utf-8", ".js": "application/javascript",
@@ -466,8 +468,33 @@ def _orbit_export_refusal(fit):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def parse_request(self):
+        """The standard parse, then refuse request framing this server does not read.
+
+        Bodies are read by ``Content-Length`` only (:meth:`_read_body`).  A chunked body
+        (``Transfer-Encoding``) would be left unread on the keep-alive connection and its
+        bytes parsed as the NEXT request -- a hidden request that skips this one's checks,
+        and behind a pooling proxy one that can land in front of another visitor's.  So
+        any ``Transfer-Encoding`` (411: send a length) and conflicting ``Content-Length``
+        headers (400) are answered here, for every method and route, and the connection
+        is closed."""
+        if not super().parse_request():
+            return False
+        if self.headers.get_all("Transfer-Encoding"):
+            self.close_connection = True
+            self._send(411, {"ok": False, "error": "send the request body with a "
+                             "Content-Length; Transfer-Encoding is not accepted"})
+            return False
+        if addons.declared_length(self.headers) is None:
+            self.close_connection = True
+            self._send(400, {"ok": False, "error": "bad Content-Length header"})
+            return False
+        return True
+
     def log_message(self, fmt, *args):  # quieter console
-        sys.stderr.write("  %s - %s\n" % (self.address_string(), fmt % args))
+        # the request line is the client's text: escaped and cut (console.for_log), so a
+        # URL cannot forge log lines or carry a page of text into the log
+        sys.stderr.write("  %s - %s\n" % (self.address_string(), for_log(fmt % args, 400)))
 
     def _send(self, code, body, ctype="application/json", extra_headers=()):
         if isinstance(body, (dict, list)):
@@ -543,7 +570,7 @@ class Handler(BaseHTTPRequestHandler):
             out = _memory_report(want_misc, authed=allowed)
         except Exception as ex:
             return self._send(200, {"ok": False,
-                                    "error": f"{type(ex).__name__}: {ex}"})
+                                    "error": errors.describe(ex)})
         if not tables_only and not allowed:
             out = dict(out)
             out["misc_locked"] = {
@@ -601,6 +628,9 @@ class Handler(BaseHTTPRequestHandler):
         # turned into an unmetered proxy onto their orbit service. Shares the `random`
         # bucket, the other one-click-one-object lookup.
         "/api/published_orbit": "random",
+        # Sends a linkage to the identification queue (or the MPC): a person submitting
+        # what they found, never a script's loop.
+        "/api/itf_submit": "submit",
     }
 
     def _rate_refused(self, path):
@@ -636,6 +666,10 @@ class Handler(BaseHTTPRequestHandler):
         if out.get("cached") or out.get("coalesced") or out.get("busy"):
             ratelimit.refund(ratelimit.client_of(self), bucket)
 
+    def _declared_length(self):
+        """``Content-Length`` as :func:`addons.declared_length` reads it."""
+        return addons.declared_length(self.headers)
+
     def _read_body(self):
         """The request body, capped.  Returns None (and has already answered)
         when the client declared more than we will accept.
@@ -646,7 +680,11 @@ class Handler(BaseHTTPRequestHandler):
         nothing, and skipping the read is exactly the undrained-body hazard
         this whole guard exists for.
         """
-        n = int(self.headers.get("Content-Length", 0) or 0)
+        n = self._declared_length()
+        if n is None:
+            self.close_connection = True
+            self._send(400, {"ok": False, "error": "bad Content-Length header"})
+            return None
         if n > _MAX_BODY_BYTES:
             self.close_connection = True
             self._send(413, {"ok": False, "error":
@@ -661,7 +699,7 @@ class Handler(BaseHTTPRequestHandler):
         target = _retired_redirect(self.headers, self.path)
         if target is None:
             return False
-        if int(self.headers.get("Content-Length", 0) or 0):
+        if self._declared_length() != 0:
             self.close_connection = True     # the body is never read; see do_POST
         self._send(code, {"moved": target}, extra_headers=(("Location", target),))
         return True
@@ -748,13 +786,13 @@ class Handler(BaseHTTPRequestHandler):
                                    + str(job))
                 return self._send(200, started)
             except Exception as ex:  # never 500 with an empty body -> show the message
-                return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+                return self._send(200, {"ok": False, "error": errors.describe(ex)})
         if path == "/api/fit_result":
             try:
                 return self._send(200, engine_api.fit_job_status(
                     (qs.get("id") or [""])[0]))
             except Exception as ex:
-                return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+                return self._send(200, {"ok": False, "error": errors.describe(ex)})
         if path == "/healthz":
             return self._send(200, self._healthz())
         if path == "/api/export/mpec":
@@ -777,18 +815,18 @@ class Handler(BaseHTTPRequestHandler):
                     (qs.get("id") or [""])[0], (qs.get("from") or ["0"])[0],
                     (qs.get("level") or [None])[0]))
             except Exception as ex:
-                return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+                return self._send(200, {"ok": False, "error": errors.describe(ex)})
         if path == "/api/itf_result":
             try:
                 return self._send(200, engine_api.itf_search_status(
                     (qs.get("id") or [""])[0]))
             except Exception as ex:
-                return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+                return self._send(200, {"ok": False, "error": errors.describe(ex)})
         if path == "/api/itf_defaults":
             try:
                 return self._send(200, engine_api.itf_defaults())
             except Exception as ex:
-                return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+                return self._send(200, {"ok": False, "error": errors.describe(ex)})
         if path == "/api/published_orbit":
             # The MPC's own orbit, in one cheap request -- shown while OUR fit of the
             # same object is still running (a 18k-observation arc takes minutes). The
@@ -797,7 +835,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, engine_api.published_orbit(
                     (qs.get("desig") or [""])[0]))
             except Exception as ex:
-                return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+                return self._send(200, {"ok": False, "error": errors.describe(ex)})
         if path == "/api/random_families":
             return self._send(200, engine_api.random_families())
         if path == "/api/random_object":
@@ -805,12 +843,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, engine_api.random_object(
                     (qs.get("family") or ["any"])[0]))
             except Exception as ex:
-                return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+                return self._send(200, {"ok": False, "error": errors.describe(ex)})
         if path == "/api/environment":
             try:
                 return self._send(200, engine_api.environment_status())
             except Exception as ex:
-                return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+                return self._send(200, {"ok": False, "error": errors.describe(ex)})
         return self._send(404, {"error": "not found"})
 
     def _healthz(self):
@@ -892,7 +930,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, refusal, "text/plain; charset=utf-8")
             html = exporters.pseudo_mpec(fit)
         except Exception as ex:
-            return self._send(200, f"export failed: {type(ex).__name__}: {ex}",
+            return self._send(200, f"export failed: {errors.describe(ex)}",
                               "text/plain; charset=utf-8")
         return self._send(200, html, "text/html; charset=utf-8")
 
@@ -913,7 +951,7 @@ class Handler(BaseHTTPRequestHandler):
             else:                                  # sof
                 text = egress.to_sof(fit)
         except Exception as ex:
-            return self._send(200, f"export failed: {type(ex).__name__}: {ex}",
+            return self._send(200, f"export failed: {errors.describe(ex)}",
                               "text/plain; charset=utf-8")
         return self._send(200, text, "text/plain; charset=utf-8")
 
@@ -931,7 +969,7 @@ class Handler(BaseHTTPRequestHandler):
             doc = _nan_safe(egress.state_vector_document(fit))
             text = json.dumps(doc, indent=2)
         except Exception as ex:
-            return self._send(200, {"error": f"export failed: {type(ex).__name__}: {ex}"})
+            return self._send(200, {"error": f"export failed: {errors.describe(ex)}"})
         return self._send(200, text, "application/json")
 
     def _export_covar(self, qs):
@@ -950,7 +988,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, refusal, "text/plain; charset=utf-8")
             text = egress.to_covar_json(fit)
         except Exception as ex:
-            return self._send(200, f"export failed: {type(ex).__name__}: {ex}",
+            return self._send(200, f"export failed: {errors.describe(ex)}",
                               "text/plain; charset=utf-8")
         return self._send(200, text, "text/plain; charset=utf-8")
 
@@ -966,7 +1004,7 @@ class Handler(BaseHTTPRequestHandler):
             text = exporters.ephemeris_text(fit, obscodes, jd0, jd1, step, site=site,
                                             **_ephem_filters(qs))
         except Exception as ex:
-            return self._send(200, f"export failed: {type(ex).__name__}: {ex}",
+            return self._send(200, f"export failed: {errors.describe(ex)}",
                               "text/plain; charset=utf-8")
         return self._send(200, text, "text/plain; charset=utf-8")
 
@@ -982,7 +1020,7 @@ class Handler(BaseHTTPRequestHandler):
             data = engine_api.ephemeris_rows(fit, jd0, step, n, site=site,
                                              **_ephem_filters(qs))
         except Exception as ex:
-            return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+            return self._send(200, {"ok": False, "error": errors.describe(ex)})
         return self._send(200, data)
 
     def _impact_json(self, qs):
@@ -993,7 +1031,7 @@ class Handler(BaseHTTPRequestHandler):
             window = float((qs.get("window") or ["30"])[0])
             data = engine_api.impact_assessment(fit, window_days=window)
         except Exception as ex:
-            return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+            return self._send(200, {"ok": False, "error": errors.describe(ex)})
         return self._send(200, data)
 
     # JSON-body POST endpoints: path -> handler(body dict).  Every entry reads
@@ -1041,7 +1079,8 @@ class Handler(BaseHTTPRequestHandler):
         # set (_leaveout_rejudge), up to one refit each -- fit-class work
         "/api/itf_submit": lambda d: _pooled("itf_submit", lambda: engine_api.itf_submit_web(
             d.get("session"), d.get("acked_warnings"), name=d.get("name"),
-            email=d.get("email"), route=d.get("route") or "queue")),
+            email=d.get("email"), route=d.get("route") or "queue",
+            client=d.get(_CLIENT_KEY))),
         "/api/itf_download": lambda d: engine_api.itf_download_web(
             d.get("session"), d.get("name"), d.get("email")),
         # Re-auto-solve re-runs the whole automatic pipeline: a full fit, and a
@@ -1131,7 +1170,7 @@ class Handler(BaseHTTPRequestHandler):
                         force=force),
                     _SYNC_FIT_DEADLINE, label="add_obs"))
             except Exception as ex:
-                return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+                return self._send(200, {"ok": False, "error": errors.describe(ex)})
         addon_post = addons.route("POST", u.path)
         handler = self._JSON_POSTS.get(u.path)
         if handler is None and addon_post is None:
@@ -1148,11 +1187,20 @@ class Handler(BaseHTTPRequestHandler):
             if handler is None:
                 code, out = addon_post(addons.CONTEXT, self, data if isinstance(data, dict) else {})
                 return self._send(code, out)
+            if isinstance(data, dict):
+                # who sent this, for a handler that relays it on (/api/itf_submit names
+                # its visitor to the identification queue); always the server's own
+                # reading, whatever the body said
+                data[_CLIENT_KEY] = ratelimit.client_of(self)
             out = handler(data)
             self._refund_if_free(u.path, out)
             return self._send(200, out)
         except Exception as ex:
-            return self._send(200, {"ok": False, "error": f"{type(ex).__name__}: {ex}"})
+            return self._send(200, {"ok": False, "error": errors.describe(ex)})
+
+
+#: the body key the server stamps with the caller's address before a JSON handler runs
+_CLIENT_KEY = "_client"
 
 
 def _obscodes_refresh_hours():

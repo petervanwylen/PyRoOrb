@@ -43,6 +43,7 @@ from pyroorb import presentation  # noqa: E402  (element table + scalar coercion
 from pyroorb.web import fitcache  # noqa: E402  (resolve a pasted fit's obs by its export key, for add-to-fit)
 import pyroorb.nongrav as _ngm  # noqa: E402  (SRP1AU / the AMR find_orb reports)
 from pyroorb.web import itf_wording  # noqa: E402  (ITF's 1.5/1.75-opp + 0/0.6/1 shorthands -> plain English)
+from pyroorb.web import errors  # noqa: E402  (what a failed request may say about its exception)
 
 # Scalar coercion shared with the CLI report -- numpy/None/non-finite -> JSON-safe.
 _safe = presentation.safe
@@ -884,7 +885,7 @@ def nominal_optin(sid, on=True):
         if not constraint.assess(fit):
             return {"ok": False, "error": "this orbit is already determined -- nothing to ask for"}
     except Exception as ex:
-        return {"ok": False, "error": f"could not assess the orbit: {type(ex).__name__}: {ex}"}
+        return {"ok": False, "error": f"could not assess the orbit: {errors.describe(ex)}"}
     # The delivered orbit is shown through a SHALLOW COPY: the flag must not land on the fit
     # "back to the ranges" restores (they share the ctx, mask and arrays, which is the point).
     import copy as _copy
@@ -1176,7 +1177,7 @@ def _apply_interactive(s, sid, mask_list, single=False):
             s["state"] = np.asarray(state, dtype=float)
             fit2 = fo._build_orbit(ctx, state, mask, result, s["history"])
     except Exception as ex:
-        return {"ok": False, "error": f"fit step failed: {type(ex).__name__}: {ex}"}
+        return {"ok": False, "error": f"fit step failed: {errors.describe(ex)}"}
     s["fit"] = fit2                               # remember the displayed orbit (for set_epoch)
     if s.get("itf_pending"):
         # The user has RE-SOLVED the pending find (a Full step, a Multi-step, a
@@ -1689,7 +1690,7 @@ def itf_search_start(session, options=None, mask_list=None, fit_key=None,
                        "error": "the search was stopped at your request"}
         except Exception as ex:          # a crashed search must still ANSWER
             payload = {"ok": False,
-                       "error": f"{type(ex).__name__}: {ex}"}
+                       "error": errors.describe(ex)}
         with _ITF_JOBS_LOCK:
             j = _ITF_JOBS.get(job_id)
             if j is not None:
@@ -1723,11 +1724,11 @@ def itf_search_start(session, options=None, mask_list=None, fit_key=None,
         with _ITF_JOBS_LOCK:
             entry["payload"] = {"ok": False,
                                 "error": f"could not start the search worker: "
-                                         f"{type(ex).__name__}: {ex}"}
+                                         f"{errors.describe(ex)}"}
             entry["ended"] = time.time()
             entry["done"] = True
         return {"ok": False, "error": f"could not start the search worker: "
-                                      f"{type(ex).__name__}: {ex}"}
+                                      f"{errors.describe(ex)}"}
     # ...and the thread is recorded only AFTER it is running.  A Thread that has
     # not been started yet reports ``is_alive() == False``, exactly as a dead one
     # does, so recording it any earlier lets a concurrent _itf_reap strand a
@@ -1770,7 +1771,7 @@ def itf_search_sync(session, options=None, mask_list=None, fit_key=None,
         payload = itf_search_web(session, options, mask_list=mask_list,
                                  fit_key=fit_key, _searcher=_searcher)
     except Exception as ex:              # a crashed search must still ANSWER
-        payload = {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+        payload = {"ok": False, "error": errors.describe(ex)}
     finally:
         with _ITF_JOBS_LOCK:
             j = _ITF_JOBS.get(job_id)
@@ -2032,7 +2033,7 @@ def _pending_verdict(s, pend, fit, live, doc):
             pub_ids=set(gate.get("pub_ids") or ()),
             initial_opp_profile=gate.get("initial_opp_profile") or OppProfile(1, 0))
     except Exception as ex:                       # an unjudgeable set is not a submittable one
-        ok, why = False, f"could not be judged ({type(ex).__name__}: {ex})"
+        ok, why = False, f"could not be judged ({errors.describe(ex)})"
     if ok:
         return (True,
                 f"pending linkage: {len(grown)} observation(s) added or switched on since the "
@@ -2086,7 +2087,7 @@ def _ident_linkage_block(s):
         verdict = ident_check.linkage_verdict(fit)
     except Exception as ex:               # never let a report break the fit payload
         return {"found": False, "kind": "ident",
-                "reason": f"linkage check failed: {type(ex).__name__}: {ex}"}
+                "reason": f"linkage check failed: {errors.describe(ex)}"}
     if not verdict["offer"]:
         return {"found": False, "kind": "ident", "submittable": False,
                 "reason": f"not offered as an identification: {verdict['reason']}"}
@@ -2212,9 +2213,11 @@ def _leaveout_rejudge(s):
         judge = [w for w in demoted
                  if leaveout.is_own_arc(w) or not leaveout.named_tracklets(w, all_itf, magt)
                  or leaveout.named_tracklets(w, itf_text, magt)]
+        from pyroorb.itf.opp_profile import opp_profile
         back, _d, _r = leaveout.confirm_cautions(judge, [], itf_text, combined,
                                                  obs_sources.load_obscodes(),
-                                                 registry=reg, mag_tracklet=magt)
+                                                 registry=reg, mag_tracklet=magt,
+                                                 n_opps=opp_profile(combined).n_oppositions)
     except Exception:                                    # noqa: BLE001
         back = demoted
     out = itf_wording.humanize_all(back)
@@ -2360,8 +2363,10 @@ def queue_pages():
             "dashboard": base + "/dashboard"}
 
 
-def _post_to_queue(doc):
-    """POST ``doc`` to the queue; ``(http_code, body)``."""
+def _post_to_queue(doc, client=None):
+    """POST ``doc`` to the queue; ``(http_code, body)``.  ``client`` is the visitor this
+    server relays it for (``web/relay.py``): the queue's limits charge them, not us."""
+    from pyroorb.web import relay
     import requests
     from pyroorb.itf.linkage import anonymous_header
     anon = anonymous_header(doc)
@@ -2371,7 +2376,8 @@ def _post_to_queue(doc):
     # Never follow a redirect: requests re-sends a redirected POST as a GET with
     # no body, so a host that redirects (pyroorb.net -> https://www.pyroorb.net,
     # path dropped) answered with the home page and the submission was lost.
-    r = requests.post(url, json=doc, timeout=30, allow_redirects=False)
+    r = requests.post(url, json=doc, timeout=30, allow_redirects=False,
+                      headers=relay.headers(client))
     if 300 <= r.status_code < 400:
         return r.status_code, {"ok": False, "error": (
             f"the queue address {url} redirects to {r.headers.get('Location') or '?'} "
@@ -2446,9 +2452,230 @@ def itf_slots_now():
 #: ItfConfig.show_n_rivals.
 WEB_RIVAL_COUNT_K = 6
 
+#: Why a find of the single-tracklet stage is shown for review only: it does not meet the
+#: ITF-to-ITF submission minimums (:func:`itf.srsearch.itfitf_check`, the MPC's rules in
+#: :mod:`itf.mpcrules`).  One that meets them is submittable like any linkage; the
+#: reasons it fell short follow this text.
+SR_REVIEW_ONLY = ("found by the single-tracklet search: shown for review, not submittable "
+                  "(it does not meet the ITF-to-ITF submission minimums: ")
+#: The caution a single-tracklet find carries when the chimera guard
+#: (:func:`itf.srsearch.chimera_guard_short_seed`) refuses it -- the guard that keeps the
+#: NEOCP monitor from sending the same kind of find.  It joins the result's warnings, so it
+#: is shown as a caution banner and must be acknowledged before the find can be submitted.
+SR_CHIMERA_CAUTION = ("possible chimera: the single-tracklet link is not confirmed by the "
+                      "chimera guard (the tracklets may belong to more than one object): ")
+
+
+def _sr_guard_caution(seed_text, itf_text, obscodes):
+    """The :data:`SR_CHIMERA_CAUTION` warning for a single-tracklet find the chimera guard
+    refuses, else None.  A guard that cannot run counts as a refusal."""
+    from pyroorb.itf import srsearch
+    try:
+        ok, why = srsearch.chimera_guard_short_seed(seed_text, itf_text, obscodes)
+    except Exception as ex:                                  # noqa: BLE001
+        ok, why = False, f"the guard could not run ({type(ex).__name__})"
+    return None if ok else SR_CHIMERA_CAUTION + str(why)
+
+
+def _sr_seed(seed_obs, obs_by_line):
+    """The single-tracklet search's seed: each observation with its OBS80 rendering, the
+    second line of a satellite or roving record as ``obs80_line2``."""
+    out = []
+    for o in seed_obs:
+        parts = obs_by_line.get(o["obs80_line"]) or [o["obs80_line"]]
+        rec = dict(o)
+        if len(parts) > 1:
+            rec["obs80_line2"] = parts[1]
+        out.append(rec)
+    return out
+
+
+def _sr_search_live(seed_obs, primaries, cfg, log, trace=None, max_uncert_deg=None,
+                    uncert_mult=None):
+    """:func:`itf.srsearch.sr_then_apparition` against the live database, owning the
+    connection the way :func:`itf.search.itf_search_live` does.  Never submits."""
+    from pyroorb.itf import srsearch
+    from pyroorb.itf.candidates import DbSource
+    from pyroorb.itf.dbio import connect_pub
+    from pyroorb.itf.search import ItfDbUnreachable
+    try:
+        conn = connect_pub(cfg)
+    except Exception as ex:
+        raise ItfDbUnreachable(str(ex)) from ex
+    try:
+        source = DbSource(conn, cfg, reconnect=lambda: connect_pub(cfg))
+        return srsearch.sr_then_apparition(
+            seed_obs, source, _obscodes(), primaries, cfg, log=log,
+            max_uncert_deg=max_uncert_deg, uncert_mult=uncert_mult, do_submit=False,
+            trace=trace)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _trksub_counts(obs80_text):
+    """``{trksub: n_lines}`` of an OBS80 blob, named by columns 6-12 as the page's
+    tracklet list names them."""
+    out = {}
+    for ln in (obs80_text or "").splitlines():
+        if ln.strip():
+            out[ln[5:12].strip()] = out.get(ln[5:12].strip(), 0) + 1
+    return out
+
+
+def _sr_linkage(combined, trial, itf_text, trksubs, primaries, cfg):
+    """``(doc, why)``: the identification document for a single-tracklet find when the whole
+    arc meets the ITF-to-ITF minimums (:func:`itf.srsearch.itfitf_check` on ``trial``, the
+    arc's fit), else ``(None, reason)``."""
+    from pyroorb.itf import srsearch
+    from pyroorb.itf.linkage import build_linkage
+    ok, why = srsearch.itfitf_check(combined, trial)
+    if not ok:
+        return None, "; ".join(why)
+    doc, err = build_linkage(combined, cfg, primary_desigs=list(primaries or ()),
+                             itf_obs_out=itf_text, fit=trial.fit,
+                             trksubs=dict(trksubs or {}))
+    if doc is None:
+        return None, str(err)
+    return doc, ""
+
+
+def _sr_web_result(sr, itf, seed_text, obscodes, primaries=(), cfg=None):
+    """``(result, info)``: the single-tracklet hand-off as ONE search result the page's
+    found / not-found paths can show, and the ``sr`` block that says which mode ran.
+
+    The SR-linked tracklets ride in the apparition search's seed, so they are missing from
+    its ``itf_obs80``; they are put back there, which lists them with the linked tracklets,
+    fits them with the combined arc and names them as ITF lines in the document preview.
+    A find whose whole arc meets the ITF-to-ITF minimums is LINKED with its document
+    (:func:`_sr_linkage`), submittable like any linkage; one that does not is a review-only
+    possible (:data:`SR_REVIEW_ONLY` + the rules it failed).  When the apparition stage
+    adds nothing, the seed plus the SR link is the find on its own.  Every find is put to
+    the chimera guard on the seed plus every linked tracklet; a refusal joins the result's
+    warnings (:func:`_sr_guard_caution`), which the user must acknowledge to submit."""
+    from dataclasses import replace
+    from pyroorb.itf.obs80_fields import split_obs80_long_lines
+    from pyroorb.itf.search import ItfSearchResult
+    info = {"reason": sr.reason, "n_window": sr.n_window, "n_refined": sr.n_refined,
+            "seconds": dict(sr.seconds or {})}
+    if sr.link is None:
+        info["note"] = f"single-tracklet search: {sr.reason}"
+        return ItfSearchResult(verdict=SearchVerdict.NONE,
+                               reason=f"single-tracklet search: {sr.reason}"), info
+    link = sr.link
+    sr_text = split_obs80_long_lines(
+        "\n".join(ln for k in link.trkids for ln in link.lines.get(k, ())))
+    sr_text = "\n".join(ln for ln in sr_text.splitlines() if ln.strip()) + "\n"
+    info.update({"kind": link.kind, "sr_chi2": round(float(link.sr_chi2), 2),
+                 "dts": list(link.dts), "trksubs": sorted(_trksub_counts(sr_text)),
+                 "fit": {k: v for k, v in (link.fit or {}).items()
+                         if k in ("rms", "chi2_dof", "max_z", "used", "count")}})
+    head = f"single-tracklet search: linked {len(link.trkids)} tracklet(s) ({link.kind})"
+
+    def judged(combined, trial, itf_text, trksubs):
+        """(verdict, linkage, reason, trksubs) by the ITF-to-ITF minimums on ``trial``, the
+        whole arc's fit (None: refitted here, as the regular search judges a TrialFit)."""
+        subs = {**(getattr(link, "trksubs", None) or {}), **(trksubs or {})}
+        if trial is None:
+            from pyroorb.itf.fitter import fit_astrometry
+            try:
+                trial = fit_astrometry(combined, obscodes)
+            except Exception:                              # noqa: BLE001
+                trial = None
+            if trial is not None and (not trial.ok or trial.fit is None):
+                trial = None
+        if cfg is None:
+            doc, why = None, "no search configuration"
+        elif trial is None:
+            doc, why = None, "the whole arc did not fit"
+        else:
+            doc, why = _sr_linkage(combined, trial, itf_text, subs, primaries, cfg)
+        if doc is not None:
+            return (SearchVerdict.LINKED, doc,
+                    "single-tracklet find meeting the ITF-to-ITF submission minimums", subs)
+        return SearchVerdict.POSSIBLE, None, SR_REVIEW_ONLY + why + ")", subs
+
+    def merged(r):
+        itf_text = sr_text + (r.itf_obs80 or "")
+        combined = r.combined_obs80 or (seed_text + itf_text)
+        verdict, doc, why, subs = judged(combined, None, itf_text, r.itf_trksubs)
+        warns = list(r.warnings or [])
+        caution = _sr_guard_caution(seed_text, itf_text, obscodes)
+        if caution and caution not in warns:
+            warns.append(caution)
+        return replace(r, verdict=verdict, linkage=doc, reason=why, itf_obs80=itf_text,
+                       itf_trksubs=subs, alternative=None, warnings=warns,
+                       telemetry={**(r.telemetry or {}),
+                                  "obs_count": sum(_trksub_counts(itf_text).values())})
+
+    if (itf is not None and itf.fit is not None
+            and itf.verdict in (SearchVerdict.LINKED, SearchVerdict.POSSIBLE)):
+        more = len(_trksub_counts(itf.itf_obs80))
+        info["apparition"] = {"outcome": itf.verdict.value, "reason": itf.reason,
+                              "added_tracklets": more}
+        info["note"] = (f"{head}, then same-apparition search: linked {more} more "
+                        f"tracklet(s)" if more else
+                        f"{head}, then same-apparition search: nothing further")
+        out = merged(itf)
+        info["submittable"] = out.linkage is not None
+        info["review_reason"] = "" if out.linkage is not None else out.reason
+        alt = itf.alternative
+        if (alt is not None and alt.fit is not None and alt.itf_obs80
+                and alt.verdict in (SearchVerdict.LINKED, SearchVerdict.POSSIBLE)):
+            out.alternative = merged(alt)
+        return out, info
+    # the apparition stage linked nothing more (or did not run): the find is the seed
+    # plus the SR link, fitted here so the page has an orbit to fall back on
+    from pyroorb.itf.fitter import fit_astrometry
+    why = itf.reason if itf is not None else "not run"
+    info["apparition"] = {"outcome": itf.verdict.value if itf is not None else None,
+                          "reason": why, "added_tracklets": 0}
+    info["note"] = f"{head}, then same-apparition search: nothing further ({why})"
+    combined = seed_text + sr_text
+    tr = fit_astrometry(combined, obscodes)
+    if not tr.ok or tr.fit is None:
+        info["note"] = f"{head}, but the combined arc did not fit"
+        return ItfSearchResult(verdict=SearchVerdict.NONE, reason=info["note"]), info
+    verdict, doc, reason, subs = judged(combined, tr, sr_text, {})
+    info["submittable"] = doc is not None
+    info["review_reason"] = "" if doc is not None else reason
+    caution = _sr_guard_caution(seed_text, sr_text, obscodes)
+    return ItfSearchResult(
+        verdict=verdict, reason=reason, fit=tr.fit, linkage=doc, itf_trksubs=subs,
+        combined_obs80=combined, itf_obs80=sr_text, warnings=[caution] if caution else [],
+        incomplete_sweep=itf.incomplete_sweep if itf is not None else None,
+        diagnostics=list(itf.diagnostics or ()) if itf is not None else [],
+        telemetry={"obs_count": sum(_trksub_counts(sr_text).values())}), info
+
+
+def _with_mode(payload, sr_info):
+    """Say on the ``itf`` block which search ran: ``mode`` "regular" or "single_tracklet";
+    in the second, ``mode_note`` (one sentence for the page), the ``sr`` block, each
+    tracklet the single-tracklet stage found marked ``stage``.  Submittability is the
+    result's own: LINKED (with a document) when the find met the ITF-to-ITF minimums, else
+    a possible, re-judged on a grown set like any other (:func:`_pending_verdict`)."""
+    itf = payload.get("itf") if isinstance(payload, dict) else None
+    if itf is None:
+        return payload
+    if sr_info is None:
+        itf["mode"] = "regular"
+        return payload
+    itf["mode"] = "single_tracklet"
+    itf["mode_note"] = itf_wording.humanize(sr_info["note"])
+    itf["sr"] = sr_info
+    subs = set(sr_info.get("trksubs") or ())
+    for t in itf.get("tracklets") or ():
+        if t.get("trksub") in subs:
+            t["stage"] = "single-tracklet"
+    if itf.get("alternative"):
+        _with_mode(itf["alternative"], sr_info)
+    return payload
+
 
 def itf_search_web(session, options=None, mask_list=None, fit_key=None,
-                   _searcher=None):
+                   _searcher=None, _sr_searcher=None):
     """Search the live ITF for tracklets of the CURRENTLY-displayed object (the
     web UI's "ITF Search" button; see src/pyroorb/itf/).
 
@@ -2465,7 +2692,16 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
 
     ``options``: max_uncert_arcsec, uncert_mult, rank_mode (ml|certainty|legacy),
     candidate_source (index|scan), jitter, mag_limit (overrides ItfConfig.mag_limit; omit for
-    the engine default), trace_id, trace_level. ``_searcher`` is a test seam.
+    the engine default), trace_id, trace_level.
+
+    Automatic by arc: when the seed is one night, or nights spanning under 2 days
+    (:func:`itf.srsearch.short_arc`), the corridor has no distance to follow, so the
+    single-tracklet search runs first and, on a link, the regular search continues over the
+    seed's apparition (:func:`itf.srsearch.sr_then_apparition`).  The ``itf`` block says
+    which ran (:func:`_with_mode`).
+
+    ``_searcher(seed_obs80, primaries, cfg)`` and ``_sr_searcher(seed_obs, primaries, cfg,
+    log)`` are test seams.
     """
     options = options or {}
     obs, err = base_obs_for(session=session, fit_key=fit_key)
@@ -2484,7 +2720,7 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
     # fields (reported rmsRA/rmsDec -> the weighting sigma, rmsMag, logSNR,
     # obsID, trkSub) survive into every fit the search runs and into the fit
     # handed back below.  See itf/obsreg.py.
-    lines, seed_obs = [], []
+    lines, seed_obs, parts_of = [], [], {}
     for o in sorted(obs, key=lambda o: o.get("jd_utc", 0.0)):
         try:
             parts = obs80.obs80_base_line(o).splitlines()
@@ -2492,6 +2728,7 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
             continue                     # one unrenderable obs never kills the seed
         lines.extend(parts)
         seed_obs.append({**o, "obs80_line": parts[0]})
+        parts_of[parts[0]] = parts
     # ONE designation per identification. A session fetched under a single name is one
     # acknowledged family however many designations came back, so it seeds and submits
     # under the family PRIMARY only (the engine's alphabetically-earliest convention):
@@ -2583,8 +2820,40 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
         if tracer is not None:
             tracer.head(f"* {msg}")       # milestones join the live feed too
 
+    from pyroorb.itf import srsearch
+    # a single-tracklet search needs a tracklet: two or more observations of the seed
+    sr_mode = len(seed_obs) >= 2 and srsearch.short_arc(seed_obs)
+    sr_info = None
+
+    def _sr_log(msg):
+        # every milestone of the hand-off is a stop point: the one between the
+        # single-tracklet stage and the apparition stage is the one that matters
+        _log(msg)
+        _deadline.check_cancelled()
+
     try:
-        if _searcher is not None:
+        if sr_mode:
+            from pyroorb.itf.search import ItfDbUnreachable
+            span = seed_obs[-1]["jd_utc"] - seed_obs[0]["jd_utc"]
+            _log(f"single-tracklet search: the seed arc ({span:.2f} d) is too short to fix "
+                 f"a distance, so statistical ranging seeds the search")
+            sr_seed = _sr_seed(seed_obs, parts_of)
+            try:
+                if _sr_searcher is not None:
+                    sr, itf_res = _sr_searcher(sr_seed, primaries, cfg, _sr_log)
+                else:
+                    sr, itf_res = _sr_search_live(sr_seed, primaries, cfg, _sr_log,
+                                                  trace=tracer,
+                                                  max_uncert_deg=max_uncert_deg,
+                                                  uncert_mult=uncert_mult)
+            except ItfDbUnreachable as ex:
+                errors.log(ex)        # the connect error names the host and role: log only
+                return {"ok": False, "error": "ITF database unreachable"}
+            _deadline.check_cancelled()
+            result, sr_info = _sr_web_result(sr, itf_res, seed_obs80, _obscodes(),
+                                             primaries=primaries, cfg=cfg)
+            _log(sr_info["note"])
+        elif _searcher is not None:
             result = _searcher(seed_obs80, primaries, cfg)
         else:
             from pyroorb.itf.search import ItfDbUnreachable, itf_search_live
@@ -2599,8 +2868,8 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
                     uncert_mult=uncert_mult, do_submit=False,
                     verbose=False, log=_log, trace=tracer)
             except ItfDbUnreachable as ex:
-                return {"ok": False,
-                        "error": f"ITF database unreachable: {ex}"}
+                errors.log(ex)        # the connect error names the host and role: log only
+                return {"ok": False, "error": "ITF database unreachable"}
     except _deadline.Cancelled:
         # the user's Stop: say so at the end of the feed, then let the caller
         # that armed the token answer it
@@ -2664,7 +2933,7 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
         # ``suppressed``, and result.reason then carries the clause that
         # refused it in plain English (search._refuse).
         suppressed = bool((result.vetting or {}).get("show_suppressed"))
-        return {"ok": True,
+        return _with_mode({"ok": True,
                 "itf": {"found": False,
                         "suppressed": suppressed,
                         "outcome": itf_wording.outcome_label(result.verdict),
@@ -2672,7 +2941,7 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
                         "diagnostics": itf_wording.humanize_all(result.diagnostics),
                         "incomplete": incomplete,
                         "constrained": constrained,
-                        "log": itf_wording.humanize_all(log_lines[-6:])}}
+                        "log": itf_wording.humanize_all(log_lines[-6:])}}, sr_info)
 
     def _found_payload(result):
         """The page's payload for one found result: the paste-style refit of
@@ -2738,7 +3007,7 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
             # batch-tolerance and can flag a bogus "systematic" in the O-C pane,
             # so a regression here must not hide as a mystery UI warning
             _log(f"paste-style refit of the linkage failed "
-                 f"({type(ex).__name__}: {ex}); showing the search's own fit")
+                 f"({errors.describe(ex)}); showing the search's own fit")
             payload = None
         if payload is None:                   # fall back to the search's own fit
             payload = serialise_fit(result.fit)
@@ -2853,11 +3122,11 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
     if (alt is not None and alt.fit is not None and alt.itf_obs80
             and alt.verdict in (SearchVerdict.LINKED, SearchVerdict.POSSIBLE)):
         payload["itf"]["alternative"] = _found_payload(alt)
-    return payload
+    return _with_mode(payload, sr_info)
 
 
 def itf_submit_web(session, acked_warnings=None, _submitter=None, *, name=None, email=None,
-                   route="queue", _poster=None):
+                   route="queue", _poster=None, client=None):
     """Send the linkage on ``session`` -- the web "Submit linkage" button.
 
     ``route``:
@@ -2958,10 +3227,10 @@ def itf_submit_web(session, acked_warnings=None, _submitter=None, *, name=None, 
         # the queue must not censor it as bogus or hold it.
         doc["noreject"] = True
         try:
-            code, body = (_poster or _post_to_queue)(doc)
+            code, body = (_poster or (lambda d: _post_to_queue(d, client=client)))(doc)
         except Exception as ex:
             return {"ok": False, "error": f"could not reach the identification queue "
-                                          f"({type(ex).__name__}: {ex})"}
+                                          f"({errors.describe(ex)})"}
         if code != 200 or not body.get("ok"):
             return {"ok": False, "error": "the identification queue refused it: "
                                           + str(body.get("error") or code)}
@@ -2982,7 +3251,7 @@ def itf_submit_web(session, acked_warnings=None, _submitter=None, *, name=None, 
                 sent, status, mpc_msg = submit_linkage(doc, cfg, do_submit=True,
                                                        log=log_lines.append)
         except Exception as ex:
-            return {"ok": False, "error": f"{type(ex).__name__}: {ex}",
+            return {"ok": False, "error": errors.describe(ex),
                     "log": log_lines[-8:]}
         accepted = bool(sent) and "200" in (status or "")
     if accepted:
@@ -3228,7 +3497,7 @@ def set_asteroids(sid, on, mask_list=None):
             base._ctx["meta"] = {**(base._ctx.get("meta") or {}), "extra_perturbers": detail}
             base.extra_perturbers = detail
     except Exception as ex:
-        return {"ok": False, "error": f"asteroid toggle failed: {type(ex).__name__}: {ex}"}
+        return {"ok": False, "error": f"asteroid toggle failed: {errors.describe(ex)}"}
     s["grav_fit"] = base                     # the new force-model baseline
     s["ctx"] = base._ctx
     s["state"] = np.asarray(base._res.x, dtype=float)
@@ -3287,7 +3556,7 @@ def set_epoch(sid, epoch, mask_list=None):
     try:
         grav2 = fo.reanchor_fit_to_epoch(s["grav_fit"], new_jd, mask=mask)
     except Exception as ex:
-        return {"ok": False, "error": f"set-epoch failed: {type(ex).__name__}: {ex}"}
+        return {"ok": False, "error": f"set-epoch failed: {errors.describe(ex)}"}
     # Re-anchor the live session state so a Full step (and model switches) run from here.
     s["grav_fit"] = grav2
     s["ctx"] = grav2._ctx
@@ -3304,7 +3573,7 @@ def set_epoch(sid, epoch, mask_list=None):
                                      profile_sigmas=False)   # ± computed on demand by the button
         except Exception as ex:
             return {"ok": False, "error": f"set-epoch (nongrav re-anchor) failed: "
-                                          f"{type(ex).__name__}: {ex}"}
+                                          f"{errors.describe(ex)}"}
     else:
         fit2 = grav2
     s["fit"] = fit2
@@ -3318,6 +3587,17 @@ def set_epoch(sid, epoch, mask_list=None):
 # --------------------------------------------------------------------------
 # Top-level entry points used by the HTTP layer.
 # --------------------------------------------------------------------------
+def _public_fetch_errors(meta):
+    """Which sources failed for which designation, without the exceptions' messages: a
+    database or socket error's text names the server (``obs_sources._Failure``); the
+    full text is in the server log."""
+    m = meta or {}
+    pub = m.get("fetch_errors_public")
+    if pub is None:                       # a meta built elsewhere: names only
+        pub = {d: "no answer" for d in (m.get("fetch_errors") or {})}
+    return dict(pub)
+
+
 MAX_DESIGS = 4   # more than this in the box is a paste mistake, not a real linkage
 
 _YEAR_RE = re.compile(r"^\d{4}$")
@@ -3412,8 +3692,18 @@ def run_fit(desig, force=False):
     try:
         obs, meta = obs_sources.fetch_observations(desigs, obscodes)
     except Exception as ex:
-        return {"ok": False, "error": f"fetch failed: {ex}",
+        return {"ok": False, "error": f"fetch failed: {errors.describe(ex)}",
                 "hint": "object may not be cached and network is offline"}
+    # A typed trksub the replica knows but cannot use on its own say-so -- it names several
+    # tracklets, or one that already has a designation.  Asked BEFORE anything is fitted,
+    # rows or no rows: what did arrive belongs to the other designations alone.  The front
+    # end turns ``trksub_question`` into a picker (one tracklet, or all of them) that
+    # resubmits the box with the token replaced by qualified ids (obs_sources.trksub_question).
+    question = obs_sources.trksub_question(meta)
+    if question:
+        return {"ok": False, "error": obs_sources.trksub_message(meta),
+                "trksub_question": question,
+                "typed": desigs}
     if not obs:
         # "no observations" and "the MPC did not answer" are different answers and only
         # one of them is about the object.  Saying the first when the second happened
@@ -3427,7 +3717,7 @@ def run_fit(desig, force=False):
                     "error": f"the MPC did not answer for {names} — this is a problem "
                              f"reaching the observation service, not a statement about "
                              f"the object. Please try again in a moment.",
-                    "detail": failed}
+                    "detail": _public_fetch_errors(meta)}
         return {"ok": False, "error": f"no observations found for {desigs}"}
     # Rows came back, but not necessarily for everything asked for: a linkage whose
     # second designation failed to fetch would otherwise be fitted on half its evidence
@@ -3439,7 +3729,7 @@ def run_fit(desig, force=False):
                 "error": f"the MPC did not answer for {names}, so only part of the "
                          f"requested astrometry arrived — fitting it would answer from "
                          f"a shorter arc than you asked for. Please try again in a moment.",
-                "detail": failed}
+                "detail": _public_fetch_errors(meta)}
     # fit_obs_list drains the unknown-obscode record into the payload (covers both the
     # fetch path here and the pasted-blob path).
     return fit_obs_list(obs, meta, obscodes, force=force,
@@ -3501,7 +3791,7 @@ def fit_obs_list(obs, meta, obscodes, force=False, meta_extra=None):
     except guards.PlutoBanError:
         return pluto_banned_payload()
     except Exception as ex:
-        return {"ok": False, "error": f"fit failed: {ex}"}
+        return {"ok": False, "error": f"fit failed: {errors.describe(ex)}"}
     finally:
         arc_extend.SNAPSHOTS = False
     # Asteroid perturbers (UI default-on): the screen adds the 16 and any extra body the
@@ -3625,7 +3915,7 @@ def random_object(family="any"):
         mpcorb.build_index(verbose=False)
         z = np.load(mpcorb.MPCORB_NPZ, allow_pickle=False)
     except Exception as ex:                       # no catalogue cached and no network
-        return {"ok": False, "error": f"MPCORB index unavailable: {type(ex).__name__}: {ex}"}
+        return {"ok": False, "error": f"MPCORB index unavailable: {errors.describe(ex)}"}
     av, ev, iv, Hv = z["a"], z["e"], z["incl"], z["H"]
     npv = z["nopp"].astype(float)
     qv = av * (1.0 - ev)
@@ -3680,11 +3970,11 @@ def published_orbit(desig):
         return {"ok": False, "retryable": True,
                 "error": f"the MPC did not answer for {d} — this is a problem reaching "
                          f"the orbit service, not a statement about the object.",
-                "detail": f"{type(ex).__name__}: {ex}"}
+                "detail": errors.describe(ex)}
     except Exception as ex:                 # ours, not theirs -- say so
         return {"ok": False,
                 "error": f"could not read the published orbit for {d}",
-                "detail": f"{type(ex).__name__}: {ex}"}
+                "detail": errors.describe(ex)}
     if not doc:
         return {"ok": False, "error": f"the MPC has no published orbit for {d}"}
     return dict(doc, ok=True)
@@ -3832,7 +4122,7 @@ def session_from_job(job_id):
             gfit2._ctx = ctx_a
     except Exception as ex:
         return {"ok": False, "error": f"could not restore that fit: "
-                                      f"{type(ex).__name__}: {ex}"}
+                                      f"{errors.describe(ex)}"}
     ast_state = tmpl.get("ast_state")
     with _SES_LOCK:
         global _SES_COUNTER

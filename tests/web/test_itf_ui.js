@@ -257,6 +257,36 @@ for (const src of [appjs, confjs]) {
   assert(!/nothing shown:/.test(withheld),
          "the engine's prefix is dropped, the banner says it already: " + withheld);
 
+  // SINGLE-TRACKLET: a seed too short to fix a distance ran the SR search first. The page
+  // says which mode ran, marks the tracklets that stage found, and says why the find is a
+  // review item (engine_api._with_mode).
+  {
+    w.eval('$("flashHost").innerHTML = "";');
+    itfResponse = JSON.parse(JSON.stringify(PAYLOAD));
+    itfResponse.session = "sSR";
+    itfResponse.itf = { found: true, possible: true, added_obs: 6, mode: "single_tracklet",
+      mode_note: "single-tracklet search: linked 2 tracklet(s) (triplet), then "
+        + "same-apparition search: linked 1 more tracklet(s)",
+      reason: "found by the single-tracklet search: shown for review",
+      tracklets: [{ trksub: "SR00001", date: "2016 01 02", stn: "F51", n_obs: 2,
+                    stage: "single-tracklet" },
+                  { trksub: "PR00009", date: "2016 02 02", stn: "G96", n_obs: 4 }],
+      itf_obs80: "", linkage: null, submittable: false, warnings: [] };
+    await w.eval("runItfSearch()");
+    await new Promise((r) => setTimeout(r, 20));
+    const sr = $("flashHost").textContent;
+    assert(w.eval("CURRENT.session") === "sSR", "the SR find replaced the view");
+    assert(/POSSIBLE/.test(sr), "an SR find is shown as a possible: " + sr);
+    assert(/ITF single-tracklet search: linked 2 tracklet\(s\)/.test(sr),
+           "the banner says the single-tracklet search ran: " + sr);
+    assert(/SR00001 \(2016 01 02 F51, 2 obs, single-tracklet stage\)/.test(sr),
+           "the SR stage's tracklet is marked: " + sr);
+    assert(/PR00009 \(2016 02 02 G96, 4 obs\)/.test(sr),
+           "an apparition-stage tracklet is not: " + sr);
+    assert(/shown for review/.test(sr), "the review-only reason is shown: " + sr);
+    assert($("itfSubmitWrap").hidden, "no Submit linkage on an SR find");
+  }
+
   // FOUND: fresh payload replaces the view; banner names the tracklets
   itfResponse = JSON.parse(JSON.stringify(PAYLOAD));
   itfResponse.session = "s2";

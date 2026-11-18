@@ -154,6 +154,14 @@ class AdesRegistry:
                 line = line[:80]
             self._put(line, _extras_from_record(r))
 
+    def update(self, other):
+        """Take every entry of another registry (a later search over a grown seed
+        registers what it saw; the joint fit of the whole link needs both)."""
+        for key, extras in getattr(other, "_by_id", {}).items():
+            if extras.get("uncert_src") == "ADES" and key not in self._by_id:
+                self.n_ades_sigma += 1
+            self._by_id[key] = extras
+
     def trksubs(self, ids):
         """``{obs_unique_id: trksub}`` for those of ``ids`` registered with one
         (the database column, for candidate rows -- see linkage.db_trksubs)."""

@@ -117,6 +117,12 @@ def family_records(cur, desig):
     cur.execute(f"select {cols}, obstime, obstime_text from obs_sbn "
                 "where (provid = any(%s) or permid = %s) and status = any(%s)",
                 (list(provids), permid or "", list(PUBLISHED_STATUSES)))
+    return _as_records(cur)
+
+
+def _as_records(cur):
+    """The rows of an executed ``select <ADES cols>, obstime, obstime_text`` as API
+    ``ADES_DF`` records, in observation-time order."""
     names = [d[0] for d in cur.description]
     out = []
     for row in cur.fetchall():
@@ -129,6 +135,103 @@ def family_records(cur, desig):
         out.append(r)
     out.sort(key=lambda r: r["obstime"] or "")
     return out
+
+
+# --- a submitter's trksub (an ITF tracklet, say) typed in place of a designation ----------
+#
+# A trksub is the SUBMITTER's label, not the MPC's: it is unique only within one station's
+# submissions, and not even reliably there, so one string can name several tracklets
+# (``gb00884`` is a designated 2024 HP tracklet from G19 while it is also a live NEOCP id).
+# A lookup therefore answers with TRACKLETS -- one per ``trkid`` -- and the caller decides:
+# exactly one undesignated tracklet is fetched, several are a choice for the user, and one
+# that already carries a designation is that designation (it is no longer a trksub's
+# business).  Statuses: ``I`` (isolated -- the ITF) plus the published ``P``/``p``, which
+# are how a designated tracklet is recognised; nothing else is served.
+TRKSUB_STATUSES = ("I", "P", "p")
+# "H005311@568" or "H005311@568/2015-01-26": the trksub narrowed by station (and the UTC
+# date of the tracklet's first observation) -- the form the web's tracklet picker sends back.
+_QUALIFIED = re.compile(r"^([^@\s]{1,7})@([0-9A-Za-z]{3})(?:/(\d{4})-?(\d\d)-?(\d\d))?$")
+
+
+def split_trksub(token):
+    """``(trksub, station, date)`` of a possibly-qualified trksub token, or None when the
+    token is not one (``date`` is ``"YYYY-MM-DD"`` or None, ``station`` None when bare).
+    A bare token is any space-free id of 1-7 characters; WHETHER it is a trksub rather
+    than a designation is the caller's question (obs_sources.is_published_designation)."""
+    s = str(token or "").strip()
+    m = _QUALIFIED.match(s)
+    if m:
+        date = f"{m.group(3)}-{m.group(4)}-{m.group(5)}" if m.group(3) else None
+        return m.group(1), m.group(2).upper(), date
+    if s and " " not in s and "@" not in s and len(s) <= 7:
+        return s, None, None
+    return None
+
+
+def qualified_token(t):
+    """The token naming exactly one tracklet of :func:`trksub_tracklets`: trksub@stn/date."""
+    return f"{t['trksub']}@{t['stn']}/{t['date']}"
+
+
+def trksub_tracklets(cur, token):
+    """The tracklets a (possibly qualified) trksub token names: one dict per ``trkid``,
+    ordered by first observation -- ``trksub, stn, trkid, date`` (UTC date of the first
+    observation), ``first``/``last`` (ISO), ``n_obs`` and ``designation`` (the provisional
+    designation or number the tracklet is now filed under, None for an isolated one).
+    ``[]`` when the token is not a trksub shape or nothing matches."""
+    parts = split_trksub(token)
+    if not parts:
+        return []
+    trksub, stn, date = parts
+    where, params = ["trksub = %s", "status = any(%s)"], [trksub, list(TRKSUB_STATUSES)]
+    if stn:
+        where.append("stn = %s")
+        params.append(stn)
+    cur.execute("select trkid, stn, min(obstime), max(obstime), count(*), "
+                "max(provid), max(permid) from obs_sbn where " + " and ".join(where)
+                + " group by trkid, stn order by min(obstime)", tuple(params))
+    out = []
+    for trkid, st, first, last, n, provid, permid in cur.fetchall():
+        d = first.strftime("%Y-%m-%d") if first is not None else None
+        if date and d != date:
+            continue
+        out.append({"trksub": trksub, "stn": st, "trkid": trkid, "date": d,
+                    "first": first.isoformat() if first is not None else None,
+                    "last": last.isoformat() if last is not None else None,
+                    "n_obs": int(n),
+                    "designation": (str(provid).strip() if provid else None)
+                                   or (str(permid).strip() if permid else None)})
+    return out
+
+
+def trkid_records(cur, trkids):
+    """The rows of the given tracklets as API ``ADES_DF`` records, in time order -- the
+    same shape :func:`family_records` returns, so ``ades.records_to_obs`` reads them
+    alike.  An isolated row has no provid/permid, so ``records_to_obs`` files it under
+    its trksub, which is the id the linkage document must name it by."""
+    cols = ", ".join(c for c in ADES_COLUMNS if c != "obstime")
+    cur.execute(f"select {cols}, obstime, obstime_text from obs_sbn "
+                "where trkid = any(%s) and status = any(%s)",
+                (list(trkids), list(TRKSUB_STATUSES)))
+    return _as_records(cur)
+
+
+def lookup_trksub(token):
+    """``(tracklets, records)`` for a trksub token on a fresh replica connection: every
+    tracklet it names (:func:`trksub_tracklets`) and, when that is exactly ONE tracklet
+    with no designation, its rows; otherwise ``records`` is ``[]`` and the caller tells
+    the user why (a choice to make, or the designation it already has)."""
+    from pyroorb.itf.config import ItfConfig
+    from pyroorb.itf.dbio import connect_pub
+    conn = connect_pub(ItfConfig())
+    try:
+        cur = conn.cursor()
+        trk = trksub_tracklets(cur, token)
+        if len(trk) == 1 and not trk[0]["designation"]:
+            return trk, trkid_records(cur, [trk[0]["trkid"]])
+        return trk, []
+    finally:
+        conn.close()
 
 
 def fetch_records(desig):

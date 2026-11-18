@@ -78,6 +78,9 @@ def get_by_desig(desig, obscodes, force=False):
     if failed:
         raise ValueError(f"the MPC did not answer for {', '.join(sorted(failed))} "
                          f"— try again in a moment")
+    unresolved = obs_sources.trksub_message(meta)
+    if unresolved:
+        raise ValueError(unresolved)
     if not obs:
         raise ValueError(f"no observations found for {desigs}")
     fit = fo.fit_orbit(obs, obscodes, desig=meta["designation"], meta=meta,

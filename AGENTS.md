@@ -103,7 +103,8 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   clip ledger still apply.
 - **Residual trends are diagnostics, not gates** (`itf/residual_trend.py`; withdrawn as a gate); they ARE review warnings in batch CSVs; the two-axis walk
   (`two_axis_trend`) is a search warning. Leave-out confirmation can demote a caution
-  (`itf/leaveout.py`, never on 1.75→3).
+  (`itf/leaveout.py`, never on 1.75→3); on 4+ oppositions a linked-night offset < 1.5" needs
+  only the leave-out miss <= 1.5" (`leaveout.wide_arc_waiver`).
 - **The object's own arc is data quality, not a link doubt** (`search._extension_check`): photometry is a
   caution only on a LINKED tracklet at >= 1.0 mag (`ItfConfig.warn_mag_linked_resid`, linked tracklets
   tested on their own), an offset night only on a linked night; the rest is a diagnostic
@@ -121,6 +122,7 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **A seed at U >= 9 scans the population's orbit first** (`lov_variants.prior_variant`, `popprior.lov_weights`): one variant before the fan's union sweep; a link ends the search, a possible is kept against the fan's result, and the fan otherwise runs as it would have.
 - **Flat field** (`search.flat_field`: best likely P < 0.15, linear corridor): 30 singles and barren-take backtracking at ANY depth, not only depth 0. A take reached by resuming after a barren one never restarts the no-progress clock (`TrialQueue.resumed`).
 - **Terminal LOV fan** (`ItfConfig.terminal_fan`): a linear recursion ending on an orbit still at U >= `variant_corridor_U` scans the LOV fan from it, once per search, only from a take the vet calls reviewable (`_terminal_fan_due`), never inside a variant round (`SearchContext.terminal_fan_done`). A link the take's vet accepts is transmitted only if the fan does not supersede it (`_release_held`).
+- **A single tracklet seeds the ITF by statistical ranging** (`itf/srsearch.py`, `sr_search`): seed + candidate attributable = a 2-dof test over a bound (log rho, rhodot) family; ranked with a vagueness term (a two-observation tracklet's loose rate fits anything) and a capped population prior (where to look only); a pair is accepted in RANKING order, never by lowest engine chi2/dof (6-8 obs vs 6 parameters fit anything), a triplet only at 6-dof chi2 <= `trip_chi2_max`. Its link is a hypothesis: `sr_then_apparition` hands it to the regular search over the seed's apparition, where the link rides in the SEED unjudged -- a sender must judge it: the web submits a find meeting the ITF-to-ITF minimums (`srsearch.itfitf_check` = `mpcrules.check`). ONE chimera guard judges every such link (`srsearch.chimera_guard_short_seed`: arc caps 2 nights <= 4 d / 3 nights <= 15 d + a relaxed leave-out on every tracklet, the seed's own included; `chimera_guard_result` for a regular result's added tracklets): a refusal is never auto-submitted (neocpmon) and is a caution the web user must acknowledge before submitting (`engine_api._sr_web_result`).
 - Faint cut `ItfConfig.mag_limit` 23.5 (`--mag-limit`/`--thorough`); UI fetches defaults
   from `/api/itf_defaults`, never hard-codes them. The DEFAULT is deepened per object to
   1 mag past its brightest predicted V since 1995 (`ephem.faint_cut`); a typed cut
@@ -253,8 +255,20 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **A tracklet is checked once, against ALL its positions** (`skycheck.identify`): match =
   mean offset <= 30" (comets 120") and motion rms <= 4" (+30% of the track for >= 10"/min);
   several matches identify only when the nearest is 3x and 2" nearer (`skycheck._choose`).
+- **The sky check's reach is the caller's** (`max_days=` of `check_field` / `identify`, default
+  no limit): beyond it a field raises `TooFarFromEpoch`, a tracklet comes back `refused` (no
+  candidates, never a "no match"). Only the `/skycheck` web page caps its visitors, with
+  `PYROORB_SKYCHECK_MAX_DAYS` (`skycheck.max_days`, read per request; unset = no limit, a bad
+  value refuses every check); the CLI, the Python API and the server's own callers are uncapped.
 
 ## Web / ops invariants
+- **A client is what the proxy adds** (`ratelimit.client_of`): `X-Real-IP`, else the LAST
+  `X-Forwarded-For` hop, else the peer (`PYROORB_CLIENT_IP=peer` without a proxy); the first hop
+  is the client's own text. Wrong passwords go through `web/pwguard.py` (per address + total).
+- **A failed request names the request, never the server** (`web/errors.py` `describe`): database
+  and OS errors reach the caller as their class only, the traceback goes to the log.
+- **`Content-Length` is a plain non-negative decimal or a 400** (`addons.declared_length`):
+  `int("-1")` passed the body cap and `rfile.read(-1)` read to the end of the stream.
 - **`/memory` totals are summed in bytes and rounded once** (`tables_gross_mb`, `tables_combined_mb`, `overlap_mb`); summing per-table rounded figures drifts by 0.005 MB per table.
 - **Optional web features are add-ons** (`web/addons.py`): routes, pages, menu links and
   start hooks registered at start-up; the server names none of them.

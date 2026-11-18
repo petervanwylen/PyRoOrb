@@ -109,3 +109,14 @@ def _no_ambient_sbn_fallback(monkeypatch, request):
     `live`; the fallback's own tests turn it back on with fakes in place."""
     if "live" not in request.keywords:
         monkeypatch.setenv("PYROORB_SBN_FALLBACK", "0")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """The web rate limiter and the wrong-password guards are process-wide state, and
+    every test client is 127.0.0.1: without a reset, how many requests a test may make
+    would depend on which tests ran before it in the same process."""
+    from pyroorb.web import ratelimit
+    ratelimit.reset()
+    yield
+    ratelimit.reset()

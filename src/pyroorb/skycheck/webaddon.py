@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from pyroorb.web.addons import MenuLink, WebAddon
+from pyroorb.web import errors
 
 REFRESH_S = 60.0            # the background loop's tick (each step downloads only when due:
                             # the catalogue daily, the NEOCP half-hourly while asked for)
@@ -37,13 +38,13 @@ def _refresh_loop():
             catalogue.load(refresh=False)
             _STATE["last"], _STATE["error"] = time.time(), None
         except Exception as ex:                                   # noqa: BLE001
-            _STATE["error"] = f"{type(ex).__name__}: {ex}"[:300]
+            _STATE["error"] = errors.describe(ex)[:300]
             print(f"skycheck: catalogue refresh failed: {_STATE['error']}", flush=True)
         if time.time() - _STATE["neocp_asked"] < NEOCP_WANTED_S:
             try:                        # requests read only this cache (refresh=False)
                 neocp.fetch()
             except Exception as ex:                               # noqa: BLE001
-                print(f"skycheck: NEOCP refresh failed: {type(ex).__name__}: {ex}", flush=True)
+                print(f"skycheck: NEOCP refresh failed: {errors.describe(ex)}", flush=True)
         time.sleep(REFRESH_S)
 
 
@@ -66,9 +67,13 @@ def status():
     from pyroorb.skycheck import catalogue
     cur = catalogue.current_build()
     meta = catalogue._meta(cur) if cur is not None else {}
+    try:
+        limit, limit_error = skycheck.max_days(), None
+    except ValueError as ex:
+        limit, limit_error = None, str(ex)
     return {"ok": True, "ready": cur is not None, "orbits": meta.get("rows"),
             "epoch_jd": meta.get("main_epoch"), "built": meta.get("built"),
-            "refresh_error": _STATE["error"],
+            "refresh_error": _STATE["error"], "max_days": limit, "config_error": limit_error,
             "defaults": {"radius": skycheck.DEFAULT_RADIUS_ARCMIN,
                          "match": skycheck.MATCH_ARCSEC, "motion": skycheck.MOTION_ARCSEC,
                          "max_obs": MAX_OBS}}
@@ -93,10 +98,24 @@ def _float(v, default=None):
         return default
 
 
+def _reach():
+    """``(limit, error)``: the page's reach limit (``PYROORB_SKYCHECK_MAX_DAYS``) -- it caps
+    what a visitor may ask, and only here; or the configuration error that stops every check
+    (a server that meant to set a limit must not run without one)."""
+    from pyroorb import skycheck
+    try:
+        return skycheck.max_days(), None
+    except ValueError as ex:
+        return None, {"ok": False, "error": f"the server's sky-check limit is misconfigured: {ex}"}
+
+
 def field(d, obscodes):
     from pyroorb import skycheck
     if not _ready():
         return _NOT_READY
+    limit, bad = _reach()
+    if bad:
+        return bad
     try:
         res = skycheck.check_field(d.get("ra"), d.get("dec"), d.get("time") or time.time() /
                                    86400.0 + 2440587.5,
@@ -106,7 +125,9 @@ def field(d, obscodes):
                                    mag_limit=_float(d.get("mag_limit")),
                                    comets=d.get("comets", True) is not False,
                                    neocp=_neocp(d), obscodes=obscodes,
-                                   refresh=False)
+                                   refresh=False, max_days=limit)
+    except skycheck.TooFarFromEpoch as ex:
+        return {"ok": False, "error": str(ex)}
     except (ValueError, KeyError) as ex:
         return {"ok": False, "error": f"could not read the request: {ex}"[:300]}
     return _jsonable({"ok": True, "time_utc": res.time_utc, "ra": res.ra, "dec": res.dec,
@@ -129,12 +150,16 @@ def identify(d, obscodes):
         return {"ok": False, "error": "no observations found in the text"}
     if len(obs) > MAX_OBS:
         return {"ok": False, "error": f"{len(obs)} observations: at most {MAX_OBS} per check"}
+    limit, bad = _reach()
+    if bad:
+        return bad
     res = skycheck.identify(obs, radius_arcmin=_float(d.get("radius"),
                                                       skycheck.DEFAULT_RADIUS_ARCMIN),
                             match_arcsec=_float(d.get("match"), skycheck.MATCH_ARCSEC),
                             motion_arcsec=_float(d.get("motion"), skycheck.MOTION_ARCSEC),
                             comets=d.get("comets", True) is not False,
-                            neocp=_neocp(d), obscodes=obscodes, refresh=False)
+                            neocp=_neocp(d), obscodes=obscodes, refresh=False,
+                            max_days=limit)
     out = []
     for tr in res:
         first = obs[tr.indices[0]]
@@ -142,7 +167,7 @@ def identify(d, obscodes):
                     "t_first": tr.t_first, "t_last": tr.t_last,
                     "ra": first["ra_deg"], "dec": first["dec_deg"],
                     "identification": tr.identification, "ambiguous": tr.ambiguous,
-                    "candidates": tr.candidates[:10]})
+                    "refused": tr.refused, "candidates": tr.candidates[:10]})
     return _jsonable({"ok": True, "tracklets": out, "n_obs": len(obs)})
 
 

@@ -20,6 +20,7 @@ from pyroorb import arc_extend  # noqa: E402  (teaching-mode snapshot flag)
 
 from pyroorb.web import engine_api  # noqa: E402  (serialise_fit reused verbatim)
 from pyroorb.web import fitcache  # noqa: E402
+from pyroorb.web import errors  # noqa: E402  (what a failed request may say about its exception)
 
 
 def _looks_like_ades(text):
@@ -98,7 +99,7 @@ def fit_pasted(text, obscodes, force=False):
     except guards.PlutoBanError:
         return engine_api.pluto_banned_payload()
     except Exception as ex:
-        return {"ok": False, "error": f"fit failed: {type(ex).__name__}: {ex}"}
+        return {"ok": False, "error": f"fit failed: {errors.describe(ex)}"}
     finally:
         arc_extend.SNAPSHOTS = False
 

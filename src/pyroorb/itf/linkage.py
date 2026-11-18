@@ -518,8 +518,29 @@ def header_problem(header):
         return "the header has no submitter name"
     if _NAME_FORBIDDEN.search(name):
         return "the header name contains { } [ or ] (the MPC rejects it)"
+    # a name and an address are short plain text: they are stored, shown and sent on,
+    # so neither may carry control or invisible characters nor run to a paragraph
+    if len(name) > MAX_HEADER_NAME or hidden_char(name):
+        return (f"the header name must be at most {MAX_HEADER_NAME} characters with no "
+                "control or invisible characters")
     if not isinstance(email, str) or not _EMAIL.match(email.strip()):
         return "the header has no valid submitter e-mail"
+    if len(email) > MAX_HEADER_EMAIL or hidden_char(email):
+        return f"the header e-mail must be at most {MAX_HEADER_EMAIL} plain characters"
+    return None
+
+
+#: the longest submitter name and e-mail address a header may carry
+MAX_HEADER_NAME, MAX_HEADER_EMAIL = 100, 254
+
+
+def hidden_char(s):
+    """The first control, format (zero-width, bidirectional), private-use, surrogate or
+    unassigned character in ``s``, or None."""
+    import unicodedata
+    for ch in s:
+        if unicodedata.category(ch) in ("Cc", "Cf", "Co", "Cs", "Cn"):
+            return ch
     return None
 
 
@@ -773,17 +794,32 @@ def dedup_designations(doc, family_of, log=print, keep_spelling=False):
     a link below the two-id minimum, which is why :func:`short_link` re-checks
     the document afterwards.
 
+    A NUMBER the link lists names its object better than any provisional
+    designation, so it is the family's representative wherever it stands, in its
+    own place: ``[K98D00Q, 00433]`` keeps ``00433`` (the other members are dropped,
+    nothing is reordered).
+
     ``keep_spelling=True`` (the identification queue, where a link is
-    never edited) only DROPS: the first designation of each family stays exactly
-    as the submitter wrote it, never swapped for the primary or repacked, so the
-    only change is the removal of designations the MPC has already joined.
+    never edited) only DROPS: each family keeps one designation exactly as the
+    submitter wrote it (its number when it lists one, else its first), never
+    swapped for the primary or repacked, so the only change is the removal of
+    designations the MPC has already joined.
     """
     for key, link in sorted((doc or {}).get("links", {}).items()):
         packed_list = link.get("designations") or []
+        fam_of = {pk: (family_of(unpack(pk) or pk) or (unpack(pk) or pk)) for pk in packed_list}
+        number_of = {}                    # family -> the first number the link lists in it
+        for pk in packed_list:
+            if str(unpack(pk) or pk).isdigit():
+                number_of.setdefault(fam_of[pk], pk)
         kept, seen, changed = [], set(), []
         for pk in packed_list:
             unp = unpack(pk) or pk
-            fam = family_of(unp) or unp
+            fam = fam_of[pk]
+            num = number_of.get(fam)
+            if num is not None and pk != num:
+                changed.append(f"dropped {pk} (family {fam}: its number {num} stays)")
+                continue
             if fam in seen:
                 changed.append(f"dropped {pk} (family {fam})")
                 continue
@@ -791,7 +827,9 @@ def dedup_designations(doc, family_of, log=print, keep_spelling=False):
             if keep_spelling:
                 kept.append(pk)
                 continue
-            rep = pack(fam) or pk        # prefer the PRIMARY, packed
+            # prefer the PRIMARY, packed -- but a number already names the object
+            # better than its provisional primary, so it stays
+            rep = pk if str(unp).isdigit() else (pack(fam) or pk)
             if rep != pk:
                 changed.append(f"{pk} -> primary {rep}")
             kept.append(rep)
@@ -841,21 +879,34 @@ def short_link(doc):
 
 
 def _family_map(conn, unpacked_desigs):
-    """{unpacked designation -> family primary} via public.current_identifications
-    (a designation absent from the table is its own family)."""
+    """{unpacked designation or number -> family primary}: numbers through
+    public.numbered_identifications, then every provisional through
+    public.current_identifications (a designation absent from both is its own family).
+
+    A number is an identification the MPC has accepted like any DES=DES: ``433`` and
+    ``1898 DQ`` (or ``A898 PA``) are one object, and a link naming both restates it.
+    Read through ``current_identifications`` alone, the number was its own family and
+    both stayed in the link."""
     out = {d: d for d in unpacked_desigs}
     if not unpacked_desigs:
         return out
     with conn.cursor() as cur:
+        nums = sorted({d for d in unpacked_desigs if str(d).isdigit()})
+        if nums:
+            cur.execute(
+                """SELECT permid, unpacked_primary_provisional_designation
+                   FROM numbered_identifications WHERE permid = ANY(%s)""", (nums,))
+            for num, prov in cur.fetchall():
+                if prov:
+                    out[num] = prov
         cur.execute(
             """SELECT unpacked_secondary_provisional_designation,
                       unpacked_primary_provisional_designation
                FROM current_identifications
                WHERE unpacked_secondary_provisional_designation = ANY(%s)""",
-            (list(unpacked_desigs),))
-        for sec, prim in cur.fetchall():
-            out[sec] = prim
-    return out
+            (sorted(set(out.values())),))
+        fam = dict(cur.fetchall())
+    return {d: fam.get(p, p) for d, p in out.items()}
 
 
 def record_submission(doc, cfg, trkid_map=None, log=print):
@@ -932,7 +983,7 @@ def _record_one(cur, link, trkid_map, log=print):
 
 
 def submit_linkage(doc, cfg, do_submit=False, log=print, trkid_map=None, dedup=True,
-                   keep_spelling=False):
+                   keep_spelling=False, verbatim=False):
     """Dry-run print (default) or actually POST the linkage to the MPC.
 
     A REAL transmission (``do_submit`` AND ``cfg.submit`` -- two explicit
@@ -955,8 +1006,15 @@ def submit_linkage(doc, cfg, do_submit=False, log=print, trkid_map=None, dedup=T
     designations-only link and decides for itself
     (the identification queue's sender).  ``keep_spelling=True`` makes the dedup DROP
     only, never rename (:func:`dedup_designations`) -- the queue's setting.
+
+    ``verbatim=True`` (the identification queue's ``nomodify`` links, owner
+    2026-11-17) sends ``doc`` exactly as given: no dedup rewrite and no
+    :func:`short_link` backstop -- the MPC alone judges it.  The signed-header rule
+    (:func:`anonymous_header`) still applies: an unsigned document is never sent.
     """
     really = do_submit and cfg.submit
+    if verbatim:
+        dedup = False
     if really and dedup:
         try:
             from .dbio import connect_pub
@@ -979,7 +1037,7 @@ def submit_linkage(doc, cfg, do_submit=False, log=print, trkid_map=None, dedup=T
     log(json.dumps(doc, indent=2))
     if not really:
         return False, "dry-run (submission disabled)", None
-    short = short_link(doc)
+    short = None if verbatim else short_link(doc)
     if short:
         log(f"NOT SUBMITTED: {short}")
         return False, f"not submitted: {short}", None

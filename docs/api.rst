@@ -93,6 +93,13 @@ An MPChecker-style check against every orbit the MPC publishes (``MPCORB.DAT``, 
 elements, the NEO Confirmation Page), downloaded and refreshed daily. Also on the command line
 as ``pyroorb-skycheck field|identify|update``, and in the web UI.
 
+Positions are best within a year of the catalogue's epoch, and a check's cost grows steeply
+beyond that (twenty years back, every orbit is integrated: hours). ``max_days=`` caps how far
+from the epoch a check may look: past it :func:`check_field` raises ``TooFarFromEpoch`` and
+:func:`identify_tracklets` returns the tracklet unchecked, with ``refused`` saying why. The
+default is no limit. The ``/skycheck`` web page caps its visitors with
+``PYROORB_SKYCHECK_MAX_DAYS`` (unset, no limit); a public server should set it.
+
 .. autofunction:: check_field
 
 .. autofunction:: identify_tracklets

@@ -59,6 +59,8 @@ import sys
 import time
 import types
 
+from pyroorb.web import errors
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # Ceiling on objects visited per walk.  Reached only by something pathological
 # (a table holding a graph orders of magnitude past anything we ship); the report
@@ -279,7 +281,7 @@ def _container():
         out["cgroup_available_mb"] = itfmem.cgroup_available_mb()
         out["available_mb"] = itfmem.available_mb()
     except Exception as ex:
-        out["error"] = f"{type(ex).__name__}: {ex}"
+        out["error"] = errors.describe(ex)
     try:
         from pyroorb.itf.config import ItfConfig
         from pyroorb.itf.memory import sweep_floor_mb
@@ -384,7 +386,7 @@ def trim_allocator(threshold_mb=None):
         _libc().malloc_trim(0)
         out["trimmed"] = True
     except Exception as ex:
-        out["error"] = f"{type(ex).__name__}: {ex}"
+        out["error"] = errors.describe(ex)
     return out
 
 
@@ -913,7 +915,7 @@ def _sweeps():
     try:
         return sw.snapshot(names)
     except Exception as ex:
-        return {"error": f"{type(ex).__name__}: {ex}"}
+        return {"error": errors.describe(ex)}
 
 
 def _searches():
@@ -992,7 +994,7 @@ def report(budget=_NODE_BUDGET, with_misc=True):
         except Exception as ex:
             out["tables"].append({"key": key, "title": title, "note": note,
                                   "loaded": False,
-                                  "error": f"{type(ex).__name__}: {ex}"})
+                                  "error": errors.describe(ex)})
             continue
         if got is None:
             out["tables"].append({"key": key, "title": title, "note": note,

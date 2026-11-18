@@ -37,6 +37,15 @@ What it is applied to (``search._accepted``):
 * NEVER on a linkage the three-thin (1.75 -> 3) confirmation made submittable: that
   withdrawal rule stays exactly as it is.
 
+The wide-arc offset waiver: on a linkage of ``WIDE_ARC_OPPS`` or more oppositions, a
+coherently offset LINKED night whose offset is under ``WIDE_ARC_OFFSET_ARCSEC`` is
+confirmed when the leave-out orbit puts it within ``MAX_MISS_ARCSEC``; the D, drift
+and sigma bars are not asked.  One night cannot bend an orbit spanning that many
+oppositions, so a sub-1.5" miss under the leave-out orbit is this object's astrometry
+carrying a station-night bias, and D then measures only how small that station's
+tabulated bias is (2022 KV46: a +1.07" night at 691 in 2009 on a six-opposition link,
+leave-out miss 1.31", 1-sigma 0.23", drift 0.59", D 3.7).
+
 A confirmed caution is moved to ``diagnostics`` under ``LEAVEOUT_NOTE``, never the
 trend prefix, so the CSV / megabatch review split no longer counts it.
 """
@@ -50,6 +59,9 @@ MAX_SIGMA_ARCSEC = 2.0
 MAX_MISS_ARCSEC = 1.5
 MAX_D = 3.0
 MAX_WALK_ARCSEC = 1.5
+#: the wide-arc offset waiver (see the module docstring)
+WIDE_ARC_OPPS = 4
+WIDE_ARC_OFFSET_ARCSEC = 1.5
 #: per-observation astrometric noise assumed for D and the walk's standard error
 SIGMA_OBS = 0.4
 
@@ -61,6 +73,7 @@ _DATE_SLACK = (-0.6, 1.6)
 #: the gap that separates apparitions when an own-arc caution is confirmed per apparition
 APPARITION_GAP_DAYS = 275.0
 
+_OFFSET_RX = re.compile(r'sits ([+-]?\d+(?:\.\d+)?)" off')
 _DATE_RX = re.compile(r"(\d{4})-(\d\d)-(\d\d)")
 _STN_RXS = (re.compile(r"\(([0-9A-Z]\d\d)[,\s]"), re.compile(r"\d{4}-\d\d-\d\d ([0-9A-Z]\d\d) "))
 
@@ -78,6 +91,23 @@ def in_scope(text):
     if is_trend_note(text):
         return "trend"
     return None
+
+
+def offset_arcsec(text):
+    """The size of the offset a coherent-offset caution names (arcsec), or None."""
+    m = _OFFSET_RX.search(text or "")
+    return abs(float(m.group(1))) if m else None
+
+
+def wide_arc_waiver(text, n_opps):
+    """Does the wide-arc offset waiver apply to this caution on a linkage of
+    ``n_opps`` oppositions (a linked-night offset under the bar)?"""
+    if n_opps is None or n_opps < WIDE_ARC_OPPS:
+        return False
+    if in_scope(text) != "offset" or is_own_arc(text):
+        return False
+    off = offset_arcsec(text)
+    return off is not None and off < WIDE_ARC_OFFSET_ARCSEC
 
 
 def is_own_arc(text):
@@ -367,15 +397,26 @@ def note(text, m):
             f"object, not a different body")
 
 
+def waiver_note(text, m, n_opps):
+    """The diagnostic a caution confirmed by the wide-arc offset waiver becomes."""
+    return (f"{LEAVEOUT_NOTE} {text}{_NOTE_TAIL}"
+            f"{m['miss']:.2f}\" away (1-sigma {m['smaj']:.2f}\", D {m['D']:.1f}, drift "
+            f"{m['walk']:.2f}\") on a {n_opps}-opposition arc, so it is a station-night "
+            f"bias of this object, not a different body")
+
+
 def confirm_cautions(warnings, diagnostics, itf_obs80, combined_obs80, obscodes,
-                     registry=None, mag_tracklet=None, max_sec=30.0, log=None):
+                     registry=None, mag_tracklet=None, max_sec=30.0, log=None,
+                     n_opps=None):
     """Split the in-scope cautions the leave-out orbit vouches for out of ``warnings``
     (and the trend notes out of ``diagnostics``).
 
     Returns ``(warnings, diagnostics, record)``: the warnings left, the diagnostics
     with every confirmed caution appended as a ``LEAVEOUT_NOTE`` (a confirmed trend
     note REPLACES its original), and ``record`` -- one entry per in-scope caution
-    examined: ``{text, scope, own, confirmed, unit, ...measure}``.
+    examined: ``{text, scope, own, confirmed, unit, ...measure}`` (``waiver`` set when
+    the wide-arc offset waiver confirmed it).  ``n_opps``: the linkage's opposition
+    count, for that waiver.
     """
     memo = {}
 
@@ -415,6 +456,10 @@ def confirm_cautions(warnings, diagnostics, itf_obs80, combined_obs80, obscodes,
         rec["confirmed"] = all(m["confirmed"] for m in ms)
         if all("miss" in m for m in ms):
             rec.update({k: max(m[k] for m in ms) for k in ("smaj", "miss", "D", "walk")})
+            if (not rec["confirmed"] and wide_arc_waiver(text, n_opps)
+                    and rec["miss"] <= MAX_MISS_ARCSEC):
+                rec["confirmed"] = True
+                rec["waiver"] = "wide_arc_offset"
             why = [m["why"] for m in ms if m.get("why")]
             if why:
                 rec["why"] = why[0]
@@ -430,7 +475,7 @@ def confirm_cautions(warnings, diagnostics, itf_obs80, combined_obs80, obscodes,
             continue
         record.append(rec)
         if rec["confirmed"] and "miss" in rec:
-            diags.append(note(w, rec))
+            diags.append(waiver_note(w, rec, n_opps) if rec.get("waiver") else note(w, rec))
         else:
             kept.append(w)
     for i, d in enumerate(list(diags)):
@@ -444,7 +489,8 @@ def confirm_cautions(warnings, diagnostics, itf_obs80, combined_obs80, obscodes,
             diags[i] = note(d, rec)
     if log:
         for r in record:
-            log(f"leave-out {'CONFIRMED' if r['confirmed'] else 'not confirmed'}: "
+            log(f"leave-out {'CONFIRMED' if r['confirmed'] else 'not confirmed'}"
+                + (f" ({r['waiver']}, {n_opps} opps)" if r.get("waiver") else "") + ": "
                 f"{r.get('unit')} " + (f"miss {r['miss']:.2f}\" D {r['D']:.1f} walk "
                                        f"{r['walk']:.2f}\" sigma {r['smaj']:.2f}\""
                                        if "miss" in r else r.get("why", "")))

@@ -15,6 +15,7 @@ pass's margins, measured to 450 days, grow beyond that, and the near-Earth ephem
 days before the catalogue was built to 60 days after.
 """
 import math
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -38,6 +39,50 @@ FAST_FRACTION = 0.3                 # its rate to be off by this fraction (the t
                                     # by this fraction of the predicted track's own rms)
 COMET_MATCH_ARCSEC = 120.0          # comets: the published elements carry no non-gravitational
                                     # terms, so an active comet drifts (11P: 50" off, 0.2" rms)
+
+# How far from the catalogue's epoch a check may look, in days: the cost of a check grows
+# steeply with that distance, because the quick pass's margin grows with it. Over the 1.58 M
+# orbits of the catalogue one tracklet keeps ~1,000 candidates at 200 days, ~110,000 at 500,
+# ~495,000 at 800 and every orbit from ~1,400 days; 20 years back that is ~3 hours of ASSIST
+# integration. A caller may cap it (``max_days=`` of check_field / identify); the library sets no
+# cap of its own. The /skycheck web page caps what its visitors may ask with MAX_DAYS_ENV (unset:
+# no limit), so that no request can occupy a public server for long; the server's own callers,
+# the command line and the Python API are not capped by it.
+MAX_DAYS_ENV = "PYROORB_SKYCHECK_MAX_DAYS"
+
+
+class TooFarFromEpoch(ValueError):
+    """A check asked for a time farther from the catalogue's epoch than its ``max_days`` allows."""
+
+
+def max_days():
+    """The web page's reach limit: the farthest (days) a time its visitors ask about may be from
+    the catalogue's epoch, read from the ``PYROORB_SKYCHECK_MAX_DAYS`` environment variable at
+    each call; None when unset or empty (no limit). Only the web add-on applies it (as the
+    ``max_days`` of :func:`check_field` / :func:`identify`). Anything but a positive number is a configuration error (ValueError): a server
+    that meant to set a limit must not silently run without one."""
+    raw = os.environ.get(MAX_DAYS_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        v = float(raw)
+    except ValueError:
+        v = math.nan
+    if not (math.isfinite(v) and v > 0):
+        raise ValueError(f"{MAX_DAYS_ENV}={raw!r}: expected a positive number of days")
+    return v
+
+
+def _too_far(cat, times_utc, limit):
+    """Why ``times_utc`` may not be checked against ``cat`` under ``limit`` (days), or None."""
+    ep = cat.meta.get("main_epoch")
+    if limit is None or ep is None:
+        return None
+    far = float(np.max(np.abs(np.asarray(times_utc, float) - ep)))
+    if far <= limit:
+        return None
+    return (f"the time is {far:.0f} days from the catalogue's epoch (JD {ep:.1f}); this "
+            f"check is limited to times within {limit:g} days of it")
 
 
 # --------------------------------------------------------------------------- time / position
@@ -141,7 +186,9 @@ class TrackletCheck:
     positions stray from the predicted motion once that offset is removed) and ``match``
     (True when both are within the matching tolerances), best first. ``identification`` is
     the designation of the matching object, or None: no match, or several with none clearly
-    nearest (then ``ambiguous`` is True)."""
+    nearest (then ``ambiguous`` is True). ``refused`` is the reason a tracklet was NOT checked
+    (its time is beyond the ``max_days`` the caller set), None when it was: a refused tracklet has no
+    candidates and is not a "no match"."""
     indices: list
     obscode: str
     t_first: float
@@ -150,13 +197,15 @@ class TrackletCheck:
     candidates: list
     identification: str = None
     ambiguous: bool = False
+    refused: str = None
 
     def table(self, limit=8):
         """The tracklet and its best ``limit`` candidates (None: all) as text."""
         n = len(self.indices)
+        verdict = (f"not checked: {self.refused}" if self.refused else
+                   self.identification or ('ambiguous' if self.ambiguous else 'no match'))
         head = (f"Tracklet {self.label or '?'}  {self.obscode}  {n} obs  "
-                f"JD {self.t_first:.5f}-{self.t_last:.5f}  -> "
-                f"{self.identification or ('ambiguous' if self.ambiguous else 'no match')}")
+                f"JD {self.t_first:.5f}-{self.t_last:.5f}  -> {verdict}")
         rows = [head]
         for c in self.candidates[:limit]:
             rows.append(f"  {'MATCH' if c['match'] else '     '} {c['designation']:<16} "
@@ -282,7 +331,8 @@ def _notes(cat, t_utc):
 
 # --------------------------------------------------------------------------- public API
 def check_field(ra, dec, time, *, radius_arcmin=DEFAULT_RADIUS_ARCMIN, obscode="500",
-                mag_limit=None, comets=True, neocp=False, obscodes=None, refresh=True):
+                mag_limit=None, comets=True, neocp=False, obscodes=None, refresh=True,
+                max_days=None):
     """Every catalogued object within ``radius_arcmin`` of (ra, dec) at ``time``.
 
     Parameters
@@ -307,14 +357,26 @@ def check_field(ra, dec, time, *, radius_arcmin=DEFAULT_RADIUS_ARCMIN, obscode="
     refresh : bool
         Bring the catalogue up to date first (downloads the MPC's files when a day old), and
         the NEOCP orbits when half an hour old. False: both as last fetched, no network.
+    max_days : float, optional
+        Refuse a time farther than this (days) from the catalogue's epoch: the cost grows
+        steeply with that distance. None (default): no limit.
 
     Returns
     -------
     FieldCheck
+
+    Raises
+    ------
+    TooFarFromEpoch
+        When ``time`` is farther from the catalogue's epoch than ``max_days``.
     """
     t = julian_date(time)
     ra_d, dec_d = angle_deg(ra, hours=isinstance(ra, str)), angle_deg(dec)
+    limit = max_days
     cat = _catalogue.load(refresh=refresh)
+    why = _too_far(cat, [t], limit)
+    if why:
+        raise TooFarFromEpoch(why)
     qy = _check.Query(np.array([t]), np.array([ra_d]), np.array([dec_d]), str(obscode),
                       radius_arcmin / 60.0, mag_limit=mag_limit)
     _check.prepare([qy], _obscodes(obscodes))
@@ -371,7 +433,7 @@ def tracklets(records, max_hours=TRACKLET_HOURS):
 
 def identify(observations, *, radius_arcmin=DEFAULT_RADIUS_ARCMIN, match_arcsec=MATCH_ARCSEC,
              motion_arcsec=MOTION_ARCSEC, comets=True, neocp=False, obscodes=None,
-             refresh=True):
+             refresh=True, max_days=None):
     """Which catalogued object each tracklet of ``observations`` is.
 
     The observations are grouped into tracklets (:func:`tracklets`) and each tracklet is
@@ -390,18 +452,26 @@ def identify(observations, *, radius_arcmin=DEFAULT_RADIUS_ARCMIN, match_arcsec=
         What :func:`pyroorb.read_observations` returns, its records, or a file / text to read.
     radius_arcmin, match_arcsec, motion_arcsec : float
         Search radius, and the two matching tolerances.
-    comets, neocp, obscodes, refresh
+    comets, neocp, obscodes, refresh, max_days
         As for :func:`check_field`.
 
     Returns
     -------
     list of TrackletCheck
-        One per tracklet, in time order.
+        One per tracklet, in time order; a tracklet farther from the catalogue's epoch than
+        ``max_days`` is returned unchecked, with ``refused`` saying why.
     """
     records = _records(observations, obscodes)
     records = [o for o in records if o.get("jd_utc") is not None and o.get("ra_deg") is not None]
-    groups = tracklets(records)
+    limit = max_days
+    every = tracklets(records)
     cat = _catalogue.load(refresh=refresh)
+    refused = {}
+    for n, g in enumerate(every):
+        why = _too_far(cat, [records[k]["jd_utc"] for k in g], limit)
+        if why:
+            refused[n] = why
+    groups = [g for n, g in enumerate(every) if n not in refused]
     queries = []
     for g in groups:
         obs = [records[k] for k in g]
@@ -415,12 +485,13 @@ def identify(observations, *, radius_arcmin=DEFAULT_RADIUS_ARCMIN, match_arcsec=
                                     radius_arcmin / 60.0 + extent,
                                     sat_pos=[o.get("sat_pos_au") for o in obs],
                                     site_itrs=[o.get("site_itrs_au") for o in obs]))
+    out = [_refused_check(records, g, refused[n]) for n, g in enumerate(every)
+           if n in refused]
     if not queries:
-        return []
+        return sorted(out, key=lambda tr: tr.t_first)
     _check.prepare(queries, _obscodes(obscodes))
     neo = _neocp_catalogue([q.t_utc[0] for q in queries], neocp, refresh)
     preds, neo_preds = _run(queries, cat, neo, comets)
-    out = []
     for g, qy, ps, nps in zip(groups, queries, preds, neo_preds):
         cands, row_of = [], {}
         for p in ps:
@@ -442,10 +513,22 @@ def identify(observations, *, radius_arcmin=DEFAULT_RADIUS_ARCMIN, match_arcsec=
         ident, ambiguous = _choose(_merge_twins(cat, [c for c in cands if c["match"]],
                                                 row_of))
         obs = [records[k] for k in g]
-        label = obs[0].get("trksub") or obs[0].get("designation") or obs[0].get("packed") or ""
+        label = _label(obs[0])
         out.append(TrackletCheck(list(g), qy.obscode, float(qy.t_utc.min()),
                                  float(qy.t_utc.max()), str(label), cands, ident, ambiguous))
-    return out
+    return sorted(out, key=lambda tr: tr.t_first)
+
+
+def _label(o):
+    return str(o.get("trksub") or o.get("designation") or o.get("packed") or "")
+
+
+def _refused_check(records, g, why):
+    """The answer for a tracklet that is not checked: no candidates, ``refused`` = ``why``."""
+    obs = [records[k] for k in g]
+    t = [float(o["jd_utc"]) for o in obs]
+    return TrackletCheck(list(g), str(obs[0]["obscode"]), min(t), max(t), _label(obs[0]), [],
+                         refused=why)
 
 
 CLEAR_FACTOR = 3.0                  # the best match must be this many times nearer ...

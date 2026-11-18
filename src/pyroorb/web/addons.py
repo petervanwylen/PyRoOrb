@@ -22,7 +22,9 @@ Discovery, in this order (duplicates by name are ignored):
 A broken add-on is reported and skipped; it never stops the server from serving.
 
 Route handlers receive the server context (:class:`Context`) and the request handler, whose
-``_send``, ``_read_body``, ``_static_file``, ``headers`` and ``client_address`` they may use.
+``_send``, ``_read_body``, ``_static_file``, ``headers`` and
+``client_address`` they may use; :func:`declared_length` reads a request's
+``Content-Length`` safely.
 """
 import importlib
 import os
@@ -34,6 +36,26 @@ from typing import Callable, Optional
 GROUP = "pyroorb.web_addons"
 FILE_ENV = "PYROORB_WEB_ADDONS_FILE"
 _CHECKOUT = Path(__file__).resolve().parents[3]
+
+
+def declared_length(headers):
+    """A request's ``Content-Length``: 0 when absent, None when it is not a plain
+    non-negative decimal.  ``int()`` alone accepts ``-1`` -- which passes any ``n > cap``
+    test and makes ``rfile.read(-1)`` read until the client hangs up, so no cap at all --
+    and also ``+5`` and non-ASCII digits, and raises on junk.  Two DIFFERENT
+    ``Content-Length`` headers are None too."""
+    vals = headers.get_all("Content-Length") if hasattr(headers, "get_all") else None
+    if vals is None:
+        vals = [headers.get("Content-Length")] if headers.get("Content-Length") is not None else []
+    vals = [str(v).strip() for v in vals]
+    if len(set(vals)) > 1:
+        return None          # two different lengths: which one frames the body is a guess
+    raw = vals[0] if vals else ""
+    if not raw:
+        return 0
+    if not (raw.isascii() and raw.isdigit()):
+        return None
+    return int(raw)
 
 
 @dataclass

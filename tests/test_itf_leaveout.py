@@ -172,3 +172,53 @@ def test_a_single_observation_is_never_confirmed(monkeypatch):
     pair = [_line("CCC0003", "W84", "2014 04 25.36204"), _line("CCC0003", "W84", "2014 04 25.37204")]
     m2 = L.measure(pair, COMBINED + "\n".join(pair) + "\n", {})
     assert m2["n_min"] == 2 and m2["confirmed"]
+
+
+# 2022 KV46's measurement: everything but D inside the bars
+KV46 = {"confirmed": False, "smaj": 0.23, "miss": 1.31, "D": 3.7, "walk": 0.59}
+
+
+@pytest.fixture
+def kv46(monkeypatch):
+    out = dict(KV46)
+    monkeypatch.setattr(leaveout, "measure", lambda *a, **k: dict(out))
+    return out
+
+
+def test_wide_arc_offset_waiver_demotes_a_small_offset_on_four_oppositions(kv46):
+    kept, diags, rec = leaveout.confirm_cautions([OFFSET], [], ITF, COMBINED, {}, n_opps=4)
+    assert kept == [] and review_warnings(kept, diags) == []
+    assert diags[0].startswith(leaveout.LEAVEOUT_NOTE) and "4-opposition" in diags[0]
+    assert leaveout.original(diags[0]) == OFFSET
+    assert rec[0]["confirmed"] and rec[0]["waiver"] == "wide_arc_offset"
+
+
+@pytest.mark.parametrize("n_opps", [None, 3])
+def test_wide_arc_offset_waiver_needs_four_oppositions(kv46, n_opps):
+    kept, _d, rec = leaveout.confirm_cautions([OFFSET], [], ITF, COMBINED, {}, n_opps=n_opps)
+    assert kept == [OFFSET] and not rec[0]["confirmed"] and "waiver" not in rec[0]
+
+
+def test_wide_arc_offset_waiver_needs_the_leave_out_within_the_bar(kv46):
+    kv46["miss"] = 1.6
+    kept, _d, _r = leaveout.confirm_cautions([OFFSET], [], ITF, COMBINED, {}, n_opps=6)
+    assert kept == [OFFSET]
+
+
+def test_wide_arc_offset_waiver_needs_the_offset_under_the_bar(kv46):
+    big = OFFSET.replace('+0.91"', '-1.50"')
+    assert leaveout.offset_arcsec(big) == 1.5
+    kept, _d, _r = leaveout.confirm_cautions([big], [], ITF, COMBINED, {}, n_opps=6)
+    assert kept == [big]
+
+
+def test_wide_arc_offset_waiver_is_for_offsets_only(kv46):
+    kept, _d, _r = leaveout.confirm_cautions([PHOT_LINKED], [], ITF, COMBINED, {}, n_opps=6)
+    assert kept == [PHOT_LINKED]
+
+
+def test_wide_arc_offset_waiver_needs_a_measurement(monkeypatch):
+    monkeypatch.setattr(leaveout, "measure",
+                        lambda *a, **k: {"confirmed": False, "error": "leave-out fit failed"})
+    kept, _d, _r = leaveout.confirm_cautions([OFFSET], [], ITF, COMBINED, {}, n_opps=6)
+    assert kept == [OFFSET]

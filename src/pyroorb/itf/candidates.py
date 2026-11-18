@@ -1427,6 +1427,41 @@ class DbSource:
                 return [dict(r) for r in cur.fetchall()]
         return self._guarded(_fetch_obs)
 
+    #: the index columns the single-tracklet (SR) search reads
+    WINDOW_COLS = ("tracklet_id", "stn", "provid", "source", "n_obs", "epoch_mid_sec",
+                   "center_ra", "center_dec", "dra_cosdec_rate", "ddec_rate",
+                   "sig_pos_e_arcsec", "sig_pos_n_arcsec", "sig_vel_e_degday",
+                   "sig_vel_n_degday", "mag_mean", "band")
+
+    def window_rows(self, lo_sec, hi_sec):
+        """Every index row whose mid epoch lies in ``[lo_sec, hi_sec]`` (unix s), WHOLE
+        SKY, as dicts.  The single-tracklet search pulls its window this way: a 120-day
+        window is ~100k rows in 2-3 s, cheaper than building the pixel set of a band
+        that, for an undetermined orbit, covers much of the sky anyway."""
+        s = self.index_cfg.schema
+
+        def _q():
+            with self.conn.cursor() as cur:
+                cur.execute(f"SELECT {', '.join(self.WINDOW_COLS)} FROM {s.target_qualified} "
+                            f"WHERE epoch_mid_sec BETWEEN %s AND %s", (lo_sec, hi_sec))
+                names = [d[0] for d in cur.description]
+                return [dict(zip(names, r)) for r in cur.fetchall()]
+        return self._retry(_q)
+
+    def tracklet_obs80(self, trkids, trksubs=None):
+        """``{trkid: [obs80 line, ...]}`` for index tracklets, from the observations.
+        ``trksubs``, a dict, is filled with ``{obs_unique_id(line): trksub}`` from the
+        database column -- the name a document gives the tracklet (``linkage.db_trksubs``)."""
+        out = {}
+        rows = self._retry(lambda: self._obs_for_trkids(list(trkids)))
+        for r in rows or []:
+            if r.get("obs80"):
+                out.setdefault(r["trkid"], []).append(r["obs80"])
+                if trksubs is not None and r.get("trksub"):
+                    from .obs80_fields import obs_unique_id
+                    trksubs[obs_unique_id(r["obs80"])] = str(r["trksub"]).strip()
+        return out
+
     def designation_obs(self, provids):
         """Every archived observation of each DESIGNATION in ``provids``
         (unpacked ``provid`` spelling), for the partial-pickup check.
@@ -1562,6 +1597,29 @@ class OverlaySource:
             yield (window, *self._merge_fakes(window, list(rows), dict(chi2),
                                            uncert_mult, extrawidth,
                                            want_ranking, feats=dict(feats)))
+
+    def window_rows(self, lo_sec, hi_sec):
+        """The base source's whole-sky window rows plus every plant inside the window
+        (the same time test the database applies)."""
+        rows = list(self.base.window_rows(lo_sec, hi_sec)) if self.base is not None else []
+        for fk in self.fakes:
+            f = fk["feat"]
+            if lo_sec <= f["epoch_mid_sec"] <= hi_sec:
+                rows.append({k: f.get(k) for k in DbSource.WINDOW_COLS})
+        return rows
+
+    def tracklet_obs80(self, trkids, trksubs=None):
+        """Plants answer for themselves; everything else goes to the base source."""
+        out, rest = {}, []
+        planted = {fk["feat"]["tracklet_id"]: fk for fk in self.fakes}
+        for t in trkids:
+            if t in planted:
+                out[t] = [o["obs80"] for o in planted[t]["obs"] if o.get("obs80")]
+            else:
+                rest.append(t)
+        if rest and self.base is not None:
+            out.update(self.base.tracklet_obs80(rest, trksubs=trksubs))
+        return out
 
     def _merge_fakes(self, window, rows, chi2, uncert_mult, extrawidth,
                      want_ranking, feats=None):

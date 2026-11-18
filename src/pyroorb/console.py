@@ -22,3 +22,14 @@ def utf8_stdio():
                 stream.reconfigure(encoding="utf-8", errors="backslashreplace")
             except (OSError, ValueError):
                 pass
+
+
+def for_log(value, limit=80):
+    """``value`` as a log line may carry it: unchanged when it is short printable ASCII,
+    else escaped (``ascii``) -- so a request cannot write control characters (a forged
+    line break, terminal escapes) or invisible text into the log -- and cut to ``limit``
+    characters either way."""
+    s = str(value)
+    if not (s.isascii() and s.isprintable()):
+        s = ascii(s)[1:-1]
+    return s if len(s) <= limit else s[: limit - 3] + "..."

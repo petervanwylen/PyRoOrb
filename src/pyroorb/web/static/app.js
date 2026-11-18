@@ -271,6 +271,13 @@ async function runFit() {
         $("status").innerHTML = "";
         return;
       }
+      // A typed trksub that names several tracklets (or one already designated): ask which
+      // (static/trksubpick.js), then re-fit with the box rewritten to the choice.
+      if (p.trksub_question && window.TrksubPick) {
+        TrksubPick.show(p, $("msg"), (text) => { $("desig").value = text; runFit(); });
+        $("status").innerHTML = "";
+        return;
+      }
       $("msg").innerHTML = `<b>Could not fit “${escHtml(desig)}”.</b> ${escHtml(p.error || "")}` +
         (p.hint ? `<br><span style="color:var(--muted)">${escHtml(p.hint)}</span>` : "");
       $("status").innerHTML = "";
@@ -659,7 +666,8 @@ async function runItfSearch() {
     itfFound = p.itf;
     CURRENT = p; render(p); $("workspace").hidden = false;
     const trks = (p.itf.tracklets || [])
-      .map((t) => `${t.trksub} (${t.date} ${t.stn}, ${t.n_obs} obs)`).join(", ");
+      .map((t) => `${t.trksub} (${t.date} ${t.stn}, ${t.n_obs} obs` +
+                  `${t.stage ? ", " + t.stage + " stage" : ""})`).join(", ");
     if (p.itf.possible) {
       // thin-profile candidate (more than one apparition, but one of them a
       // lone night): shown for review, never
@@ -681,6 +689,12 @@ async function runItfSearch() {
       // systematic offset) -- the same flags that gate the submit click-through
       (p.itf.warnings || []).forEach((w) =>
         flashBanner("⚠ ITF caution: " + w, "warn"));
+    }
+    // a seed too short to fix a distance ran the single-tracklet search first:
+    // say so, and -- when it fell short of the ITF-to-ITF minimums -- why
+    if (p.itf.mode_note) {
+      flashBanner(`ITF ${p.itf.mode_note}` +
+        `${p.itf.reason ? " \u2014 " + p.itf.reason : ""}.`, "info");
     }
     announceIncompleteSweep(p.itf);
   } catch (e) {
@@ -1461,7 +1475,7 @@ function render(p) {
   workingMask = [];                 // start editing from the fit's own inclusion set
   p.residuals.forEach((r) => { workingMask[r.i] = r.included; });
   $("msg").innerHTML = p.warning
-    ? `<span style="color:var(--warn)">⚠ ${p.warning}</span>` : "";
+    ? `<span style="color:var(--warn)">⚠ ${escHtml(p.warning)}</span>` : "";
   renderStatus(p);
   renderElements(p);
   renderPhysical(p);
@@ -1531,8 +1545,8 @@ function renderStatus(p) {
   // fall back to the working designation when nothing resolved (e.g. an unnumbered
   // NEOCP object). A resolved name keeps the raw designation as a hover tooltip.
   const names = p.mp_names || [];
-  const objLabel = names.length ? names.map((n) => n.label).join(" · ") : p.object;
-  const objTitle = names.length ? ` title="${p.object}"` : "";
+  const objLabel = escHtml(names.length ? names.map((n) => n.label).join(" · ") : p.object);
+  const objTitle = names.length ? ` title="${escAttr(p.object)}"` : "";
   // Radar (delay/Doppler) folded into the fit — same measurements the CLI reports. Compact
   // stat + median-|O−C| tooltip; the full per-row O−C block rides p.radar.rows for a panel.
   const rad = p.radar;
@@ -1959,7 +1973,7 @@ function renderObservatories(p) {
     const nm = c.name || "";
     // Name truncates with an ellipsis (CSS: td.name) rather than wrapping; the
     // full name is on the title tooltip so nothing is lost when it doesn't fit.
-    return `<tr><td class="l">${c.obscode}</td>` +
+    return `<tr><td class="l">${escHtml(c.obscode)}</td>` +
       `<td class="l name" title="${escAttr(nm)}">${escHtml(nm)}</td>` +
       `<td>${c.n}</td><td>${c.n_used}</td>` +
       `<td style="color:${col}">${m === null ? "—" : fmt(m, 2)}</td></tr>`;
@@ -3672,7 +3686,7 @@ async function runPaste(url, btn, busy) {
   const sep = url.indexOf("?") === -1 ? "?" : "&";
   const label = btn.textContent;
   btn.disabled = true; btn.textContent = "working…";
-  $("msg").innerHTML = `<span class="loading">${busy}</span>`;
+  $("msg").innerHTML = `<span class="loading">${escHtml(busy)}</span>`;
   try {
     const r = await fetch(`${url}${sep}force=${force ? 1 : 0}`, {
       method: "POST", headers: { "Content-Type": "text/plain" }, body: text,

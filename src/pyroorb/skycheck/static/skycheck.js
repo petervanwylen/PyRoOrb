@@ -45,7 +45,7 @@
       "mag", "RA \"/min", "Dec \"/min", "r", "Δ", "elong", "kind"];
     const rows = objs.map((o) => {
       const [ra, dec] = sexa(o.ra, o.dec);
-      const name = o.name && o.name !== o.designation ? `${o.designation} <span class="status">${esc(o.name)}</span>` : esc(o.designation);
+      const name = o.name && o.name !== o.designation ? `${esc(o.designation)} <span class="status">${esc(o.name)}</span>` : esc(o.designation);
       return `<tr class="${o.match ? "match" : ""}"><td class="l">${name}</td><td>${ra}</td><td>${dec}</td>` +
         `<td>${num(tracklet ? o.mean_offset : o.separation, 1)}</td><td>${num(o.offset_ra, 1)}</td><td>${num(o.offset_dec, 1)}</td>` +
         (tracklet ? `<td>${num(o.motion_rms, 2)}</td>` : "") +
@@ -70,17 +70,19 @@
   function renderIdentify(res) {
     const n = res.tracklets.length;
     const nid = res.tracklets.filter((t) => t.identification).length;
+    const nref = res.tracklets.filter((t) => t.refused).length;
     let html = `<div class="panel"><b>${n}</b> tracklet(s) from ${res.n_obs} observation(s): ` +
-      `<b>${nid}</b> identified</div>`;
+      `<b>${nid}</b> identified` + (nref ? `, <b>${nref}</b> not checked` : "") + `</div>`;
     res.tracklets.forEach((t) => {
       const [ra, dec] = sexa(t.ra, t.dec);
-      const verdict = t.identification
-        ? `<span class="id">= ${esc(t.identification)}</span>`
+      const verdict = t.refused ? `<span class="none">not checked</span>`
+        : t.identification ? `<span class="id">= ${esc(t.identification)}</span>`
         : `<span class="none">${t.ambiguous ? "ambiguous" : "no match"}</span>`;
       html += `<div class="panel tracklet"><h3>${esc(t.label || "?")} · ${esc(t.obscode)} · ` +
         `${t.n_obs} obs · ${ra} ${dec} · ${verdict}</h3>` +
-        (t.candidates.length ? objectTable(t.candidates, true)
-                             : `<div class="notes">no known object predicted near it</div>`) +
+        (t.refused ? `<div class="notes">${esc(t.refused)}</div>`
+         : t.candidates.length ? objectTable(t.candidates, true)
+         : `<div class="notes">no known object predicted near it</div>`) +
         `</div>`;
     });
     $("results").innerHTML = html;
@@ -133,7 +135,15 @@
       .forEach(([id, v]) => { if (v != null && !$(id).value) $(id).value = v; });
     if (!s.ready) { $("catInfo").textContent = "the orbit catalogue is being prepared (first start: a few minutes)"; return; }
     const built = s.built ? new Date(s.built * 1000).toISOString().slice(0, 16).replace("T", " ") : "?";
-    $("catInfo").textContent = `${(s.orbits || 0).toLocaleString()} orbits (MPCORB + comets), ` +
+    let info = `${(s.orbits || 0).toLocaleString()} orbits (MPCORB + comets), ` +
       `catalogue built ${built} UTC`;
+    if (s.max_days && s.epoch_jd) {
+      // the server's limit as calendar dates (JD 2440587.5 = 1970-01-01 0h UTC)
+      const day = (jd) => new Date((jd - 2440587.5) * 86400000).toISOString().slice(0, 10);
+      info += `; times from ${day(s.epoch_jd - s.max_days)} to ${day(s.epoch_jd + s.max_days)} ` +
+        `(within ${s.max_days} days of the catalogue's epoch)`;
+    }
+    if (s.config_error) info += `; configuration error: ${s.config_error}`;
+    $("catInfo").textContent = info;
   }).catch(() => {});
 })();

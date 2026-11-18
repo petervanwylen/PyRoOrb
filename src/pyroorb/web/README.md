@@ -180,10 +180,14 @@ Two rules keep it that way, both asserted by `tests/test_pane_controls.js`:
   (`PYROORB_RL_*_BURST` / `_RATE`, `PYROORB_RL_DISABLED` to switch it off). The
   POLLING routes (`/api/fit_result`, `/api/itf_result`, `/api/itf_trace`) are
   deliberately exempt and must stay that way: a client polls them *because* the
-  work is slow. Client identity comes from the first `X-Forwarded-For` hop
-  (behind a proxy the peer is the proxy, so everyone would share one bucket) —
-  which is forgeable, so this is a courtesy limit against runaway scripts, NOT a
-  security control; real abuse protection belongs at the edge. The client table
+  work is slow. Client identity (`ratelimit.client_of`) is what the proxy ADDS:
+  `X-Real-IP`, else the LAST `X-Forwarded-For` hop, else the socket peer
+  (`PYROORB_CLIENT_IP=peer`: the peer alone, for a server with no proxy in front).
+  The first hop is the client's own text; reading it let one caller be a new client
+  on every request. Behind a CDN the edge sees the CDN, so take the identity from the
+  CDN's header there. Wrong passwords on the gated routes (idqueue / Rubin-finds
+  reviewer, NEOCP submit) go through `web/pwguard.py`: 5 per address and 100 for
+  everyone together per 10 minutes, a bounded table. The client table
   is bounded and idle-evicted, or the limiter becomes the leak it prevents.
   `server._MAX_BODY_BYTES` (8 MB) caps request bodies: the paste routes used to
   read `Content-Length` bytes with no ceiling, so one POST could ask the process
@@ -206,6 +210,21 @@ Two rules keep it that way, both asserted by `tests/test_pane_controls.js`:
   "2 oppositions, one of them a single night" and "possible linkage (not
   submittable)" instead. Presentation only — `itf/` and the CLI keep the
   numbers.
+- **A seed too short to fix a distance** — one night, or nights spanning under 2 days
+  (`itf.srsearch.short_arc`) — makes the same "Search ITF" button run the
+  single-tracklet search first and, on a link, the regular search over the seed's
+  apparition (`itf.srsearch.sr_then_apparition`); any longer arc runs the regular search
+  as before. The `itf` block says which ran (`mode` "regular" / "single_tracklet",
+  `mode_note`, the `sr` block; `engine_api._with_mode`), the tracklets the first stage
+  linked are listed, fitted and named as ITF lines like any other (`stage:
+  "single-tracklet"`), and a no-link answers the usual not-found shape with the
+  single-tracklet reason. Such a find is SUBMITTABLE when the whole arc meets the
+  ITF-to-ITF submission minimums (`itf.srsearch.itfitf_check` =
+  `itf.mpcrules.check` on a refit of the arc, as the regular search judges; the document
+  names the tracklets by the DB trksub, `SrLink.trksubs`); otherwise it is a possible whose
+  reason (`SR_REVIEW_ONLY` + the rules it failed) says why, re-judged on a grown set like
+  any possible (`_pending_verdict`). The hand-off's log
+  is a stop point, so a Stop lands between the two stages.
 - **Stopping an ITF search** — `static/itfcancel.js`: while a search runs, "stop
   search" sits next to "see trace" and the trace viewer shows "Stop search". Both
   `POST /api/itf_cancel {job}` (`engine_api.itf_search_cancel`), which sets the job's

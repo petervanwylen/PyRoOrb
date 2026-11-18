@@ -23,14 +23,20 @@ are cheap, and a browser fetches a dozen per page load.
 
 IDENTITY
 --------
-Behind a hosted proxy the peer address is the proxy, so the client is taken
-from the first hop of ``X-Forwarded-For`` when present.  That header is
-trivially forged by anyone talking to the origin directly, so this is a
-courtesy limit against runaway scripts and accidental hammering -- NOT a
-security control.  Real abuse protection belongs at the edge (Cloudflare), which
-can see the true peer; this is what keeps the site usable until it gets there,
-and it is honest to say so rather than imply the origin can authenticate a
-client it cannot see.
+Behind a hosted proxy the socket peer is the proxy, so the client is read from what
+the proxy adds (:func:`client_of`, ``PYROORB_CLIENT_IP``):
+
+* ``X-Real-IP`` first: the hosting edge sets it and replaces any copy the client sent;
+* else the LAST ``X-Forwarded-For`` hop -- the one the nearest proxy appended.  Every
+  earlier hop is whatever the client wrote, so reading the first hop
+  let one caller be a new client on every request and walk past every limit and
+  password lockout keyed on it;
+* else the socket peer.
+
+``PYROORB_CLIENT_IP=peer`` uses the socket peer alone, for a server reached with no
+proxy in front, where every header is the client's own.  A CDN in front of the host
+turns the edge's view of the client into the CDN's address; the limits then key on
+that, and the identity must come from the CDN's own header instead.
 """
 import os
 import time
@@ -53,6 +59,9 @@ _BUCKETS = {
     # The random button: one click, one arbitrary object, always a cache miss.
     "random": (int(os.environ.get("PYROORB_RL_RANDOM_BURST") or 10),
                float(os.environ.get("PYROORB_RL_RANDOM_RATE") or 0.1)),
+    # Submitting a linkage: a person sending what they found, a few an hour at most.
+    "submit": (int(os.environ.get("PYROORB_RL_SUBMIT_PER_HOUR") or 30),
+               int(os.environ.get("PYROORB_RL_SUBMIT_PER_HOUR") or 30) / 3600.0),
 }
 
 # How many distinct clients to track.  A bucket is three floats, so this is
@@ -79,17 +88,26 @@ _STATE = {}          # (client, bucket) -> [tokens, last_seen]
 EVERYONE = "*"
 
 
+def _header(handler, name):
+    try:
+        return (handler.headers.get(name) or "").strip()
+    except Exception:
+        return ""
+
+
 def client_of(handler):
-    """Who to charge.  See IDENTITY in the module docstring -- forgeable, and
-    deliberately used anyway.  Never :data:`EVERYONE` (a forged header naming it
-    is charged as its own client)."""
-    xff = handler.headers.get("X-Forwarded-For")
+    """Who to charge: see IDENTITY in the module docstring.  Never :data:`EVERYONE`
+    (a header naming it is charged as its own client)."""
     who = None
-    if xff:
-        first = xff.split(",")[0].strip()
-        if first:
-            who = first[:64]
-    if who is None:
+    if (os.environ.get("PYROORB_CLIENT_IP") or "auto").strip().lower() != "peer":
+        who = _header(handler, "X-Real-IP")
+        if not who:
+            hops = [h.strip() for h in _header(handler, "X-Forwarded-For").split(",")]
+            hops = [h for h in hops if h]
+            who = hops[-1] if hops else None
+    if who:
+        who = who[:64]
+    else:
         try:
             who = str(handler.client_address[0])[:64]
         except Exception:
@@ -193,7 +211,9 @@ def refusal(bucket, retry_after):
     come back, because a rate limit the user cannot interpret reads as the site
     being broken."""
     human = {"fit": "fits", "paste": "pasted fits", "itf": "ITF searches",
-             "random": "random objects"}.get(bucket, "requests")
+             "random": "random objects", "submit": "linkage submissions",
+             "idqueue_docs": "identification submissions",
+             "idqueue_links": "identification links"}.get(bucket, "requests")
     return {"ok": False, "rate_limited": True, "retry_after": retry_after,
             "error": (f"You've started a lot of {human} in a short time. "
                       f"Please wait about {int(retry_after) + 1} seconds and try "

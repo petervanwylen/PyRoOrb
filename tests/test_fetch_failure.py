@@ -42,6 +42,22 @@ def test_a_transport_failure_is_recorded_not_disguised(monkeypatch, no_neocp):
     assert "TimeoutError" in meta["fetch_errors"]["2003 LW2"]
 
 
+def test_the_public_record_names_the_source_not_the_server(monkeypatch, no_neocp):
+    """A replica connect error names host, port and user: the web caller's record carries
+    only which source failed and the exception's class (the full text is logged)."""
+    def boom(*a, **k):
+        raise ConnectionError('connection to server at "10.0.0.5", port 5432 failed: user "ro"')
+    _all_fetchers(monkeypatch, no_neocp, boom)
+    obs, meta = osrc._fetch_observations(["2003 LW2"], {})
+    assert "10.0.0.5" in meta["fetch_errors"]["2003 LW2"]           # the owner's record
+    pub = meta["fetch_errors_public"]["2003 LW2"]
+    assert "ConnectionError" in pub and "10.0.0.5" not in pub and "5432" not in pub
+    from pyroorb.web import engine_api
+    assert engine_api._public_fetch_errors(meta) == {"2003 LW2": pub}
+    assert engine_api._public_fetch_errors({"fetch_errors": {"x": "SBN: E: host"}}) == \
+        {"x": "no answer"}
+
+
 def test_a_genuine_empty_result_records_no_error(monkeypatch, no_neocp):
     """A designation the MPC simply has nothing for is NOT a fetch failure, and must
     not be dressed up as one -- the user should still be told it is unknown."""

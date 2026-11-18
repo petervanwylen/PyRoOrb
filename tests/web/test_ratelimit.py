@@ -79,11 +79,35 @@ def test_disabled_allows_everything(monkeypatch):
     assert ratelimit.check("a", "fit")[0]
 
 
-def test_client_identity_prefers_the_forwarded_first_hop():
-    """Behind a proxy the peer is the proxy, so every visitor would share one
-    bucket and the limiter would refuse the whole site at once."""
-    assert ratelimit.client_of(_FakeHandler(xff="203.0.113.9, 10.1.1.1")) == "203.0.113.9"
+class _ProxiedHandler:
+    def __init__(self, headers, peer="10.0.0.7"):
+        self.headers = headers
+        self.client_address = (peer, 12345)
+
+
+def test_client_identity_is_what_the_proxy_added_never_what_the_client_wrote(monkeypatch):
+    """Behind a proxy the peer is the proxy, so every visitor would share one bucket.
+    But only what the proxy ADDS identifies the client: X-Real-IP (the edge replaces
+    any copy the client sent), else the LAST X-Forwarded-For hop.  The first hop is
+    the client's own text -- read, it made each request a new client and walked past
+    every limit and password lockout keyed on it."""
+    monkeypatch.delenv("PYROORB_CLIENT_IP", raising=False)
+    assert ratelimit.client_of(_FakeHandler(xff="203.0.113.9, 10.1.1.1")) == "10.1.1.1"
+    assert ratelimit.client_of(_FakeHandler(xff="198.51.100.4")) == "198.51.100.4"
+    assert ratelimit.client_of(_FakeHandler(xff=" , ")) == "10.0.0.7"
     assert ratelimit.client_of(_FakeHandler()) == "10.0.0.7"
+    forged = [ratelimit.client_of(_ProxiedHandler(
+        {"X-Forwarded-For": f"1.2.3.{k}, 203.0.113.9"})) for k in range(5)]
+    assert set(forged) == {"203.0.113.9"}
+    both = _ProxiedHandler({"X-Real-IP": "192.0.2.5", "X-Forwarded-For": "1.1.1.1, 9.9.9.9"})
+    assert ratelimit.client_of(both) == "192.0.2.5"
+
+
+def test_client_ip_peer_mode_ignores_every_header(monkeypatch):
+    """A server reached with no proxy in front: every header is the client's own."""
+    monkeypatch.setenv("PYROORB_CLIENT_IP", "peer")
+    h = _ProxiedHandler({"X-Real-IP": "192.0.2.5", "X-Forwarded-For": "1.1.1.1"})
+    assert ratelimit.client_of(h) == "10.0.0.7"
 
 
 def test_the_client_table_is_bounded(monkeypatch):

@@ -68,6 +68,7 @@ import collections
 from pyroorb import deadline
 from pyroorb.web import fitdisk
 from pyroorb.web import capacity
+from pyroorb.web import errors
 
 # --- sizing -----------------------------------------------------------------
 # Both of this server's concurrency caps -- the fit pool here and the ITF search
@@ -369,7 +370,7 @@ def _work_once():
             " -- it is too slow to fit interactively. The command line has no such "
             "bound if you need this object.")}
     except Exception as ex:      # a crashed fit must still ANSWER its waiters
-        payload = {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+        payload = {"ok": False, "error": errors.describe(ex)}
     if not isinstance(payload, dict):
         # Every engine path returns a dict; anything else is a programming
         # error upstream.  Reporting it as a failed job keeps the waiters

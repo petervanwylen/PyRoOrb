@@ -314,3 +314,110 @@ def test_the_neocp_is_checked_only_when_asked_for():
     for f in (skycheck.check_field, skycheck.identify, pyroorb.check_field,
               pyroorb.identify_tracklets):
         assert inspect.signature(f).parameters["neocp"].default is False
+
+
+# --------------------------------------------------------------------------- reach limit
+def test_the_reach_limit_is_read_from_the_environment(monkeypatch):
+    monkeypatch.delenv(skycheck.MAX_DAYS_ENV, raising=False)
+    assert skycheck.max_days() is None
+    monkeypatch.setenv(skycheck.MAX_DAYS_ENV, " ")
+    assert skycheck.max_days() is None
+    monkeypatch.setenv(skycheck.MAX_DAYS_ENV, "250")
+    assert skycheck.max_days() == 250.0
+    for bad in ("abc", "0", "-5", "nan", "inf"):      # a server meant a limit: never none
+        monkeypatch.setenv(skycheck.MAX_DAYS_ENV, bad)
+        with pytest.raises(ValueError, match=skycheck.MAX_DAYS_ENV):
+            skycheck.max_days()
+
+
+def _epoch_catalogue(monkeypatch):
+    cat = _one_orbit_catalogue()
+    cat.meta = {"main_epoch": 2461200.5}
+    monkeypatch.setattr(catalogue, "load", lambda **kw: cat)
+    return cat
+
+
+def test_a_field_beyond_the_reach_limit_is_refused_before_any_work(monkeypatch):
+    _epoch_catalogue(monkeypatch)
+    monkeypatch.setattr(check, "_quick", lambda *a, **kw: 1 / 0)   # never reached
+    with pytest.raises(skycheck.TooFarFromEpoch, match="8800 days"):
+        skycheck.check_field(10.0, 5.0, 2452400.5, neocp=False, refresh=False, max_days=250)
+    with pytest.raises(skycheck.TooFarFromEpoch):                    # after the epoch too
+        skycheck.check_field(10.0, 5.0, 2461451.0, neocp=False, refresh=False, max_days=250)
+
+
+class _Reached(Exception):
+    pass
+
+
+def test_the_environment_limit_never_caps_the_library(monkeypatch):
+    """PYROORB_SKYCHECK_MAX_DAYS is the web page's cap on its visitors: the library, the
+    command line and the server's own callers (the Rubin known check) look as far as asked."""
+    import pyroorb
+    _epoch_catalogue(monkeypatch)
+    monkeypatch.setenv(skycheck.MAX_DAYS_ENV, "250")
+
+    def reached(*a, **kw):
+        raise _Reached
+    monkeypatch.setattr(check, "_quick", reached)
+    for call in (skycheck.check_field, pyroorb.check_field):
+        with pytest.raises(_Reached):                     # past the gate, into the work
+            call(10.0, 5.0, 2452400.5, neocp=False, refresh=False)
+    with pytest.raises(skycheck.TooFarFromEpoch):         # the API passes a cap through
+        pyroorb.check_field(10.0, 5.0, 2452400.5, neocp=False, refresh=False, max_days=250)
+    old = [{"jd_utc": t, "ra_deg": 10.0, "dec_deg": 5.0, "obscode": "691", "trksub": "old"}
+           for t in (2452400.70, 2452400.72)]
+    with pytest.raises(_Reached):
+        skycheck.identify(old, neocp=False, refresh=False)
+    gone, = pyroorb.identify_tracklets(old, neocp=False, refresh=False, max_days=250)
+    assert gone.refused
+
+
+def test_a_field_within_the_reach_limit_is_checked(monkeypatch):
+    cat = _epoch_catalogue(monkeypatch)
+    t = 2461150.3
+    ra, dec = _truth_radec(cat, 0, t, "G96")
+    res = skycheck.check_field(ra, dec, t, radius_arcmin=5, obscode="G96", neocp=False,
+                               refresh=False, max_days=250)
+    assert [o["designation"] for o in res.objects] == ["1"]
+
+
+def test_an_old_tracklet_is_refused_and_the_rest_of_the_file_still_checked(monkeypatch):
+    cat = _epoch_catalogue(monkeypatch)
+    recs = []
+    for t in (2461150.30, 2461150.32, 2461150.34):
+        ra, dec = _truth_radec(cat, 0, t, "F51")
+        recs.append({"jd_utc": t, "ra_deg": ra, "dec_deg": dec, "obscode": "F51",
+                     "trksub": "new"})
+    old = [{"jd_utc": t, "ra_deg": 10.0, "dec_deg": 5.0, "obscode": "691", "trksub": "old"}
+           for t in (2452400.70, 2452400.72)]
+    res = skycheck.identify(old + recs, neocp=False, refresh=False, max_days=250)
+    assert [tr.label for tr in res] == ["old", "new"]                   # time order kept
+    gone, kept = res
+    assert gone.refused and "days from the catalogue's epoch" in gone.refused
+    assert gone.candidates == [] and gone.identification is None and gone.indices == [0, 1]
+    assert "not checked" in gone.table()
+    assert kept.refused is None and kept.identification == "1"
+    assert skycheck._too_far(cat, [2452400.7], None) is None           # no cap: no limit
+
+
+def test_the_web_page_reports_the_reach_limit_and_a_refused_field(monkeypatch):
+    import pyroorb
+    from pyroorb.skycheck import webaddon
+    _epoch_catalogue(monkeypatch)
+    monkeypatch.setattr(webaddon, "_ready", lambda: True)
+    monkeypatch.setenv(skycheck.MAX_DAYS_ENV, "250")
+    assert webaddon.status()["max_days"] == 250.0
+    out = webaddon.field({"ra": 10.0, "dec": 5.0, "time": 2452400.5}, {})
+    assert out["ok"] is False and out["error"].startswith("the time is 8800 days")
+    old = [{"jd_utc": t, "ra_deg": 10.0, "dec_deg": 5.0, "obscode": "691", "trksub": "old"}
+           for t in (2452400.70, 2452400.72)]
+    monkeypatch.setattr(pyroorb, "read_observations", lambda text, obscodes=None: old)
+    out = webaddon.identify({"text": "pasted"}, {})                  # the page's identify too
+    assert out["ok"] and "8800 days" in out["tracklets"][0]["refused"]
+    monkeypatch.setenv(skycheck.MAX_DAYS_ENV, "soon")
+    st = webaddon.status()
+    assert st["max_days"] is None and skycheck.MAX_DAYS_ENV in st["config_error"]
+    for out in (webaddon.field({"ra": 10.0, "dec": 5.0, "time": 2461150.3}, {}),
+                webaddon.identify({"text": "pasted"}, {})):          # misconfigured: no check
+        assert out["ok"] is False and skycheck.MAX_DAYS_ENV in out["error"]

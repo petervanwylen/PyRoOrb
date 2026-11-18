@@ -75,6 +75,9 @@ class TrialFit:
     earliest_jd: float = 0.0
     latest_jd: float = 0.0
     error: str | None = None
+    # True when the fit ran out of its ``max_sec`` budget: no answer, which a caller may
+    # treat differently from a fit that ran and failed.
+    timed_out: bool = False
 
     @property
     def arclength_days(self):
@@ -194,7 +197,7 @@ def fit_astrometry(obs80_text, obscodes, verbose=False, registry=None,
     except deadline.DeadlineExceeded as e:
         # BaseException by design (deadline.py), so it is caught BY NAME here,
         # at the scope that set it -- never by the engine's defensive handlers.
-        return TrialFit(ok=False, error=f"fit: {e}")
+        return TrialFit(ok=False, error=f"fit: {e}", timed_out=True)
     except Exception as e:
         return TrialFit(ok=False, error=f"fit: {e}")
     if fit is None:
