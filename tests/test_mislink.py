@@ -165,3 +165,33 @@ def test_space_based_observations_are_left_out():
     rows, skipped = S.records_from_obs(obs, "2026 AA1")
     assert skipped == 1 and [r["stn"] for r in rows] == ["F51"]
     assert rows[0]["obstime"].startswith("2023-02-25T02:24:00") and rows[0]["band"] == "w"
+
+
+def test_page_records_carry_the_reported_position_not_the_debiased_one():
+    """A fit's observations are already star-catalogue debiased; scoring debiases its
+    records itself, so the records must carry the REPORTED position -- passing the
+    corrected one on corrected it twice (a 691/USNO-B1 position moved by twice its bias)."""
+    from pyroorb import ades, debias
+    if not debias.available():
+        pytest.skip("no star-catalogue bias tables")
+    row = {"stn": "691", "ra": 150.123456, "dec": 12.345678, "astcat": "USNOB1",
+           "obstime": "2012-03-04T05:06:07.000Z", "provid": "2012 AB1", "mode": "CCD"}
+    oc = {"691": (0.0, 0.0, 0.0)}
+    once = ades.records_to_obs([dict(row)], oc)[0]
+    assert once.get("debiased") is True                     # USNO-B1 carries a bias here
+    rows, skipped = S.records_from_obs([once], "2012 AB1")
+    assert skipped == 0
+    assert (rows[0]["ra"], rows[0]["dec"]) == (row["ra"], row["dec"])
+    again = ades.records_to_obs(rows, oc)[0]
+    assert abs(again["ra_deg"] - once["ra_deg"]) < 1e-12
+    assert abs(again["dec_deg"] - once["dec_deg"]) < 1e-12
+
+
+def test_roving_observations_are_left_out():
+    """A roving observer (247) carries its site in ``site_itrs_au``: left out, not scored as
+    a ground station the fit never placed."""
+    obs = [{"jd_utc": 2460000.5, "ra_deg": 1.0, "dec_deg": 2.0, "obscode": "247",
+            "site_itrs_au": [4e-5, 0, 0]},
+           {"jd_utc": 2460000.6, "ra_deg": 1.1, "dec_deg": 2.0, "obscode": "F51"}]
+    rows, skipped = S.records_from_obs(obs, "2026 AA1")
+    assert skipped == 1 and [r["stn"] for r in rows] == ["F51"]

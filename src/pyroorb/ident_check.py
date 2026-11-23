@@ -49,6 +49,8 @@ suffix on the classify code (`y-short`).
 """
 import math
 from datetime import datetime, timedelta
+import functools
+
 import numpy as np
 from pyroorb.orbit_common import NIGHT_GAP_DAYS, OPP_GAP_DAYS   # single source for the gap thresholds
 from pyroorb.orbit_common import same_detection   # ...and for "these two records are one detection"
@@ -392,7 +394,7 @@ def thin_link(fit):
     by = {}
     for i, o in enumerate(fit._obs):
         if mask[i]:
-            d = o.get("designation")
+            d = _body_key(o)
             by[d] = by.get(d, 0) + 1
     parts = ", ".join(f"{d} {n}" for d, n in sorted(by.items(), key=lambda kv: -kv[1]))
     return (f"only {n_kept} obs ({parts}) support the joint orbit -- under {THIN_LINK_MIN_OBS}, "
@@ -464,7 +466,7 @@ def _interleaved(obs, keep):
     span = {}
     for i, o in enumerate(obs):
         if keep[i]:
-            t = float(o["jd_utc"]); d = o.get("designation")
+            t = float(o["jd_utc"]); d = _body_key(o)
             lo, hi = span.get(d, (t, t))
             span[d] = (min(lo, t), max(hi, t))
     if len(span) < 2:
@@ -634,7 +636,7 @@ def _mag_stats(fit):
     for i, o in enumerate(fit._obs):
         h = per[i].get("H_i")
         if h is not None and mask[i]:
-            byd.setdefault(o.get("designation"), []).append(h)
+            byd.setdefault(_body_key(o), []).append(h)
     grp = {d: np.asarray(v, float) for d, v in byd.items() if len(v) >= MAG_MIN_N}
     if len(grp) < 2:
         return None
@@ -817,7 +819,7 @@ def unclipped_anchor_arc(fit, excluded):
     obs = fit._obs
     by = {}
     for i, o in enumerate(obs):
-        by.setdefault(o.get("designation"), []).append(i)
+        by.setdefault(_body_key(o), []).append(i)
     best = 0.0
     for idx in by.values():                       # obs are time-sorted upstream, so idx is too
         times = [obs[i]["jd_utc"] for i in idx]
@@ -1035,8 +1037,9 @@ def preexisting_misfit(fit):
     new tracklets, the very thing being judged -- clears the full kept-fit bar on its OWN
     residuals (:func:`_part_fits`: 0.6", or 2 sigma under 1.5"). RMS_CEILING alone is not that
     bar: it backstops the sigma clause, and a 0.1"-sigma tracklet 1.4" off is 14 sigma. A body
-    big enough to be fitted alone whose solo fit failed (error, deadline) has no baseline, so
-    no exemption. Nor does a record at or past RMS_CEILING, alone or jointly: no correct record
+    big enough to be fitted alone whose solo fit gave no answer (error, deadline) has no
+    baseline, so no exemption here -- and :func:`linkage_verdict` then says 'unknown' rather
+    than let the missing answer refuse the link. Nor does a record at or past RMS_CEILING, alone or jointly: no correct record
     of the 205 regression fixtures fits worse than 0.98" (95th percentile 0.58"), so a record
     that does is itself suspect (a mislinked record fits badly) and is no baseline; without
     the ceiling a 3" record let a link through at 3.85". Per-axis rms over kept obs, as
@@ -1150,9 +1153,11 @@ def _identify_pass(fit, _shape=False, _why=None):
     _drop = _dropped(fit)                         # pre-existing drops set aside (second pass)
     excluded = _drop & ~_duplicate_excluded(times, codes, ras, decs, _drop)
 
-    # both designations must still contribute -- 'A = B' is meaningless if one is fully dropped
-    _gone = ({o["designation"] for o in obs}
-             - {obs[i]["designation"] for i in range(len(obs)) if mask[i]})
+    # both BODIES must still contribute -- 'A = B' is meaningless if one is fully dropped.  A
+    # side is a body (_body_key), not a label: an alias label of a numbered record whose few obs
+    # are dropped leaves its body's other obs standing, and is judged by the drop gates below
+    _gone = ({_body_key(o) for o in obs}
+             - {_body_key(obs[i]) for i in range(len(obs)) if mask[i]})
     if _gone:
         return _no(f"the joint fit drops every observation of {', '.join(sorted(_gone))} -- "
                    f"nothing is left of that side to identify")
@@ -1216,8 +1221,8 @@ def _identify_pass(fit, _shape=False, _why=None):
     if interleaved:
         # Marginal drops were left out of n_scatter (see the loop), so bound the TOTAL trimmed by
         # the chimera tell itself: each designation keeps MPC_MIN_RETENTION of its own record.
-        for _d in sorted({o["designation"] for o in obs}):
-            _mine = [i for i in range(len(obs)) if obs[i]["designation"] == _d]
+        for _d in sorted({_body_key(o) for o in obs}, key=str):
+            _mine = [i for i in range(len(obs)) if _body_key(obs[i]) == _d]
             _kept = sum(1 for i in _mine if not excluded[i])
             if _kept / len(_mine) < MPC_MIN_RETENTION:
                 return _no(f"the joint fit keeps only {_kept} of {_d}'s {len(_mine)} "
@@ -1277,7 +1282,7 @@ def _identify_pass(fit, _shape=False, _why=None):
     if len(apps) == 2 and unclipped_anchor_arc(fit, excluded) < UNCLIPPED_ANCHOR_ARC_DAYS:
         n_by_desig, kept_by_desig = {}, {}
         for i, o in enumerate(obs):
-            d = o.get("designation")
+            d = _body_key(o)
             n_by_desig[d] = n_by_desig.get(d, 0) + 1
             if not excluded[i]:
                 kept_by_desig[d] = kept_by_desig.get(d, 0) + 1
@@ -1422,7 +1427,7 @@ def examine_or_no(fit):
     kept, n_by_desig, span = {}, {}, {}
     fmask = ~_dropped(fit)              # kept, plus drops the body's own record makes too
     for i, o in enumerate(fit._obs):
-        d = o.get("designation"); t = o["jd_utc"]
+        d = _body_key(o); t = o["jd_utc"]
         n_by_desig[d] = n_by_desig.get(d, 0) + 1
         if fmask[i]:
             kept[d] = kept.get(d, 0) + 1
@@ -1533,7 +1538,8 @@ def _element(fit, name):
 BASELINE_WORSEN_FACTOR = 1.25  # a pre-existing trend still counts when the joint fit makes it this
 BASELINE_WORSEN_SLACK = 0.10   # many times (plus this many arcsec) larger than the body alone shows
 SOLO_MIN_OBS = 6               # a body needs this many obs, over 2+ nights, to be fitted alone
-SOLO_MAX_SEC = 120.0           # wall-clock bound on one solo fit; past it, no baseline (no exemption)
+SOLO_MAX_SEC = 120.0           # wall-clock bound on one solo fit; past it, no answer (solo_unanswered)
+SOLO_LABEL = "solo baseline fit"  # the deadline label of a solo fit's own bound
 SYS_SE_STATION_TAU = True      # the identification verdict's significance arm also counts each
                                # night's station offset (nightmodel tau) as noise, as the trend arm
                                # does. A correct orbit leaves nights displaced by the station's own
@@ -1548,9 +1554,21 @@ SYS_SE_STATION_TAU = True      # the identification verdict's significance arm a
 
 
 def _body_key(o):
-    """Which BODY an observation belongs to: one record can carry several labels (415989's
-    record holds '415989', '2002 AC19' and '2005 UV74' obs), all with one ``packed_perm``."""
-    return o.get("packed_perm") or o.get("designation")
+    """Which BODY an observation belongs to -- a SIDE of an identification.  One record can
+    carry several labels (415989's record holds '415989', '2002 AC19' and '2005 UV74' obs:
+    numbered lines under one provisional, under another, and with none), all one body.  The
+    permanent number decides: an ADES record carries it in ``packed_perm`` beside its
+    provisional label, an OBS80 line is labelled by it (cols 1-5 win), and both reduce to the
+    same unpacked number.  Unnumbered, the label is the body.  (A SUBMISSION is still told by
+    its label: :func:`_tracklets`.)"""
+    perm = o.get("packed_perm")
+    return _unpacked(perm) if perm else o.get("designation")
+
+
+@functools.lru_cache(maxsize=4096)
+def _unpacked(packed):
+    from pyroorb.obs_sources import ensure_unpacked
+    return ensure_unpacked(packed)
 
 
 def _fit_alone(fit, sub):
@@ -1564,7 +1582,7 @@ def _fit_alone(fit, sub):
     forced = (force_assist.perturbers_on_for(
         "ident", field=field if isinstance(field, frozenset) else None)
         if field else contextlib.nullcontext())
-    with deadline.deadline(SOLO_MAX_SEC, label="solo baseline fit"), forced:
+    with deadline.deadline(SOLO_MAX_SEC, label=SOLO_LABEL), forced:
         return fit_orbit(sub, load_obscodes(), desig=label,
                          meta={"designation": label, "n_requested": 1})
 
@@ -1579,21 +1597,37 @@ def _solo_eligible(sub):
 def solo_fit(fit, body):
     """The fit of ``body``'s own observations (every one the joint fit carries, kept or not)
     with nothing joined to it, or None when it has too few obs or cannot be fitted. Cached on
-    the joint fit."""
+    the joint fit.
+
+    A solo fit that gave NO ANSWER -- it ran out of its own ``SOLO_MAX_SEC``, or raised -- is
+    None here too (nothing to set aside against), and is recorded (:func:`solo_unanswered`):
+    a missing baseline says nothing about the link, so :func:`linkage_verdict` never lets one
+    turn a link into a refusal.  The CALLER's deadline running out is not this fit's to
+    absorb: it propagates."""
     from pyroorb import deadline
     cache = fit.__dict__.setdefault("_solo_fits", {})
     if body not in cache:
         sub = [dict(o) for o in fit._obs if _body_key(o) == body]
-        res = None
+        res, why = None, None
         if _solo_eligible(sub):
             try:
                 res = _fit_alone(fit, sub)
-            except deadline.DeadlineExceeded:
-                res = None
-            except Exception:                         # noqa: BLE001 -- no baseline, no exemption
-                res = None
+            except deadline.DeadlineExceeded as ex:
+                if ex.label != SOLO_LABEL:
+                    raise                             # the caller's bound, not the solo fit's
+                why = f"ran out of its {SOLO_MAX_SEC:g} s"
+            except Exception as ex:                   # noqa: BLE001 -- no answer, not a finding
+                why = f"failed ({type(ex).__name__})"
         cache[body] = res
+        if why:
+            fit.__dict__.setdefault("_solo_unanswered", {})[body] = why
     return cache[body]
+
+
+def solo_unanswered(fit):
+    """``{body: why}`` for every solo fit (:func:`solo_fit`) asked of ``fit`` so far that gave
+    no answer."""
+    return dict(fit.__dict__.get("_solo_unanswered") or {})
 
 
 def _single_body(fit, idx):
@@ -1681,6 +1715,31 @@ def preexisting_exception(fit, idx):
 
 
 def linkage_verdict(fit):
+    """:func:`_linkage_verdict`, unless a body's own record could not be fitted alone in time
+    (:func:`solo_unanswered`) and the verdict is anything but a clean 'y'.  A concern that the
+    record already had is set aside against that solo fit; without it nothing could be set
+    aside, so a refusal or a downgrade may be the record's fault rather than the link's -- a
+    question with no answer, which is never held against the link.  The verdict is then
+    'unknown': offered for review, never transmitted, with the reason and what the check
+    would otherwise have said.  A clean 'y' stands: setting concerns aside only ever lifts a
+    verdict."""
+    v = _linkage_verdict(fit)
+    missing = solo_unanswered(fit)
+    if not missing or v.get("code") == "y":
+        return v
+    bodies = ", ".join(f"{b} ({why})" for b, why in sorted(missing.items(), key=str))
+    was = v.get("code")
+    cautions = [f"Without that baseline the check would have said '{was}': {v.get('reason')}"]
+    cautions += list(v.get("cautions") or [])
+    return {**v, "offer": True, "clean": False, "code": "unknown", "submittable": False,
+            "reason": (f"NOT submittable -- the engine could not fit the own record of "
+                       f"{bodies} alone, so it could not tell a concern that record already "
+                       f"has from one this link adds. Shown for review; a missing answer is "
+                       f"not a finding against the link."),
+            "cautions": cautions}
+
+
+def _linkage_verdict(fit):
     """May the joint fit on screen be OFFERED to a human as an MPC identification, and with what
     cautions?  ``{"offer", "clean", "reason", "cautions"}``.
 
@@ -2183,7 +2242,7 @@ def short_arc_systematic(fit):
         return None
     span = {}
     for o in fit._obs:
-        d = o.get("designation")
+        d = _body_key(o)
         t = float(o["jd_utc"])
         lo, hi = span.get(d, (t, t))
         span[d] = (min(lo, t), max(hi, t))
@@ -2266,7 +2325,7 @@ def thin_arc_falsepos(fit, is_ident=None):
     obs = fit._obs
     by = {}
     for i, o in enumerate(obs):
-        by.setdefault(o.get("designation"), []).append(i)
+        by.setdefault(_body_key(o), []).append(i)
     if len(by) < 2:
         return None
     for d, idx in by.items():

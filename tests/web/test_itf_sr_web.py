@@ -126,7 +126,7 @@ def test_sr_no_link_is_the_no_linkage_shape_with_the_sr_reason(web):
 
 
 def test_a_space_based_seed_is_refused_with_its_reason(web):
-    """The real hand-off, with no source: a seed from orbit stops at ``seed_station_ok``
+    """The real hand-off, with no source: a seed from orbit stops at ``seed_night_problem``
     before any database is asked, and the page says why."""
     web["obs"] = _seed([JD0 + 0.01 * i for i in range(3)], stn="C57")
 
@@ -135,7 +135,7 @@ def test_a_space_based_seed_is_refused_with_its_reason(web):
                                     log=log)
     out = E.itf_search_web("s", _searcher=_no_regular, _sr_searcher=sr)
     assert out["ok"] is True and out["itf"]["found"] is False
-    assert "not on the ground" in out["itf"]["reason"]
+    assert "space-based seeds are not supported" in out["itf"]["reason"]
 
 
 def _sr_link(jd):

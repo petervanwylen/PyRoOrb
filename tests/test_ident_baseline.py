@@ -130,7 +130,7 @@ def test_one_body_via_packed_perm():
         o["designation"] = "415989" if i % 2 else "2002 AC19"
         o["packed_perm"] = "f5989"
     ob, rb = _body_b()
-    fit = _with_solo(_Fit(oa + ob, ra + rb), {"f5989": _Fit(oa, ra)})
+    fit = _with_solo(_Fit(oa + ob, ra + rb), {"415989": _Fit(oa, ra)})   # the unpacked number
     desc, pre = ic.link_systematic(fit)
     assert desc is None and len(pre) == 1
 
@@ -253,6 +253,130 @@ def test_preexisting_drops_marks_only_what_the_body_alone_rejects():
     assert list(np.flatnonzero(pre)) == [0, 1, 2, 3]
     fit.__dict__["_pre_drops"] = pre
     assert list(np.flatnonzero(ic._dropped(fit))) == [5, len(oa)]      # what the LINK dropped
+
+
+def _raising(exc):
+    def fit_alone(fit, sub):
+        raise exc
+    return fit_alone
+
+
+def test_a_solo_fit_out_of_its_own_time_is_unanswered(monkeypatch):
+    from pyroorb import deadline
+    ob, rb = _body_b()
+    monkeypatch.setattr(ic, "_fit_alone",
+                        _raising(deadline.DeadlineExceeded(ic.SOLO_LABEL, 120.0, 121.0)))
+    fit = _Fit(ob, rb)
+    assert ic.solo_fit(fit, "2015 BB2") is None
+    assert "120 s" in ic.solo_unanswered(fit)["2015 BB2"]
+
+
+def test_a_solo_fit_that_raises_is_unanswered(monkeypatch):
+    ob, rb = _body_b()
+    monkeypatch.setattr(ic, "_fit_alone", _raising(np.linalg.LinAlgError("singular")))
+    fit = _Fit(ob, rb)
+    assert ic.solo_fit(fit, "2015 BB2") is None
+    assert ic.solo_unanswered(fit) == {"2015 BB2": "failed (LinAlgError)"}
+
+
+def test_the_callers_deadline_is_not_the_solo_fits_to_absorb(monkeypatch):
+    """A nested deadline takes the stricter, OUTER label: that is the whole check running
+    out, and it must reach whoever set it."""
+    from pyroorb import deadline
+    ob, rb = _body_b()
+    monkeypatch.setattr(ic, "_fit_alone",
+                        _raising(deadline.DeadlineExceeded("web fit", 60.0, 61.0)))
+    fit = _Fit(ob, rb)
+    with pytest.raises(deadline.DeadlineExceeded):
+        ic.solo_fit(fit, "2015 BB2")
+
+
+def _verdict(code):
+    return {"offer": code != "no", "clean": code == "y", "code": code,
+            "submittable": code == "y", "reason": f"the {code} reason",
+            "cautions": ["an earlier caution"], "notes": [], "flags": {}}
+
+
+@pytest.mark.parametrize("code", ["no", "y2", "y-systematic", "y-examine"])
+def test_an_unanswered_baseline_never_refuses_a_link(monkeypatch, code):
+    """Without a body's solo fit nothing already in its record can be set aside, so a
+    refusal or downgrade may be the record's and not the link's: 'unknown' -- offered for
+    review, never transmitted -- saying what the check would otherwise have said."""
+    monkeypatch.setattr(ic, "_linkage_verdict", lambda fit: _verdict(code))
+    fit = _Fit(*_body_b())
+    fit.__dict__["_solo_unanswered"] = {"2015 BB2": "ran out of its 120 s"}
+    v = ic.linkage_verdict(fit)
+    assert v["code"] == "unknown" and v["offer"] and not v["submittable"] and not v["clean"]
+    assert "2015 BB2 (ran out of its 120 s)" in v["reason"]
+    assert v["cautions"][0] == f"Without that baseline the check would have said '{code}': " \
+                               f"the {code} reason"
+    assert v["cautions"][1:] == ["an earlier caution"]
+
+
+def test_a_clean_link_or_an_answered_baseline_keeps_its_verdict(monkeypatch):
+    fit = _Fit(*_body_b())
+    monkeypatch.setattr(ic, "_linkage_verdict", lambda f: _verdict("y"))
+    fit.__dict__["_solo_unanswered"] = {"2015 BB2": "failed (ValueError)"}
+    assert ic.linkage_verdict(fit)["code"] == "y"               # setting aside only lifts
+    monkeypatch.setattr(ic, "_linkage_verdict", lambda f: _verdict("no"))
+    fit.__dict__.pop("_solo_unanswered")
+    assert ic.linkage_verdict(fit)["code"] == "no"              # every baseline answered
+
+
+def test_a_side_is_a_body_not_a_label():
+    """Numbered lines under one provisional, under another, and with none -- ADES (number in
+    packed_perm beside the label) or OBS80 (labelled by the number) -- are one body."""
+    ades_a = {"designation": "2002 AC19", "packed_perm": "f5989"}
+    ades_b = {"designation": "2005 UV74", "packed_perm": "f5989"}
+    ades_n = {"designation": "415989", "packed_perm": "f5989"}
+    obs80 = {"designation": "415989", "packed": "f5989"}
+    assert {ic._body_key(o) for o in (ades_a, ades_b, ades_n, obs80)} == {"415989"}
+    assert ic._body_key({"designation": "2026 XY1", "packed_perm": None}) == "2026 XY1"
+
+
+def _alias_link():
+    """Body 415989: 3 nights under '2002 AC19' plus a 2-obs tracklet under its alias
+    '2005 UV74' that the joint fit drops; body '2026 XY1' a year later, 3 nights."""
+    obs, mask = [], []
+    for n in range(3):
+        for k in range(4):
+            o = _obs("2002 AC19", 2456700.0 + 3 * n + 0.01 * k, perm="f5989")
+            obs.append(o)
+            mask.append(True)
+    for k in range(2):
+        obs.append(_obs("2005 UV74", 2456712.0 + 0.01 * k, code="691", perm="f5989"))
+        mask.append(False)
+    for n in range(3):
+        for k in range(4):
+            obs.append(_obs("2026 XY1", 2457100.0 + 2 * n + 0.01 * k, code="G96"))
+            mask.append(True)
+    for i, o in enumerate(obs):
+        o["ra_deg"], o["dec_deg"] = 10.0 + 0.001 * i, 5.0
+    return _PairFit(obs, [(0.05, 0.05)] * len(obs), mask=mask)
+
+
+class _PairFit(_Fit):
+    """What identify()'s gates read beyond _Fit: the observation count and the kept rms."""
+    designation = "2002 AC19"
+
+    def n_observations(self):
+        return len(self._obs)
+
+    def rms_residual(self):
+        return float(np.sqrt(np.mean(self._resid_all[self._mask] ** 2)))
+
+
+def test_an_alias_labels_dropped_tracklet_leaves_its_body_standing():
+    """The alias's two obs are gone, but body 415989 keeps twelve: a side is still there, so
+    the link is not refused as 'nothing left of that side'."""
+    why = {}
+    ic._identify_pass(_alias_link(), _shape=True, _why=why)
+    assert "drops every observation" not in (why.get("reason") or "")
+    fit = _alias_link()
+    fit._mask[:12] = False                             # now the whole BODY is gone
+    why = {}
+    assert ic._identify_pass(fit, _shape=True, _why=why) is None
+    assert "drops every observation of 415989" in why["reason"]
 
 
 def test_too_few_obs_gets_no_solo_fit():

@@ -5,6 +5,9 @@ A link scorer is a callable ``scorer(obs80_text, obscodes) -> str | None``: give
 linked astrometry (80-column lines), it returns one sentence when it objects to the linkage as
 a possible chimera (tracklets of more than one body), else None.  An objection is a WARNING on
 the linkage -- shown with it, never a refusal by itself (see ``srsearch.chimera_warnings``).
+A scorer that cannot score this linkage at all (outside what it judges) returns
+:data:`NO_VERDICT`: no objection, and no confirmation either -- a linkage nothing else has
+judged then gets the chimera guard instead (``srsearch.chimera_warnings``, ``unvouched``).
 
 Discovery, in this order (duplicates ignored):
 
@@ -31,6 +34,20 @@ BUILTIN = ("pyroorb.mislink.linkscore:SCORER",)
 FILE_ENV = "PYROORB_LINK_SCORERS_FILE"
 _CHECKOUT = Path(__file__).resolve().parents[3]
 _LOCK = threading.Lock()
+
+
+class _NoVerdict:
+    """A scorer's answer when it cannot score the linkage: false, like "no objection"."""
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return "NO_VERDICT"
+
+
+#: What a scorer returns for a linkage it cannot score (no objection, no confirmation).
+NO_VERDICT = _NoVerdict()
 _LOADED = None
 _UNLOADED = ()
 
@@ -100,10 +117,12 @@ def set_for_tests(scorers):
     _LOADED, _UNLOADED = (None if scorers is None else tuple(scorers)), ()
 
 
-def judge(obs80_text, obscodes, scorers=None):
+def judge(obs80_text, obscodes, scorers=None, verdicts=None):
     """``(objections, not_run)`` for the linkage ``obs80_text``: every scorer's objection
     (sentences), and every scorer that could not judge it -- one that would not load, or
-    raised.  ``scorers`` replaces the installed ones."""
+    raised.  ``scorers`` replaces the installed ones.  ``verdicts``, a list, receives the
+    name of every scorer that gave a verdict (objected or did not), i.e. neither raised nor
+    answered :data:`NO_VERDICT`."""
     loaded = installed() if scorers is None else scorers
     objections = []
     not_run = [f"link scorer {spec} did not load" for spec in (_UNLOADED if scorers is None
@@ -115,6 +134,10 @@ def judge(obs80_text, obscodes, scorers=None):
             name = getattr(fn, "__qualname__", None) or type(fn).__name__
             not_run.append(f"link scorer {name} failed ({type(ex).__name__})")
             continue
+        if why is NO_VERDICT:
+            continue
+        if verdicts is not None:
+            verdicts.append(getattr(fn, "__qualname__", None) or type(fn).__name__)
         if why:
             objections.append(str(why))
     return objections, not_run

@@ -265,12 +265,17 @@ def records_from_obs(obs, desig):
     like the published arc, it is the astrometry as reported that is judged.
     Space-based and roving observations carry their position in fields this
     path does not rebuild, so they are left out (``n_skipped``).
+
+    The position is the one REPORTED: a fit's observations are already star-catalogue
+    debiased (``ra_raw``/``dec_raw`` keep the reported one), and scoring debiases its
+    records itself, exactly as it does a published row -- a corrected position passed on
+    would be corrected twice.
     """
     import datetime as dt
     j2000 = dt.datetime(2000, 1, 1, 12, tzinfo=dt.timezone.utc)
     out, skipped = [], 0
     for i, o in enumerate(obs):
-        if o.get("sat_pos_au") is not None or o.get("site_itrs") is not None \
+        if o.get("sat_pos_au") is not None or o.get("site_itrs_au") is not None \
                 or o.get("radar") or o.get("ra_deg") is None or o.get("jd_utc") is None:
             skipped += 1
             continue
@@ -279,7 +284,8 @@ def records_from_obs(obs, desig):
             "obsid": f"page{i}", "trkid": None, "trksub": o.get("trksub"),
             "permid": None, "provid": desig, "stn": o.get("obscode"),
             "obstime": t.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-            "ra": float(o["ra_deg"]), "dec": float(o["dec_deg"]),
+            "ra": float(o.get("ra_raw", o["ra_deg"])),
+            "dec": float(o.get("dec_raw", o["dec_deg"])),
             "rmsra": o.get("ades_rms_ra"), "rmsdec": o.get("ades_rms_dec"), "rmscorr": None,
             "mag": o.get("mag"), "rmsmag": o.get("mag_sigma"),
             "band": (o.get("band") or " ").strip() or None,

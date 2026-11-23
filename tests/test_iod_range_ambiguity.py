@@ -104,6 +104,22 @@ def test_incumbent_basin_correcting_past_parabola_is_not_a_new_basin(monkeypatch
     assert out[1] == "gauss" and a > 0 and e < 1.0 and out[2] == 1.0
 
 
+def test_a_basin_whose_bound_handoff_plunges_into_the_sun_is_not_adopted(monkeypatch):
+    # A rival correcting to a near-radial straight line fits best, but moved inside the
+    # parabola it keeps its direction and so its q ~ 0: the incumbent stands.
+    best = _state_with_a(1.2)
+    rival = _state_with_a(3.0)
+    line = np.array([1.0, 0.0, 0.0, 0.5, 0.0, 0.001])          # 0.5 au/d, almost radial
+    assert iod.quick_aeq(iod._inside_parabola(line))[2] < 0.02
+    corrected = {id(best): _state_with_a(1.2), id(rival): line}
+    monkeypatch.setattr(iod, "_correct_seed", lambda st, *a, **k: corrected[id(st)])
+    monkeypatch.setattr(iod, "score_orbit",
+                        lambda st, *a, **k: 0.4 if st is line else 9.0)
+    scored = [(20.0, "vaisala", best), (21.0, "herget", rival)]
+    out = iod._rerank_by_corrected_fit(scored, (best, "vaisala", 20.0), None, 0.0, [], [])
+    assert out[0] is best and out[2] == 20.0
+
+
 @pytest.mark.slow
 def test_gs26063_delivers_the_near_parabolic_orbit():
     """End to end on the frozen GS26063 obs: the delivered ORBIT, not just its rms. The

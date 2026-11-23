@@ -172,10 +172,10 @@ def range_seeds(obs, robs, t0_tdb, rho_geo=RHO_GEO, r_helio=R_HELIO):
                 continue
             if st is None or not np.all(np.isfinite(st)):
                 continue
-            q = quick_aeq(st)[2]
-            if not (math.isfinite(q) and q >= Q_MIN_AU):
-                continue
-            out.append((f"{tag} {d:g} au", np.asarray(_inside_parabola(st), float)))
+            st = np.asarray(_inside_parabola(st), float)
+            q = quick_aeq(st)[2]       # of the seed handed on: slowing a hyperbola lowers q
+            if math.isfinite(q) and q >= Q_MIN_AU:
+                out.append((f"{tag} {d:g} au", st))
     return out
 
 

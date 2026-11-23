@@ -252,16 +252,6 @@ def _ground(code, obscodes):
 # ---------------------------------------------------------------------- the seed
 
 
-def seed_station_ok(obs, obscodes):
-    """The seed's most-observed station has ground coordinates.  A space-based observer's
-    parallax over a multi-hour tracklet (WISE: ~90" at 0.1 au) needs a per-distance
-    correction the linear attributable does not make."""
-    if not obs:
-        return False
-    stn = Counter(o["obscode"] for o in obs).most_common(1)[0][0]
-    return _ground(stn, obscodes)
-
-
 def seed_night(obs, obscodes=None):
     """The seed observations the attributable is built from: the busiest station-night of
     the seed (ties: the longer night, then the later), over ground stations only when
@@ -291,11 +281,13 @@ def seed_night(obs, obscodes=None):
 def seed_night_problem(obs, obscodes):
     """Why the seed has no night to range from, or None: the attributable is a straight
     line fitted per axis, which needs two observations at different times from one ground
-    station on one night."""
+    station on one night.  A space-based observer's parallax over a multi-hour tracklet
+    (WISE: ~90" at 0.1 au) needs a per-distance correction the line does not make, so its
+    nights never count; its observations still join every engine fit."""
     night = seed_night(obs, obscodes)
     if len({round(o["jd_utc"], 8) for o in night}) < 2:
-        return ("no ground station observed the seed twice in one night, and a single "
-                "position fixes no motion to range from")
+        return ("no ground station observed the seed twice in one night: a single position "
+                "fixes no motion to range from, and space-based seeds are not supported")
     return None
 
 
@@ -824,9 +816,6 @@ def sr_search(seed_obs, source, obscodes, cfg=None, log=None):
     res = SrResult()
     t_all = time.time()
     seed_obs = [o for o in seed_obs if o.get("jd_utc") is not None]
-    if not seed_station_ok(seed_obs, obscodes):
-        res.reason = "the seed's station is not on the ground (space-based seeds are not supported)"
-        return res
     problem = seed_night_problem(seed_obs, obscodes)
     if problem:
         res.reason = problem
@@ -1232,13 +1221,20 @@ def not_run(warning):
     return str(warning).startswith(CHECK_NOT_RUN)
 
 
-def chimera_warnings(combined, unit_text, obscodes, what="ITF tracklet"):
+def chimera_warnings(combined, unit_text, obscodes, what="ITF tracklet", unvouched=False):
     """The chimera WARNINGS on a linkage (a list, empty when nothing objects), one rule
     for every surface:
 
     * 1-2 nights: the 2-3 night chimera guard (:func:`chimera_guard`);
     * 3 nights: the guard AND the link scorers (:mod:`itf.linkscore`);
     * 4+ nights: the link scorers alone -- the search's own gates judge the rest.
+
+    ``unvouched`` -- no search gate judged this linkage (the single-tracklet search's link,
+    which rides in the regular search's seed).  At 4+ nights the scorers still judge it
+    alone when one of them gives a verdict; when none can score it (outside every scorer's
+    scope, :data:`itf.linkscore.NO_VERDICT`, or none installed) the guard judges it, so
+    such a link is never left unjudged.  (Its arc caps are 2-3 night caps; at 4+ nights it
+    is the leave-out on every tracklet.)
 
     ``combined`` is all the linked astrometry, ``unit_text`` the tracklets the guard asks
     to be predicted.  A check that cannot run -- the guard, or a link scorer
@@ -1247,7 +1243,8 @@ def chimera_warnings(combined, unit_text, obscodes, what="ITF tracklet"):
     it never refuses the linkage by itself."""
     nights, _arc = linkage_shape(combined)
     out = []
-    if nights <= 3:
+
+    def guard():
         try:
             ok, why = chimera_guard(combined, unit_text, obscodes, what=what)
         except Exception as ex:                              # noqa: BLE001 -- unconfirmed
@@ -1255,11 +1252,17 @@ def chimera_warnings(combined, unit_text, obscodes, what="ITF tracklet"):
         else:
             if not ok:
                 out.append(CHIMERA_GUARD_WARNING + str(why))
+
+    if nights <= 3:
+        guard()
     if nights >= 3:
         from . import linkscore
-        objections, failed = linkscore.judge(combined, obscodes)
+        verdicts = []
+        objections, failed = linkscore.judge(combined, obscodes, verdicts=verdicts)
         out += [CHIMERA_WARNING + w for w in objections]
         out += [CHECK_NOT_RUN + w for w in failed]
+        if nights > 3 and unvouched and not verdicts:
+            guard()
     return out
 
 
@@ -1290,17 +1293,22 @@ def chimera_warnings_short_seed(seed_text, itf_text, obscodes, core_text=None):
     then added more (``itf_text`` holds both).  The seed plus that core is judged as a
     linkage of its own as well: the regular search's gates never judged it (it rode in that
     search's seed), so the rule that skips the guard on a 4+ night linkage -- whose
-    tracklets those gates did judge -- does not cover it."""
+    tracklets those gates did judge -- does not cover it: it is judged ``unvouched``
+    (:func:`chimera_warnings`), so at 4+ nights a link no scorer can score gets the guard.
+    When ``core_text`` is all of ``itf_text`` (the regular search added nothing), the whole
+    linkage is that link."""
     if not (itf_text or "").strip():
         return [CHIMERA_GUARD_WARNING + "no ITF tracklet to judge"]
     # blank lines dropped, every line kept whole: an OBS80 line is read by column, and an
     # unnumbered or ITF line starts with five blank columns that a .strip() would eat
     combined = "\n".join(_guard_lines(seed_text) + _guard_lines(itf_text)) + "\n"
-    out = chimera_warnings(combined, combined, obscodes, what="tracklet")
     core = _guard_lines(core_text)
-    if core and set(core) != set(_guard_lines(itf_text)):
+    whole_is_core = bool(core) and set(core) == set(_guard_lines(itf_text))
+    out = chimera_warnings(combined, combined, obscodes, what="tracklet",
+                           unvouched=whole_is_core)
+    if core and not whole_is_core:
         first = "\n".join(_guard_lines(seed_text) + core) + "\n"
-        for w in chimera_warnings(first, first, obscodes, what="tracklet"):
+        for w in chimera_warnings(first, first, obscodes, what="tracklet", unvouched=True):
             if w not in out:
                 out.append(w)
     return out

@@ -158,6 +158,10 @@ def test_a_seed_with_one_obs_a_night_is_refused_not_a_crash():
     # a space-based station's night is never the one ranged from
     seed3 = seed + [o("C51", 3.0), o("C51", 3.01), o("C51", 3.02)]
     assert sr.seed_night_problem(seed3, obscodes) is not None
+    # ...nor does it refuse a seed whose busiest station is in space: the ground night ranges
+    seed4 = seed3 + [o("F51", 3.5), o("F51", 3.51)]
+    assert sr.seed_night_problem(seed4, obscodes) is None
+    assert [x["obscode"] for x in sr.seed_night(seed4, obscodes)] == ["F51", "F51"]
 
 
 def test_only_the_seeds_own_rejections_are_pardoned():
@@ -363,20 +367,24 @@ def test_a_grown_handoff_also_judges_the_sr_link_on_its_own(monkeypatch):
     added = _tracklet(5, "I41", "ZT00002") + _tracklet(9, "F51", "ZT00003")
     judged = []
 
-    def fake(combined, unit_text, obscodes, what="ITF tracklet"):
+    def fake(combined, unit_text, obscodes, what="ITF tracklet", unvouched=False):
         n = sr.linkage_shape(combined)[0]
-        judged.append(n)
+        judged.append((n, unvouched))
         return [f"warning at {n} nights"]
     monkeypatch.setattr(sr, "chimera_warnings", fake)
     out = sr.chimera_warnings_short_seed("\n".join(seed), "\n".join(core + added), {},
                                          core_text="\n".join(core))
-    assert judged == [4, 2]
+    assert judged == [(4, False), (2, True)]          # the whole as usual; the SR link unvouched
     assert out == ["warning at 4 nights", "warning at 2 nights"]
     judged.clear()
-    # nothing added beyond the SR link: one judgement, the whole
+    # nothing added beyond the SR link: one judgement, the whole -- which IS that link
     sr.chimera_warnings_short_seed("\n".join(seed), "\n".join(core), {},
                                    core_text="\n".join(core))
-    assert judged == [2]
+    assert judged == [(2, True)]
+    judged.clear()
+    # no SR link at all (a regular search's find): the usual rule
+    sr.chimera_warnings_short_seed("\n".join(seed), "\n".join(core + added), {})
+    assert judged == [(4, False)]
 
 
 def test_sr_then_itf_names_the_link_unvouched_and_never_transmits(monkeypatch):
@@ -409,7 +417,6 @@ def test_unacceptable_triplets_never_crowd_out_a_pair(monkeypatch):
     """A triplet over ``trip_chi2_max`` can never be picked, so it is not proposed: six of
     them must not take every engine-fit slot from a pair that passes."""
     ids = [f"T{i}" for i in range(13)]
-    monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
     monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
     monkeypatch.setattr(sr, "seed_night_problem", lambda *a: None)
     monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {
@@ -440,7 +447,6 @@ def test_unacceptable_triplets_never_crowd_out_a_pair(monkeypatch):
 @pytest.mark.parametrize("nights", [1, 2])
 def test_the_seeds_own_rejection_is_asked_only_of_a_multi_night_seed(monkeypatch, nights):
     bad = ("691", 1)
-    monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
     monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
     monkeypatch.setattr(sr, "seed_night_problem", lambda *a: None)
     monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {"id": ["T0"], "tdb": [5.0]})
@@ -501,7 +507,7 @@ def test_a_guard_that_cannot_run_has_not_confirmed(monkeypatch):
 
 # ------------------------------------------------- one chimera rule, by night count
 
-def _rule(lines, measure_ok=True, scorer_says=None):
+def _rule(lines, measure_ok=True, scorer_says=None, unvouched=False, no_scorer=False):
     """chimera_warnings on ``lines`` with a stub leave-out and a stub link scorer; returns
     (warnings, guard asked, scorer asked)."""
     from pyroorb.itf import leaveout, linkscore
@@ -517,9 +523,9 @@ def _rule(lines, measure_ok=True, scorer_says=None):
     text = "\n".join(lines) + "\n"
     mp = pytest.MonkeyPatch()
     mp.setattr(leaveout, "measure", measure)
-    linkscore.set_for_tests([scorer])
+    linkscore.set_for_tests([] if no_scorer else [scorer])
     try:
-        ws = sr.chimera_warnings(text, text, {})
+        ws = sr.chimera_warnings(text, text, {}, unvouched=unvouched)
     finally:
         mp.undo()
         linkscore.set_for_tests(())
@@ -548,6 +554,47 @@ def test_chimera_rule_four_nights_never_asks_the_guard():
     assert g == 0 and s == 1 and ws == []
     ws, _g, _s = _rule(lines, scorer_says="the model objects")
     assert ws == [sr.CHIMERA_WARNING + "the model objects"]
+    # a scorer that cannot score it: still no guard on a linkage the search's gates judged
+    from pyroorb.itf import linkscore
+    ws, g, _s = _rule(lines, measure_ok=False, scorer_says=linkscore.NO_VERDICT)
+    assert g == 0 and ws == []
+
+
+def test_an_unvouched_four_night_link_no_scorer_can_score_gets_the_guard():
+    """The SR link rode in the regular search's seed: no search gate judged it.  At 4+
+    nights the scorers judge it alone when one gives a verdict (the one rule); when none
+    can, the guard does -- such a link is never left unjudged."""
+    from pyroorb.itf import linkscore
+    lines = _tracklet(1) + _tracklet(3) + _tracklet(6) + _tracklet(9)
+    ws, g, s = _rule(lines, measure_ok=False, scorer_says=None, unvouched=True)
+    assert g == 0 and s == 1 and ws == []                    # a verdict: the scorer alone
+    ws, g, s = _rule(lines, measure_ok=False, scorer_says="the model objects", unvouched=True)
+    assert g == 0 and ws == [sr.CHIMERA_WARNING + "the model objects"]
+    ws, g, s = _rule(lines, measure_ok=False, scorer_says=linkscore.NO_VERDICT,
+                     unvouched=True)
+    assert g and s == 1 and len(ws) == 1 and ws[0].startswith(sr.CHIMERA_GUARD_WARNING)
+    ws, g, _s = _rule(lines, measure_ok=True, scorer_says=linkscore.NO_VERDICT, unvouched=True)
+    assert g and ws == []                                    # the guard confirms it
+    ws, g, _s = _rule(lines, measure_ok=False, unvouched=True, no_scorer=True)
+    assert g and len(ws) == 1 and ws[0].startswith(sr.CHIMERA_GUARD_WARNING)
+
+
+def test_judge_names_the_scorers_that_gave_a_verdict():
+    from pyroorb.itf import linkscore
+
+    def broken(t, o):
+        raise RuntimeError("x")
+
+    def cannot(t, o):
+        return linkscore.NO_VERDICT
+
+    def clean(t, o):
+        return None
+    got = []
+    objections, not_run = linkscore.judge("x", {}, scorers=[broken, cannot, clean],
+                                          verdicts=got)
+    assert objections == [] and len(not_run) == 1 and got == ["test_judge_names_the_scorers_"
+                                                              "that_gave_a_verdict.<locals>.clean"]
 
 
 def test_a_link_scorer_that_raises_never_objects_but_has_not_confirmed():
@@ -683,7 +730,6 @@ def test_router_and_linkage_shape_night_boundaries(monkeypatch):
 
 
 def test_sr_search_hands_back_second_lines_and_db_trksubs(monkeypatch):
-    monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
     monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
     monkeypatch.setattr(sr, "seed_night_problem", lambda *a: None)
     monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {
@@ -717,7 +763,6 @@ def test_sr_search_never_links_the_seeds_own_detections(monkeypatch):
     """An accepted ITF tracklet stays in the ITF table under its trkSub while it sits on a
     NEOCP object, so a seed holding it can be offered it back: such a proposal is never
     fitted, the next one is."""
-    monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
     monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
     monkeypatch.setattr(sr, "seed_night_problem", lambda *a: None)
     monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {

@@ -36,8 +36,12 @@ def test_out_of_domain_still_objects_with_a_caveat(scored):
 @pytest.mark.parametrize("status", ["out-of-scope-nights", "multi-opposition",
                                     "single-detection-nights", "fit-failed", "too-few-obs"])
 def test_no_score_no_objection(scored, status):
+    """No score: no objection, and no verdict either (a linkage nothing else judged then
+    gets the chimera guard)."""
+    from pyroorb.itf import linkscore
     scored.update(status=status)
-    assert L.objection("text", {}) is None
+    why = L.objection("text", {})
+    assert why is linkscore.NO_VERDICT and not why
 
 
 def test_ships_as_a_builtin_link_scorer(monkeypatch, tmp_path):

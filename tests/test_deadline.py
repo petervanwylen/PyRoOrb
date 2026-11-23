@@ -298,8 +298,9 @@ def test_only_the_web_fit_pool_sets_a_deadline():
     # budget -- see ItfConfig.trial_fit_max_sec.  Likewise the identification
     # check's SOLO baseline fit (ident_check._fit_alone): one body fitted alone
     # to tell a pre-existing concern from one the link causes; past its bound
-    # (ident_check.SOLO_MAX_SEC) there is simply no baseline and so no
-    # exemption, and the user's own fit is never bounded by it.
+    # (ident_check.SOLO_MAX_SEC) there is no baseline -- an unanswered one, which
+    # linkage_verdict reports as 'unknown' -- and the user's own fit is never
+    # bounded by it.
     assert sorted(setters) == ["ident_check.py", "itf/fitter.py", "web/fitqueue.py"], (
         f"a deadline is set outside the web fit pool: {setters}")
 

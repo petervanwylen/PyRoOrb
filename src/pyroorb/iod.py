@@ -391,24 +391,28 @@ def _rerank_by_corrected_fit(scored, best, base_sim, t0_tdb, sub_obs, sub_R):
     # A basin is named by its bound raw representative's a, never by the corrected state's: a
     # correction that crosses e = 1 has a < 0, and comparing that with the incumbent's a would
     # call the incumbent's own basin a different one.
+    # The score is the corrected fit's, not that of the bound hand-off state: moving an e > 1
+    # correction inside the parabola is a seeding device the full fit undoes, and scoring it
+    # (GS26063: 1.2" -> 78") would rank the basin below the one it beat. The hand-off itself
+    # must still be a plausible orbit: two nights of 2010 LP68 (a 36 au) corrected to a
+    # straight line (e 130) that fits them at 0.4" and moved inside the parabola as q 0.003 au.
     rer = []
     for sc, m, st, a in basins:
         cst = _correct_seed(st, base_sim, t0_tdb, sub_obs, sub_R)
-        if cst is not None:
-            rer.append((score_orbit(cst, base_sim, t0_tdb, sub_obs, sub_R, allow_unbound=True),
-                        m, cst, a))
+        if cst is None:
+            continue
+        handoff = _inside_parabola(cst)
+        if unphysical_penalty(*quick_aeq(handoff)):
+            continue
+        rer.append((score_orbit(cst, base_sim, t0_tdb, sub_obs, sub_R, allow_unbound=True),
+                    m, handoff, a))
     if not rer:
         return best
-    rer.sort(key=lambda x: x[0])
-    winner_score, winner_method, winner_state, winner_a = rer[0]
+    winner_score, winner_method, winner_state, winner_a = min(rer, key=lambda x: x[0])
     different_basin = not (best_a and best_a > 0
                            and 1.0 / SEED_BASIN_RATIO < winner_a / best_a < SEED_BASIN_RATIO)
     if winner_score < best_score and different_basin:
-        # the score handed on is the basin's corrected fit, not that of the bound hand-off
-        # state: moving an e > 1 correction inside the parabola is a seeding device that the
-        # full fit undoes, and scoring it (GS26063: 1.2" -> 78") would rank the basin below
-        # the one it beat (a later window rescue must beat this score)
-        return _inside_parabola(winner_state), winner_method, winner_score
+        return winner_state, winner_method, winner_score
     return best
 
 
