@@ -2085,6 +2085,14 @@ def _ident_linkage_block(s):
         # the same builder the submission uses, so what is shown and what is sent cannot differ
         doc, err = _itf_live_linkage(s)
         verdict = ident_check.linkage_verdict(fit)
+    except _deadline.DeadlineExceeded:
+        # The fit's own bound ran out INSIDE the identification check (a solo baseline fit hands
+        # the caller's deadline on rather than absorbing it). The fit itself is finished and this
+        # block is the last thing the payload builds -- nothing after it touches the propagator
+        # -- so the honest answer is the fit without a verdict, not the whole fit thrown away.
+        return {"found": False, "kind": "ident", "submittable": False,
+                "reason": "not offered as an identification: the identification check ran out "
+                          "of this fit's time, so it gave no verdict"}
     except Exception as ex:               # never let a report break the fit payload
         return {"found": False, "kind": "ident",
                 "reason": f"linkage check failed: {errors.describe(ex)}"}
@@ -2113,7 +2121,7 @@ def _ident_linkage_block(s):
         "pending": True,
         "outcome": itf_wording.outcome_label(SearchVerdict.LINKED),
         # A 'y2' and an 'unknown' state their own case ("an identification WITH EXCEPTIONS: ...",
-        # "NOT submittable -- the engine could not determine..."); only the ambiguous 'y-examine'
+        # "NOT submittable -- the engine could not ..."); only the ambiguous 'y-examine'
         # needs the candidate framing in front of its reason.
         "reason": ("clean identification" if verdict["clean"] else
                    verdict["reason"] if verdict.get("code") in ("y2", "unknown") else
@@ -2147,7 +2155,8 @@ def _unsubmittable(block):
 
     OFFERED is not SUBMITTABLE. A 'y2' (the join rests on excepting whole tracklets, which the
     identification document cannot express), a 'y-systematic' (the kept observations trend) and an
-    'unknown' (the exception shape could not be measured) are all shown for review with their
+    'unknown' (the check could not finish: an exception shape it could not measure, or a body's own
+    record it could not fit alone) are all shown for review with their
     reasons -- and the front end raises no button for them -- but the verdict that hides the button
     is the same verdict that must refuse the request, or the click-through is the only thing
     standing between a hand-crafted POST and a claim the engine declined to make.

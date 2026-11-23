@@ -302,7 +302,9 @@ def test_an_unanswered_baseline_never_refuses_a_link(monkeypatch, code):
     """Without a body's solo fit nothing already in its record can be set aside, so a
     refusal or downgrade may be the record's and not the link's: 'unknown' -- offered for
     review, never transmitted -- saying what the check would otherwise have said."""
-    monkeypatch.setattr(ic, "_linkage_verdict", lambda fit: _verdict(code))
+    # the missing baseline COULD matter: the most generous one would have lifted the verdict
+    monkeypatch.setattr(ic, "_linkage_verdict", lambda fit: _verdict(
+        "y" if fit.__dict__.get("_solo_generous") else code))
     fit = _Fit(*_body_b())
     fit.__dict__["_solo_unanswered"] = {"2015 BB2": "ran out of its 120 s"}
     v = ic.linkage_verdict(fit)
@@ -321,6 +323,59 @@ def test_a_clean_link_or_an_answered_baseline_keeps_its_verdict(monkeypatch):
     monkeypatch.setattr(ic, "_linkage_verdict", lambda f: _verdict("no"))
     fit.__dict__.pop("_solo_unanswered")
     assert ic.linkage_verdict(fit)["code"] == "no"              # every baseline answered
+
+
+@pytest.mark.parametrize("code", ["no", "y2"])
+def test_a_refusal_no_baseline_could_lift_stands(monkeypatch, code):
+    """'unknown' only when the missing answer could matter: when even the most generous baseline
+    gives the same verdict (fewer than six obs survive, a side has nothing left, no packed pair),
+    the verdict stands as it is -- an unanswered solo fit is no licence to offer a refused link."""
+    seen = []
+
+    def lv(fit):
+        seen.append(bool(fit.__dict__.get("_solo_generous")))
+        return _verdict(code)
+    monkeypatch.setattr(ic, "_linkage_verdict", lv)
+    fit = _Fit(*_body_b())
+    fit.__dict__["_solo_unanswered"] = {"2015 BB2": "ran out of its 120 s"}
+    assert ic.linkage_verdict(fit)["code"] == code
+    assert seen == [False, True]                               # asked plain, then generously
+    assert "_solo_generous" not in fit.__dict__
+
+
+def test_the_generous_baseline_excuses_only_unanswered_bodies():
+    """Under the counterfactual an unanswered body's record is taken to have every concern the
+    joint fit shows in it; an answered or never-asked body is read as before; the second pass's
+    memo is put back after."""
+    oa, ra = _body_a()
+    ob, rb = _body_b()
+    mask = np.ones(len(oa) + len(ob), bool)
+    mask[0] = mask[len(oa)] = False                            # one drop in each body
+    fit = _Fit(oa + ob, ra + rb, mask)
+    fit.__dict__["_solo_fits"] = {"2014 AA1": None, "2015 BB2": None}
+    fit.__dict__["_solo_unanswered"] = {"2015 BB2": "failed (ValueError)"}
+    assert not ic.preexisting_drops(fit).any()                 # outside the counterfactual
+    assert not ic.preexisting_exception(fit, [len(oa)])
+    fit.__dict__["_solo_generous"] = True
+    pre = ic.preexisting_drops(fit)
+    assert pre[len(oa)] and not pre[0]                         # only the unanswered body's drop
+    assert ic.preexisting_exception(fit, [len(oa)])
+    assert not ic.preexisting_exception(fit, [0])
+    del fit.__dict__["_solo_generous"]
+    fit.__dict__["_pre_drops"] = "memo"
+
+    def lv(f):
+        assert "_pre_drops" not in f.__dict__                  # a fresh second pass
+        f.__dict__["_pre_drops"] = "generous memo"
+        return _verdict("no")
+    import pyroorb.ident_check as m
+    orig = m._linkage_verdict
+    m._linkage_verdict = lv
+    try:
+        ic._generous_verdict(fit)
+    finally:
+        m._linkage_verdict = orig
+    assert fit.__dict__["_pre_drops"] == "memo"
 
 
 def test_a_side_is_a_body_not_a_label():

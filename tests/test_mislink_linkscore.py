@@ -12,7 +12,10 @@ def scored(monkeypatch):
     import pyroorb.obs_sources as O
     monkeypatch.setattr(O, "read_obs_file", lambda text, oc, in_format=None: ([{"x": 1}], "obs80"))
     box = {}
-    monkeypatch.setattr(S, "score_observations", lambda obs, desig, oc: dict(box))
+    def scorer(obs, desig, oc, *, explain=True):
+        assert explain is False          # the link scorer reads the score alone
+        return dict(box)
+    monkeypatch.setattr(S, "score_observations", scorer)
     return box
 
 

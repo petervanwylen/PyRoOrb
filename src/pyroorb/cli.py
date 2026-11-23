@@ -732,8 +732,12 @@ def _print_linkage(fit, do_submit=False):
                      "the MPC as a Jira ticket",
                "y-systematic": "the engine does not transmit an identification whose own "
                                "residuals trend",
-               "unknown": "the engine could not determine whether this identification needs "
-                          "exceptions, so it will not put its name to it"}
+               # two origins (an exception shape it could not measure, a body's own record it
+               # could not fit alone): the reason printed above names which; this line names
+               # only what they share
+               "unknown": "the engine could not finish judging this identification (the reason "
+                          "above says what it could not answer), so it will not put its name "
+                          "to it"}
         print("  NOT transmitted: "
               + why.get(verdict.get("code"), "the engine does not back this identification"))
         return

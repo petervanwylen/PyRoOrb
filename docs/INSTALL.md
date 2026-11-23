@@ -30,8 +30,8 @@ It needs `curl`, `git` and a C compiler: on macOS the Command Line Tools bring g
 compiler; on Ubuntu/Debian `sudo apt update && sudo apt install build-essential git curl` (the script prints
 the right command for apt, dnf, pacman and zypper, or runs it with `--yes`). The script uses
 its own Python 3.12, whatever Python your system has. The environment takes about 250 MB
-and the reference tables about 150 MB more; the ITF extra adds about 500 MB (mostly
-xgboost).
+and the reference tables about 150 MB more; the ITF extra adds about 80 MB (pandas and the
+ranker's xgboost, installed as the CPU-only `xgboost-cpu` package except on macOS).
 
 **Then open a new terminal** and run `pyroorb-web` (the web UI) or `pyroorb "2023 QJ3"` from
 any folder. You only need `source ~/PyRoOrb/.venv/bin/activate` to use PyRoOrb from your own

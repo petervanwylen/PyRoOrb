@@ -382,6 +382,16 @@ try {
     $Target = if ($Extras) { ".[$Extras]" } else { "." }
     Say "Installing PyRoOrb $(if ($Extras) { "with [$Extras] " })(compiles ASSIST against REBOUND $ReboundVersion; about a minute)"
     Run uv cache clean assist
+    # The ITF extra installs xgboost-cpu (pyproject.toml). An environment made before that holds
+    # the full xgboost, which writes the same module: installed side by side, removing either later
+    # breaks the other, so the full one goes first.
+    if ((",$Extras," -like "*,itf,*")) {
+        & uv pip show --python $Py xgboost *> $null
+        if ($LASTEXITCODE -eq 0) {
+            Say "Replacing xgboost with xgboost-cpu (the same library without the unused GPU parts)"
+            Run uv pip uninstall --python $Py xgboost
+        }
+    }
     Run uv pip install --python $Py --constraint $Constraints --build-constraint $Constraints $AssistSource -e $Target
 } finally {
     Remove-Item $Constraints -ErrorAction SilentlyContinue

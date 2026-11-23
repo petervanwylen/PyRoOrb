@@ -33,7 +33,7 @@ from pathlib import Path
 from pyroorb.forward_model import MU_SUN, predict_radec_batch, build_base_sim
 from pyroorb.twobody import lambert, kepler_propagate, quick_aeq
 from pyroorb.orbit_common import (OPP_GAP_DAYS as OPP_GAP, NIGHT_GAP_DAYS, radec_residuals_arcsec,
-                          unphysical_penalty)
+                          unphysical_penalty, SUN_PLUNGE_Q_AU)
 
 ARC_CAP = 730.0                 # find_orb: two-year maximum search arc
 VAISALA_MAX_ARC = 230.0         # find_orb: max_arg_length_for_vaisala
@@ -402,7 +402,7 @@ def _rerank_by_corrected_fit(scored, best, base_sim, t0_tdb, sub_obs, sub_R):
         if cst is None:
             continue
         handoff = _inside_parabola(cst)
-        if unphysical_penalty(*quick_aeq(handoff)):
+        if handoff_plunges(handoff):
             continue
         rer.append((score_orbit(cst, base_sim, t0_tdb, sub_obs, sub_R, allow_unbound=True),
                     m, handoff, a))
@@ -417,6 +417,16 @@ def _rerank_by_corrected_fit(scored, best, base_sim, t0_tdb, sub_obs, sub_R):
 
 
 PARABOLA_SPEED = 0.999      # fraction of the local escape speed an unbound seed is handed on at
+
+
+def handoff_plunges(state):
+    """True when a seed handed on by :func:`_inside_parabola` plunges into the Sun (q under
+    SUN_PLUNGE_Q_AU, or no finite q) -- the ONE plausibility test of a hand-off, for the IOD
+    re-rank and the basin audit alike.  Only q: the hand-off's a (~250 r at PARABOLA_SPEED) is
+    the seeding device's, not the orbit's, and passes ABSURD_A_AU beyond ~40 au, where every
+    unbound corrected basin of a distant comet or TNO would otherwise be refused."""
+    q = quick_aeq(state)[2]
+    return not (math.isfinite(q) and q >= SUN_PLUNGE_Q_AU)
 
 
 def _inside_parabola(state):

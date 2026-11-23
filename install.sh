@@ -346,6 +346,14 @@ TARGET="."
 [ -n "$EXTRAS" ] && TARGET=".[$EXTRAS]"
 say "Installing PyRoOrb ${EXTRAS:+with [$EXTRAS] }(compiles ASSIST against REBOUND $REBOUND_VERSION; about a minute)"
 uv cache clean assist
+# On Linux the ITF extra installs xgboost-cpu (pyproject.toml). An environment made before
+# that holds the full xgboost, which writes the same module: installed side by side,
+# removing either later breaks the other, so the full one goes first.
+if [ "$OS" = Linux ] && [[ ",$EXTRAS," == *",itf,"* ]] \
+   && uv pip show --python .venv/bin/python xgboost >/dev/null 2>&1; then
+  say "Replacing xgboost with xgboost-cpu (the same library without the unused GPU part)"
+  uv pip uninstall --python .venv/bin/python xgboost
+fi
 uv pip install --python .venv/bin/python --constraint "$CONSTRAINTS" \
   --build-constraint "$CONSTRAINTS" -e "$TARGET"
 .venv/bin/python -c "import pyroorb, rebound, assist" \

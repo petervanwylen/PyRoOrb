@@ -182,9 +182,12 @@ ABSURD_A_AU = 1.0e4   # au: no real bound orbit is this large; a > this is a nea
                       # toward dt->0 (an effective hang), so reject it on the two-body screen.
 
 
+SUN_PLUNGE_Q_AU = 0.02  # au: a perihelion inside this is a sun-plunging, implausible orbit
+
+
 def unphysical_penalty(a, e, q, *, big=1e6, allow_unbound=False):
     """Two-body plausibility penalty (0.0 if physical). `big` is added, separately, for an
-    unbound orbit (a <= 0 or e >= 1), a sun-plunging one (q < 0.02), and an absurd
+    unbound orbit (a <= 0 or e >= 1), a sun-plunging one (q < SUN_PLUNGE_Q_AU), and an absurd
     semi-major axis (a > ABSURD_A_AU). Lets the IOD scorer, statistical ranging, and the
     extension scorer all reject a doomed candidate on the cheap two-body elements before
     handing it to the integrator.
@@ -195,7 +198,7 @@ def unphysical_penalty(a, e, q, *, big=1e6, allow_unbound=False):
     pen = 0.0
     if (a <= 0 or e >= 1.0) and not allow_unbound:
         pen += big
-    if q < 0.02:
+    if q < SUN_PLUNGE_Q_AU:
         pen += big
     if a > ABSURD_A_AU:
         pen += big

@@ -120,6 +120,19 @@ def test_a_basin_whose_bound_handoff_plunges_into_the_sun_is_not_adopted(monkeyp
     assert out[0] is best and out[2] == 20.0
 
 
+def test_a_distant_unbound_handoff_is_judged_by_q_alone():
+    """At 60 au the bound hand-off's a (~250 r) passes ABSURD_A_AU; that a is the seeding
+    device's, not the orbit's -- only a sun-plunging q refuses a hand-off."""
+    from pyroorb.orbit_common import ABSURD_A_AU, unphysical_penalty
+    st = np.array([60.0, 0.0, 0.0, 0.0, 0.01, 0.0])            # well past escape at 60 au
+    h = iod._inside_parabola(st)
+    a, e, q = iod.quick_aeq(h)
+    assert a > ABSURD_A_AU and unphysical_penalty(a, e, q)     # what refused it before
+    assert not iod.handoff_plunges(h)
+    line = np.array([1.0, 0.0, 0.0, 0.5, 0.0, 0.001])
+    assert iod.handoff_plunges(iod._inside_parabola(line))
+
+
 @pytest.mark.slow
 def test_gs26063_delivers_the_near_parabolic_orbit():
     """End to end on the frozen GS26063 obs: the delivered ORBIT, not just its rms. The

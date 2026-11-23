@@ -66,9 +66,15 @@ dev = [
 # endpoint and the ITF_MAINTAIN_TURNED_ON maintenance thread) — installed on Railway
 # via requirements.txt (`-e .[itf]`). psycopg2 2.9.11 is excluded: its binary
 # wheel is broken on our target boxes (see src/pyroorb/itf/README.md).
+# The ranker runs on the CPU: xgboost-cpu is the same library and the same `import xgboost`
+# as xgboost without its GPU parts (on Linux the full package also installs NVIDIA's ~400 MB
+# NCCL library). It has wheels for Linux and Windows from 2.1; macOS has only xgboost, which
+# carries no GPU part there. Never install both into one environment: they write the same
+# module.
 itf = [
     "psycopg2-binary>=2.9.9,!=2.9.11",
-    "xgboost>=2.0",
+    "xgboost-cpu>=2.1; platform_system != 'Darwin'",
+    "xgboost>=2.0; platform_system == 'Darwin'",
     "pandas>=2.0",
 ]
 # The example notebooks (notebooks/): plotting, a few tables, and Jupyter to open them.

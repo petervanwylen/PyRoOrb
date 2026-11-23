@@ -7,13 +7,13 @@ a possible chimera (tracklets of more than one body), else None.  An objection i
 the linkage -- shown with it, never a refusal by itself (see ``srsearch.chimera_warnings``).
 A scorer that cannot score this linkage at all (outside what it judges) returns
 :data:`NO_VERDICT`: no objection, and no confirmation either -- a linkage nothing else has
-judged then gets the chimera guard instead (``srsearch.chimera_warnings``, ``unvouched``).
+judged is then reported unjudged (``srsearch.UNJUDGED``, ``unvouched``).
 
 Discovery, in this order (duplicates ignored):
 
 0. The scorers that ship with PyRoOrb (:data:`BUILTIN`): the mislinkage model
-   (``pyroorb.mislink.linkscore``).  Its model runtime (xgboost) comes with the ``itf`` extra;
-   without it the scorer does not load, and every linkage says the check was not run.
+   (``pyroorb.mislink.linkscore``).  Its model is evaluated in numpy
+   (``pyroorb.mislink.trees``), so it loads on every install.
 1. Python entry points in the group ``pyroorb.link_scorers`` -- a scorer installed as its own
    package; each entry point names the callable.
 2. A registry file, ``link_scorers.txt`` at the checkout root (or the path in

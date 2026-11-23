@@ -1005,6 +1005,8 @@ def preexisting_drops(fit):
     for body in sorted({_body_key(obs[i]) for i in np.flatnonzero(drop)}, key=str):
         solo = solo_fit(fit, body)
         if solo is None:
+            if _excused(fit, body):
+                pre |= drop & np.array([_body_key(o) == body for o in obs], dtype=bool)
             continue
         rejected = {key(o) for o, k in zip(solo._obs, solo._mask) if not k}
         for i in np.flatnonzero(drop):
@@ -1055,6 +1057,11 @@ def preexisting_misfit(fit):
             continue
         joint = float(np.sqrt(np.mean(R[idx] ** 2)))
         solo = solo_fit(fit, body)
+        if solo is None and _excused(fit, body):
+            if joint >= RMS_CEILING:
+                return None                               # no record fits this badly: no baseline
+            worst.append((joint, joint, body))            # as bad alone as jointly, at best
+            continue
         if solo is None:
             if _solo_eligible([o for o in fit._obs if _body_key(o) == body]):
                 return None                               # solo fit failed: no baseline
@@ -1630,6 +1637,14 @@ def solo_unanswered(fit):
     return dict(fit.__dict__.get("_solo_unanswered") or {})
 
 
+def _excused(fit, body):
+    """True while :func:`linkage_verdict` asks its generous counterfactual and ``body``'s solo
+    fit gave no answer: that record is then taken to have had EVERY concern the joint fit shows
+    in it -- the most any baseline could have set aside."""
+    return (bool(fit.__dict__.get("_solo_generous"))
+            and body in (fit.__dict__.get("_solo_unanswered") or {}))
+
+
 def _single_body(fit, idx):
     """The one body all of ``idx`` (fit._obs indices) belong to, when the fit carries others too;
     else None (a mixed set, or a fit of one body, has no 'own record' to compare with)."""
@@ -1653,7 +1668,7 @@ def _preexisting_trend(fit, cand, kind):
         return False
     solo = solo_fit(fit, body)
     if solo is None:
-        return False
+        return _excused(fit, body)
     if kind == "trend":
         return any(c["fires"] and _overlaps(c, cand) for c in _trend_candidates(solo))
     return any(_overlaps(c, cand) and c["between"] >= SYS_BETWEEN_CORROB
@@ -1708,7 +1723,7 @@ def preexisting_exception(fit, idx):
         return False
     solo = solo_fit(fit, body)
     if solo is None:
-        return False
+        return _excused(fit, body)
     key = lambda o: (round(float(o["jd_utc"]), 6), str(o.get("obscode") or ""))
     dropped = {key(o) for o, k in zip(solo._obs, solo._mask) if not k}
     return all(key(fit._obs[i]) in dropped for i in idx)
@@ -1722,11 +1737,21 @@ def linkage_verdict(fit):
     question with no answer, which is never held against the link.  The verdict is then
     'unknown': offered for review, never transmitted, with the reason and what the check
     would otherwise have said.  A clean 'y' stands: setting concerns aside only ever lifts a
-    verdict."""
+    verdict.
+
+    'unknown' only when the missing answer COULD matter: the verdict is asked again with every
+    concern the joint fit shows in an unanswered body's observations set aside as that record's
+    own (:func:`_excused` -- the most generous baseline there could have been).  When even that
+    gives the same code, no answer the solo fit could have given would have changed it (fewer
+    than six observations survive, a side has nothing left, no packed pair, the link's own new
+    tracklets misfit), and the verdict stands as it is."""
     v = _linkage_verdict(fit)
     missing = solo_unanswered(fit)
     if not missing or v.get("code") == "y":
         return v
+    if _generous_verdict(fit).get("code") == v.get("code"):
+        return v
+    missing = solo_unanswered(fit)
     bodies = ", ".join(f"{b} ({why})" for b, why in sorted(missing.items(), key=str))
     was = v.get("code")
     cautions = [f"Without that baseline the check would have said '{was}': {v.get('reason')}"]
@@ -1737,6 +1762,22 @@ def linkage_verdict(fit):
                        f"has from one this link adds. Shown for review; a missing answer is "
                        f"not a finding against the link."),
             "cautions": cautions}
+
+
+def _generous_verdict(fit):
+    """:func:`_linkage_verdict` with every unanswered solo fit read as the most generous baseline
+    (:func:`_excused`).  The second pass's memo on ``fit`` is set aside for the run and put back
+    after, so the verdict the caller reports is unchanged by asking."""
+    keys = ("_pre_drops", "_pre_misfit_ok")
+    saved = {k: fit.__dict__.pop(k) for k in keys if k in fit.__dict__}
+    fit.__dict__["_solo_generous"] = True
+    try:
+        return _linkage_verdict(fit)
+    finally:
+        fit.__dict__.pop("_solo_generous", None)
+        for k in keys:
+            fit.__dict__.pop(k, None)
+        fit.__dict__.update(saved)
 
 
 def _linkage_verdict(fit):

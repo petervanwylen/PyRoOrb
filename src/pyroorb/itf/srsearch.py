@@ -1060,7 +1060,9 @@ def link_lines(link):
 # object's own orbit, so it may be the object's own high-residual measurements); on thousands of selected chimeras (a real core plus every foreign
 # tracklet inside its 3-sigma prediction) residuals and photometry let 1 of 2382 four-night
 # chimeras through.  A 4+ night linkage is judged by the search's own gates and the link
-# scorers (:mod:`itf.linkscore`) alone.
+# scorers (:mod:`itf.linkscore`) alone -- and one NO gate judged (the single-tracklet search's
+# link) that no scorer could score is not handed to the guard either: at 4+ nights it would
+# warn on ~2 in 5 true links.  It is reported UNJUDGED (:data:`UNJUDGED`), which is what it is.
 #
 # What a guard objection costs is the caller's: it is a WARNING on the linkage (shown,
 # acknowledged before a person submits), and the NEOCP monitor never auto-submits a linkage
@@ -1214,6 +1216,11 @@ CHIMERA_GUARD_WARNING = (CHIMERA_WARNING + "the 2-3 night chimera guard does not
 #: says nothing against the linkage, so a sender that trusts a link by default (the
 #: identification queue) does not count it (:func:`not_run`).
 CHECK_NOT_RUN = (CHIMERA_WARNING + "not confirmed, a check could not run: ")
+#: A 4+ night linkage no search gate judged and no link scorer could score: nothing that can
+#: judge a linkage of that length has judged it. A :data:`CHECK_NOT_RUN` warning -- shown,
+#: acknowledged before a person submits, never auto-submitted -- saying nothing against it.
+UNJUDGED = (CHECK_NOT_RUN + "no link scorer could score this 4+ night linkage, and no search "
+            "gate judged it (it was linked from a single tracklet)")
 
 
 def not_run(warning):
@@ -1230,11 +1237,11 @@ def chimera_warnings(combined, unit_text, obscodes, what="ITF tracklet", unvouch
     * 4+ nights: the link scorers alone -- the search's own gates judge the rest.
 
     ``unvouched`` -- no search gate judged this linkage (the single-tracklet search's link,
-    which rides in the regular search's seed).  At 4+ nights the scorers still judge it
-    alone when one of them gives a verdict; when none can score it (outside every scorer's
-    scope, :data:`itf.linkscore.NO_VERDICT`, or none installed) the guard judges it, so
-    such a link is never left unjudged.  (Its arc caps are 2-3 night caps; at 4+ nights it
-    is the leave-out on every tracklet.)
+    which rides in the regular search's seed).  At 4+ nights the scorers judge it alone, as
+    any other; when none can score it (outside every scorer's scope,
+    :data:`itf.linkscore.NO_VERDICT`, or none installed) it is reported :data:`UNJUDGED` --
+    never read as clean, and never handed to the 2-3 night guard, which at 4+ nights kept
+    only 27 of 44 true linkages.
 
     ``combined`` is all the linked astrometry, ``unit_text`` the tracklets the guard asks
     to be predicted.  A check that cannot run -- the guard, or a link scorer
@@ -1261,8 +1268,8 @@ def chimera_warnings(combined, unit_text, obscodes, what="ITF tracklet", unvouch
         objections, failed = linkscore.judge(combined, obscodes, verdicts=verdicts)
         out += [CHIMERA_WARNING + w for w in objections]
         out += [CHECK_NOT_RUN + w for w in failed]
-        if nights > 3 and unvouched and not verdicts:
-            guard()
+        if nights > 3 and unvouched and not verdicts and not failed:
+            out.append(UNJUDGED)
     return out
 
 

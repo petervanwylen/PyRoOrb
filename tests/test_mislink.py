@@ -13,8 +13,8 @@ _DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mislink_data")
 
 
 def test_model_has_the_feature_columns_in_order():
-    b = S._model()
-    assert b.num_features() == len(S.FEATURES) == 26
+    assert S.model_problem() is None
+    assert S._model().n_features == len(S.FEATURES) == 26
     assert set(S.DESCRIPTIONS) == set(S.FEATURES)
 
 

@@ -42,7 +42,7 @@ import os
 import numpy as np
 from scipy.optimize import least_squares
 
-from pyroorb.iod import SEED_RERANK_MAX_ARC
+from pyroorb.iod import SEED_RERANK_MAX_ARC, handoff_plunges
 from pyroorb.orbit_common import OPP_GAP_DAYS
 from pyroorb.twobody import quick_aeq
 
@@ -56,7 +56,6 @@ TRACKLET_GAP_DAYS = 0.3      # same-station obs further apart than this start a 
 # --- scan ---------------------------------------------------------------------------------------
 RHO_GEO = (0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0)   # Herget seeds, geocentric au
 R_HELIO = (1.1, 1.6, 2.4, 3.5, 5.0)                 # Vaisala seeds, heliocentric au
-Q_MIN_AU = 0.03              # a seed plunging closer to the Sun is not tried
 ROBUST_SCALE = 3.0           # Cauchy scale, in sigmas
 ROBUST_NFEV = 60             # robust correction budget per seed
 COST_GAIN = 0.9              # a basin is fitted for real only below this x the delivered cost...
@@ -173,8 +172,7 @@ def range_seeds(obs, robs, t0_tdb, rho_geo=RHO_GEO, r_helio=R_HELIO):
             if st is None or not np.all(np.isfinite(st)):
                 continue
             st = np.asarray(_inside_parabola(st), float)
-            q = quick_aeq(st)[2]       # of the seed handed on: slowing a hyperbola lowers q
-            if math.isfinite(q) and q >= Q_MIN_AU:
+            if not handoff_plunges(st):    # of the seed handed on: slowing a hyperbola lowers q
                 out.append((f"{tag} {d:g} au", st))
     return out
 

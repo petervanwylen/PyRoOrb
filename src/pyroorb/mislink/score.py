@@ -1,6 +1,7 @@
 """Mislinkage score of a 3-5 night single-opposition object.
 
-A gradient-boosted classifier (XGBoost, ``model.json``) separates a pure
+A gradient-boosted classifier (trained with XGBoost, ``model.json``; evaluated in numpy
+by ``trees.py``, so scoring needs no model library) separates a pure
 linkage (every tracklet one body) from a chimera (tracklets of two or more
 bodies linked into one designation).  It reads the object's published
 ``obs_sbn`` rows, groups them into tracklets (``tracklets.py``), computes 26
@@ -36,6 +37,11 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 MODEL_PATH = HERE / "model.json"
+#: What the model file was trained on: its features in column order and the md5 of the
+#: exact model file they describe. Written with the model by the rebuild; a model whose
+#: md5 or feature list disagrees is refused, so a reordered or renamed feature can never
+#: be scored in the wrong column.
+META_PATH = HERE / "model.meta.json"
 CANDIDATES_PATH = HERE / "candidates.json"
 
 #: Score at or above which an arc is a likely mislinkage.
@@ -138,24 +144,42 @@ DESCRIPTIONS = {
 }
 
 _lock = threading.Lock()
-_booster = None
+_ensemble = None
 _cache = {}
 #: A cached score is reused this long; published observations change slowly.
 CACHE_SEC = 6 * 3600.0
 
 
+def model_problem(model_path=MODEL_PATH, meta_path=META_PATH):
+    """Why the model file cannot be scored with :data:`FEATURES`, or None."""
+    import hashlib
+    try:
+        meta = json.loads(Path(meta_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as ex:
+        return f"{Path(meta_path).name} unreadable ({type(ex).__name__})"
+    md5 = hashlib.md5(Path(model_path).read_bytes()).hexdigest()
+    if meta.get("model_md5") != md5:
+        return (f"{Path(meta_path).name} describes another model file "
+                f"({meta.get('model_md5')} != {md5})")
+    if list(meta.get("features") or ()) != list(FEATURES):
+        return f"{Path(model_path).name} was trained on other features than FEATURES"
+    return None
+
+
 def _model():
-    global _booster
+    global _ensemble
     with _lock:
-        if _booster is None:
-            import xgboost as xgb
-            b = xgb.Booster()
-            b.load_model(str(MODEL_PATH))
-            if b.num_features() != len(FEATURES):
-                raise RuntimeError(f"{MODEL_PATH.name} has {b.num_features()} features, "
+        if _ensemble is None:
+            from .trees import TreeEnsemble
+            why = model_problem()
+            if why:
+                raise RuntimeError(f"mislinkage model refused: {why}")
+            t = TreeEnsemble(MODEL_PATH)
+            if t.n_features != len(FEATURES):
+                raise RuntimeError(f"{MODEL_PATH.name} has {t.n_features} features, "
                                    f"expected {len(FEATURES)}")
-            _booster = b
-        return _booster
+            _ensemble = t
+        return _ensemble
 
 
 def _num(v):
@@ -174,21 +198,22 @@ def vector(features):
                       for k in FEATURES]], dtype=float)
 
 
-def explain(features):
+def explain_features(features):
     """Score + exact TreeSHAP explanation of one feature dict.
 
     ``base + sum(contributions)`` is the score's log-odds.
     """
-    import xgboost as xgb
     X = vector(features)
-    b = _model()
-    d = xgb.DMatrix(X)
-    p = float(b.predict(d)[0])
-    c = b.predict(d, pred_contribs=True)[0]
+    t = _model()
+    p = float(t.predict(X)[0])
+    c = t.contributions(X[0])
     contrib = [{"feature": k, "value": _num(features.get(k)), "shap": round(float(c[i]), 4)}
                for i, k in enumerate(FEATURES)]
     contrib.sort(key=lambda e: -abs(e["shap"]))
     return {"score": round(p, 4), "base": round(float(c[-1]), 4), "contributions": contrib}
+
+
+explain = explain_features
 
 
 def in_domain(features):
@@ -196,11 +221,13 @@ def in_domain(features):
     return bool(a is not None and a <= 5.5 and (q is None or q >= 1.3))
 
 
-def score_records(rows, desig, obscodes):
+def score_records(rows, desig, obscodes, *, explain=True):
     """Score one object's obs_sbn rows (dicts keyed by ``tracklets.COLUMNS``).
 
     Returns ``{"status": "ok", score, likely, in_domain, explanation, ...}``, or a
-    status naming why the object is outside what the model scores.
+    status naming why the object is outside what the model scores.  ``explain=False``
+    leaves out the TreeSHAP explanation (tens of milliseconds a row in numpy) for a
+    caller that reads only the score.
     """
     from pyroorb.orbit_common import night_index
     from . import features as feat
@@ -248,13 +275,16 @@ def score_records(rows, desig, obscodes):
     f = feat.all_features(trk, by, feat.PoolIndex([]), obscodes)
     if f.get("fit_ok") != 1:
         return {**out, "status": "fit-failed", "error": f.get("fit_err")}
-    ex = explain(f)
-    level, text = verdict(ex["score"])
-    return {**out, "status": "ok", "score": ex["score"], "likely": ex["score"] >= THRESHOLD,
-            "level": level, "verdict": text,
-            "in_domain": in_domain(f), "explanation": ex,
-            "n_tracklets": len(trk), "n_stations": len({t["stn"] for t in trk}),
-            "gaps_days": [_num(f.get(f"gap_g{k}")) for k in (1, 2, 3)]}
+    ex = explain_features(f) if explain else None
+    s = ex["score"] if ex else round(float(_model().predict(vector(f))[0]), 4)
+    level, text = verdict(s)
+    res = {**out, "status": "ok", "score": s, "likely": s >= THRESHOLD,
+           "level": level, "verdict": text, "in_domain": in_domain(f),
+           "n_tracklets": len(trk), "n_stations": len({t["stn"] for t in trk}),
+           "gaps_days": [_num(f.get(f"gap_g{k}")) for k in (1, 2, 3)]}
+    if ex:
+        res["explanation"] = ex
+    return res
 
 
 def records_from_obs(obs, desig):
@@ -297,11 +327,11 @@ def records_from_obs(obs, desig):
     return out, skipped
 
 
-def score_observations(obs, desig, obscodes):
+def score_observations(obs, desig, obscodes, *, explain=True):
     """Score a fit's own observations (pasted / added astrometry), uncached."""
     t0 = time.time()
     rows, skipped = records_from_obs(obs, desig)
-    res = score_records(rows, desig, obscodes)
+    res = score_records(rows, desig, obscodes, explain=explain)
     res.update(source="page", n_skipped=skipped, secs=round(time.time() - t0, 2),
                scored_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     return res
@@ -319,13 +349,15 @@ def fetch_rows(conn, desig):
         cur.close()
 
 
-def score_designation(desig, *, obscodes=None, conn=None):
-    """Score a provisional designation from the SBN replica; cached ``CACHE_SEC``."""
+def score_designation(desig, *, obscodes=None, conn=None, explain=True):
+    """Score a provisional designation from the SBN replica; cached ``CACHE_SEC``.  A cached
+    score made without its explanation is not reused by a caller that asks for one."""
     desig = " ".join(str(desig or "").split())
     if not desig:
         return {"status": "error", "error": "no designation"}
     hit = _cache.get(desig)
-    if hit and time.time() - hit[0] < CACHE_SEC:
+    if (hit and time.time() - hit[0] < CACHE_SEC
+            and not (explain and hit[1].get("status") == "ok" and "explanation" not in hit[1])):
         return hit[1]
     if obscodes is None:
         from pyroorb.obs_sources import load_obscodes
@@ -345,7 +377,7 @@ def score_designation(desig, *, obscodes=None, conn=None):
             c.close()
     else:
         rows = fetch_rows(conn, desig)
-    res = score_records(rows, desig, obscodes)
+    res = score_records(rows, desig, obscodes, explain=explain)
     res["source"] = "published"
     res["secs"] = round(time.time() - t0, 2)
     res["scored_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

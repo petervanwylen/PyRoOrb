@@ -560,10 +560,11 @@ def test_chimera_rule_four_nights_never_asks_the_guard():
     assert g == 0 and ws == []
 
 
-def test_an_unvouched_four_night_link_no_scorer_can_score_gets_the_guard():
+def test_an_unvouched_four_night_link_no_scorer_can_score_is_reported_unjudged():
     """The SR link rode in the regular search's seed: no search gate judged it.  At 4+
-    nights the scorers judge it alone when one gives a verdict (the one rule); when none
-    can, the guard does -- such a link is never left unjudged."""
+    nights the scorers judge it alone (the one rule); when none can, it is reported
+    unjudged -- a not-run warning, never read as clean -- and the 2-3 night guard, which
+    kept 27 of 44 true 4+ night links, is never asked."""
     from pyroorb.itf import linkscore
     lines = _tracklet(1) + _tracklet(3) + _tracklet(6) + _tracklet(9)
     ws, g, s = _rule(lines, measure_ok=False, scorer_says=None, unvouched=True)
@@ -572,11 +573,11 @@ def test_an_unvouched_four_night_link_no_scorer_can_score_gets_the_guard():
     assert g == 0 and ws == [sr.CHIMERA_WARNING + "the model objects"]
     ws, g, s = _rule(lines, measure_ok=False, scorer_says=linkscore.NO_VERDICT,
                      unvouched=True)
-    assert g and s == 1 and len(ws) == 1 and ws[0].startswith(sr.CHIMERA_GUARD_WARNING)
-    ws, g, _s = _rule(lines, measure_ok=True, scorer_says=linkscore.NO_VERDICT, unvouched=True)
-    assert g and ws == []                                    # the guard confirms it
+    assert g == 0 and s == 1 and ws == [sr.UNJUDGED] and sr.not_run(ws[0])
     ws, g, _s = _rule(lines, measure_ok=False, unvouched=True, no_scorer=True)
-    assert g and len(ws) == 1 and ws[0].startswith(sr.CHIMERA_GUARD_WARNING)
+    assert g == 0 and ws == [sr.UNJUDGED]
+    ws, g, _s = _rule(lines, scorer_says=linkscore.NO_VERDICT)   # a link a search gate judged
+    assert g == 0 and ws == []
 
 
 def test_judge_names_the_scorers_that_gave_a_verdict():
