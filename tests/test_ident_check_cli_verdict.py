@@ -88,3 +88,47 @@ def test_the_verdict_names_its_advisory_flags():
     """linkage_verdict returns the flags the batch suffixes read; an early refusal has none."""
     v = ident_check.linkage_verdict(types.SimpleNamespace(n_requested=1))
     assert v["code"] == "no" and not v.get("flags")
+
+
+def _classes(path):
+    return [ln.split("\t")[2] for ln in open(cli._classify_path(str(path)), encoding="utf-8")]
+
+
+def test_a_pair_that_gives_no_answer_is_unknown_never_no(monkeypatch, tmp_path):
+    """A timeout, an error, or a child that died before classifying is a check that did not run:
+    no evidence against the link, so 'unknown', never the lasting 'no' it used to be filed as."""
+    import subprocess
+    out = tmp_path / "ids.txt"
+    answers = iter([subprocess.TimeoutExpired("x", 1), RuntimeError("boom"),
+                    types.SimpleNamespace(stderr="Traceback ...\n")])
+
+    def fake_run(*a, **k):
+        r = next(answers)
+        if isinstance(r, BaseException):
+            raise r
+        return r
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    pairs = [("2001 AB1", "2020 CD2"), ("2001 AB2", "2020 CD3"), ("2001 AB3", "2020 CD4")]
+    cli.run_ident_check(pairs, str(out), {}, pair_timeout=5)
+    assert _classes(out) == ["unknown", "unknown", "unknown"]
+    assert not out.exists() or out.read_text(encoding="utf-8") == ""
+
+
+def test_an_in_process_error_is_unknown(monkeypatch, tmp_path):
+    out = tmp_path / "ids.txt"
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(cli, "_ident_check_one", boom)
+    cli.run_ident_check([("2001 AB1", "2020 CD2")], str(out), {}, pair_timeout=0)
+    assert _classes(out) == ["unknown"]
+
+
+def test_the_pair_budget_covers_the_joint_fit_and_both_solo_fits():
+    assert cli._pair_timeout_sec() == 120.0 + 2 * ident_check.SOLO_MAX_SEC
+
+
+def test_a_y_never_carries_an_except_line():
+    """'y' and 'y2' are a definition: an except: line makes a y2, so no excepted observation is
+    tolerated in a clean match."""
+    assert ident_check.EXCEPT_CLEAN_MAX_OBS == 0

@@ -425,7 +425,9 @@ def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None, perturb
     ------
     ValueError
         ``include`` does not have one entry per observation, keeps fewer observations than
-        the model has parameters, or ``nongrav`` is unknown.
+        the model has parameters, ``nongrav`` is unknown, or the field named by
+        ``perturbers`` does not cover the arc (the extra bodies cover 1900-2100, the 16
+        1800-2200).
     """
     import numpy as _np
     from pyroorb import fit_object as _fo
@@ -454,6 +456,23 @@ def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None, perturb
             asteroids = False
         else:
             raise ValueError(f"perturbers must be 'off', '16' or 'all', not {perturbers!r}")
+        if asteroids:
+            # a field named by the caller is solved in or refused, never relabelled: the
+            # extra bodies cover 1900-2100 and the 16 1800-2200 (with_force_model would
+            # otherwise deliver the covering field under perturber_window)
+            _used, note = _fo._field_for_arc(fit._ctx, asteroids, fit)
+            if note:
+                raise ValueError(f"perturbers={perturbers!r}: the arc ({note['arc']}) leaves "
+                                 f"that field's ephemeris window ({note['window']})")
+    if model != "none" and asteroids != _p.fit_asteroids(fit):
+        # refine_nongrav solves in the fit's own pinned field unless re-bound: perturbers="off"
+        # on a +16 fit solved the coefficients in the 16. Re-bound here, the solve and the
+        # delivered orbit are in the field asked for.
+        import copy as _copy
+        _ev, ctx2 = _fo.with_force_model(fit._ctx, asteroids, fit)
+        rebound = _copy.copy(fit)
+        rebound._ctx = ctx2
+        fit = rebound
     if model == "none":
         out = _fo.refit_force_model(fit, asteroids, mask=mask,
                                     seed=_np.asarray(fit._state, float)[:6], drop_nongrav=True)

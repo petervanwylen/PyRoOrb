@@ -56,3 +56,22 @@ def test_it_never_changes_the_fit(df9):
 def test_an_empty_selection_is_an_error_not_a_number(df9):
     fit, _pairs = df9
     assert "error" in fit.predict_without(lambda o: False)
+
+
+def test_a_selected_observation_the_fit_rejects_is_skipped_not_a_refusal(df9):
+    # one rejected point of a tracklet must not exempt the tracklet from the test: the test
+    # is made on the selected observations the fit keeps, as if only those were selected
+    import copy
+    fit, pairs = df9
+    pair = pairs["0f63ff"]
+    k = next(i for i, o in enumerate(fit._obs)
+             if o.get("obs80_line") and obs_unique_id(o["obs80_line"]) in pair)
+    clipped = copy.copy(fit)
+    clipped._mask = np.array(fit._mask, copy=True)
+    clipped._mask[k] = False
+    whole = warm_predictive(clipped, pair)
+    kept = warm_predictive(clipped, pair - {obs_unique_id(fit._obs[k]["obs80_line"])})
+    assert whole["dof"] == 2 and whole == kept
+    # every selected observation rejected: nothing to test
+    only = {obs_unique_id(fit._obs[k]["obs80_line"])}
+    assert "error" in warm_predictive(clipped, only)

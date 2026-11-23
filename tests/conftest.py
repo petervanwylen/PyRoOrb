@@ -112,6 +112,17 @@ def _no_ambient_sbn_fallback(monkeypatch, request):
 
 
 @pytest.fixture(autouse=True)
+def _no_ambient_link_scorers():
+    """Link scorers (itf.linkscore) are found at run time -- a checkout's registry file can
+    install a model the public tree does not have -- so a search test's warnings would
+    depend on the checkout.  None for every test; a scorer's own tests install one."""
+    from pyroorb.itf import linkscore
+    linkscore.set_for_tests(())
+    yield
+    linkscore.set_for_tests(None)
+
+
+@pytest.fixture(autouse=True)
 def _fresh_rate_limits():
     """The web rate limiter and the wrong-password guards are process-wide state, and
     every test client is 127.0.0.1: without a reset, how many requests a test may make

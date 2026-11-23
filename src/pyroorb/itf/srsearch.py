@@ -5,7 +5,10 @@ Every heliocentric state through it is fixed by two more numbers, the topocentri
 ``rho`` and radial velocity ``rhodot``.  An ITF tracklet measures an attributable too, so the
 seed plus one candidate is 8 numbers for the 6 of a state: the best two-body orbit through
 both leaves a chi2 with 2 degrees of freedom.  That is the linkage test, and the search is
-built around it:
+built around it.  A seed of two or three nights (an arc too short to range) gives its
+attributable from ONE night, its busiest station-night (:func:`seed_night`): a straight line
+has no curvature to carry a position across a day; the other nights are judged by the
+engine fit of every proposal.
 
 1. **Pull the window.**  Every index tracklet within ``window_days`` of the seed, whole sky,
    in one query (a 120-day window is ~100k rows in 2-3 s).
@@ -42,9 +45,8 @@ built around it:
 
 Measured on 480 harness objects and 47 objects whose real ITF tracklets were later
 identified: ~97% / ~89% correct link, ~1% / ~6% wrong.  A link from this search is
-therefore a HYPOTHESIS: it seeds the regular search over the same apparition
-(:func:`sr_then_apparition`), whose own gates -- and, for anything sent, a chimera guard --
-decide.  With nothing of the object in the ITF, the best wrong candidate passes acceptance
+therefore a HYPOTHESIS: it seeds the regular search (:func:`sr_then_itf`), whose own
+gates -- and, for anything sent, a chimera guard -- decide.  With nothing of the object in the ITF, the best wrong candidate passes acceptance
 for over half of all seeds.
 """
 from __future__ import annotations
@@ -259,10 +261,34 @@ def seed_station_ok(obs, obscodes):
     return _ground(stn, obscodes)
 
 
+def seed_night(obs):
+    """The seed observations the attributable is built from: the most-observed station's
+    busiest night (ties: the longer night, then the later).  A straight line through two
+    nights a day apart sits in the daytime gap and misses both: on a synthetic F51 object
+    it missed by 2" at 0.6 au and 40" at 0.03 au while claiming a 0.2"/day rate sigma, and
+    the true tracklet then screened at chi2 1000-12000 against a cut of 50.  The other
+    nights stay in the seed and are judged by every engine fit of a proposal."""
+    stn = Counter(o["obscode"] for o in obs).most_common(1)[0][0]
+    mine = sorted((o for o in obs if o["obscode"] == stn), key=lambda o: o["jd_utc"])
+    nights = [[mine[0]]]
+    for a, b in zip(mine, mine[1:]):
+        if b["jd_utc"] - a["jd_utc"] > GUARD_NIGHT_GAP_DAYS:
+            nights.append([])
+        nights[-1].append(b)
+    return max(nights, key=lambda n: (len(n), n[-1]["jd_utc"] - n[0]["jd_utc"],
+                                      n[0]["jd_utc"]))
+
+
 def seed_attributable(obs, obscodes, cfg):
-    """Weighted linear attributable of the seed's most-observed station at the weighted
-    mean time: x = (ra, dec, ra_dot, dec_dot) (rad, rad/day), its covariance, the
-    station's heliocentric state, and the seed's mean V."""
+    """The attributable of the seed's busiest station-night (:func:`seed_night`)."""
+    return line_attributable(seed_night(obs), obscodes, cfg)
+
+
+def line_attributable(obs, obscodes, cfg):
+    """Weighted linear attributable of ``obs`` (the most-observed station's, if several) at
+    the weighted mean time: x = (ra, dec, ra_dot, dec_dot) (rad, rad/day), its covariance,
+    the station's heliocentric state, and the mean V.  The line has no curvature and its
+    covariance does not grow with the misfit, so ``obs`` must be one night."""
     stn = Counter(o["obscode"] for o in obs).most_common(1)[0][0]
     obs = sorted((o for o in obs if o["obscode"] == stn), key=lambda o: o["jd_utc"])
     jd = np.array([o["jd_utc"] for o in obs])
@@ -692,10 +718,11 @@ def _fit_summary(seed_lines, cand_lines, obscodes, max_sec):
     from .fitter import fit_astrometry
     tr = fit_astrometry("\n".join(seed_lines + cand_lines), obscodes, max_sec=max_sec)
     out = {"ok": bool(tr.ok), "used": tr.used, "count": tr.count,
-           "rms": float(tr.rms) if tr.ok else None}
+           "rms": float(tr.rms) if tr.ok else None, "dropped": []}
     if not tr.ok or tr.fit is None:
         return out
     try:
+        out["dropped"] = sorted(_obs_key(r) for r in tr.fit.excluded_observations())
         rows = tr.fit.residuals(included_only=True)
         z = [(r["d_ra_arcsec"] / r["sigma_ra"], r["d_dec_arcsec"] / r["sigma_dec"])
              for r in rows if r.get("sigma_ra") and r.get("sigma_dec")]
@@ -707,8 +734,62 @@ def _fit_summary(seed_lines, cand_lines, obscodes, max_sec):
     return out
 
 
-def _passes(fit, cfg, n_expected):
-    return (fit["ok"] and fit["count"] >= n_expected and fit["used"] == fit["count"]
+def obs80_lines(obs):
+    """The 80-column lines of observation dicts, a satellite / roving record's second line
+    (``obs80_line2``) after its first."""
+    out = []
+    for o in obs:
+        out.append(o["obs80_line"])
+        if o.get("obs80_line2"):
+            out.append(o["obs80_line2"])
+    return out
+
+
+def _own_detections(seed_lines):
+    from .search import own_detections
+    return own_detections("\n".join(seed_lines))
+
+
+def _own_lines(lines, own):
+    """The candidate lines that are the seed's own detections: the MPC keeps an accepted ITF
+    detection in the ITF table, under its trkSub, while it sits on a NEOCP object, so a seed
+    can be offered its own tracklet back (the regular search refuses it the same way,
+    ``search.own_detections``)."""
+    from .search import own_lines
+    return own_lines(lines, own) if own else []
+
+
+def _obs_key(row):
+    """An observation's identity in a fit's residual rows: station + time to the second."""
+    return row["obscode"], round(row["jd_utc"] * 86400.0)
+
+
+def _seed_rejects(seed_lines, obscodes, max_sec):
+    """The seed observations the seed's own fit rejects."""
+    from .fitter import fit_astrometry
+    tr = fit_astrometry("\n".join(seed_lines), obscodes, max_sec=max_sec)
+    if not tr.ok or tr.fit is None:
+        return frozenset()
+    return frozenset(_obs_key(r) for r in tr.fit.excluded_observations())
+
+
+def _fits_but_drops(fit, cfg, n_expected):
+    """Every test of :func:`_passes` met except that the fit rejected observations."""
+    return (fit["ok"] and fit["count"] >= n_expected and fit["used"] < fit["count"]
+            and fit.get("chi2_dof") is not None and fit["chi2_dof"] <= cfg.accept_chi2_dof
+            and fit.get("max_z", 99.0) <= cfg.accept_max_z)
+
+
+def _passes(fit, cfg, n_expected, pardoned=frozenset()):
+    """Every observation kept -- the seed's own flawed ones (``pardoned``: a seed of two or
+    more nights whose own fit rejects them) excepted: such a seed, often from several
+    stations, carries points like that, and a true link that confirms the rejection is not
+    to blame for it (a real two-night seed's every true proposal failed on one) --
+    chi2/dof <= ``accept_chi2_dof`` and max |z| <= ``accept_max_z``."""
+    kept = fit["used"] == fit["count"] or (
+        fit["count"] - fit["used"] == len(fit.get("dropped") or ())
+        and set(fit.get("dropped") or ()) <= pardoned)
+    return (fit["ok"] and fit["count"] >= n_expected and kept
             and fit.get("chi2_dof") is not None and fit["chi2_dof"] <= cfg.accept_chi2_dof
             and fit.get("max_z", 99.0) <= cfg.accept_max_z)
 
@@ -759,26 +840,27 @@ def sr_search(seed_obs, source, obscodes, cfg=None, log=None):
         return res
     t = time.time()
     db_trksubs = {}
-    try:
-        lines = source.tracklet_obs80(sorted({k for _kind, key, _c in props for k in key}),
-                                      trksubs=db_trksubs)
-    except TypeError:                     # a source without the trksub out-map
-        lines = source.tracklet_obs80(sorted({k for _kind, key, _c in props for k in key}))
-    seed_lines = []
-    for o in seed_obs:
-        seed_lines.append(o["obs80_line"])
-        if o.get("obs80_line2"):
-            seed_lines.append(o["obs80_line2"])
+    lines = source.tracklet_obs80(sorted({k for _kind, key, _c in props for k in key}),
+                                  trksubs=db_trksubs)
+    seed_lines = obs80_lines(seed_obs)
+    own = _own_detections(seed_lines)
     idx = {cid: i for i, cid in enumerate(cand["id"])}
-    passing = []
+    # a single night cannot fix an orbit, so its own fit's rejections mean nothing
+    multi_night = _nights(sorted(o["jd_utc"] for o in seed_obs)) >= 2
+    passing, pardoned = [], None
     for kind, key, chi2 in props:
         cl = [ln for k in key for ln in lines.get(k, [])]
-        if any(len(lines.get(k, [])) < 2 for k in key):
+        why = ("observations not found" if any(len(lines.get(k, [])) < 2 for k in key)
+               else "the seed's own detections" if _own_lines(cl, own) else None)
+        if why:
             res.proposals.append({"kind": kind, "trkids": list(key), "sr_chi2": chi2,
-                                  "fit": None, "why": "observations not found"})
+                                  "fit": None, "why": why})
             continue
         fit = _fit_summary(seed_lines, cl, obscodes, cfg.fit_max_sec)
-        ok = _passes(fit, cfg, len(seed_obs) + len(cl))
+        n_exp = len(seed_obs) + len(cl)
+        if multi_night and pardoned is None and _fits_but_drops(fit, cfg, n_exp):
+            pardoned = _seed_rejects(seed_lines, obscodes, cfg.fit_max_sec)
+        ok = _passes(fit, cfg, n_exp, pardoned or frozenset())
         res.proposals.append({"kind": kind, "trkids": list(key), "sr_chi2": chi2, "fit": fit,
                               "passes": ok})
         if ok:
@@ -816,14 +898,56 @@ def itfitf_check(combined_obs80, trial):
     return mpcrules.check(combined_obs80 or "", fit=trial.fit, rms_arcsec=trial.rms)
 
 
-def short_arc(obs, max_nights=1, max_arc_days=2.0):
-    """True when the astrometry is one night, or nights spanning under ``max_arc_days``:
-    too short to fix a distance, so the single-tracklet search should seed the ITF search."""
+#: a seed longer than this is never fitted for routing: it always fixes a distance (every
+#: seed was determined from 4 days on), and a many-apparition fit can outrun the budget
+ROUTE_MAX_FIT_ARC_DAYS = 180.0
+ROUTE_FIT_MAX_SEC = 20.0
+
+
+def seed_determined(obs80_text, obscodes, max_sec=ROUTE_FIT_MAX_SEC):
+    """True when the seed's own fit fixes a distance (:func:`constraint.assess` finds
+    nothing unconstrained), False when it does not, None when the seed cannot be fitted."""
+    from pyroorb import constraint
+    from .fitter import fit_astrometry
+    try:
+        tr = fit_astrometry(obs80_text, obscodes, max_sec=max_sec)
+        if not tr.ok or tr.fit is None:
+            return None
+        return constraint.assess(tr.fit) is None
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
+def needs_sr(obs, obs80_text, obscodes):
+    """``(use_sr, why)``: does this seed go to the single-tracklet search, or to the regular
+    ITF search?  By whether the seed fixes a distance, never by its length: one night cannot
+    be fitted at all, and a longer seed goes to SR only when its own fit leaves the distance
+    open (or cannot be made).  Measured on 80 real short seeds (discovery tracklet + the
+    follow-up night): 49 were already determined, and there the regular search linked
+    48 / 1 wrong / 0 none against SR's 43 / 2 / 4, with no false link where nothing of the
+    object was in the ITF (SR 2); on the 31 undetermined ones the two found as much
+    (27 vs 26 correct, none wrong) and SR took a quarter of the time where there was nothing
+    to find (median 14 s vs 56 s).  Past 2 days nearly every seed is
+    determined and the regular search is at least as good in every arc bin to 15 days."""
     jds = sorted(o["jd_utc"] for o in obs if o.get("jd_utc") is not None)
     if not jds:
-        return False
-    nights = 1 + sum(b - a > 0.5 for a, b in zip(jds, jds[1:]))
-    return nights <= max_nights or (jds[-1] - jds[0]) < max_arc_days
+        return False, "no timed observations"
+    if _nights(jds) <= 1:
+        return True, "a single night fixes no distance"
+    arc = jds[-1] - jds[0]
+    if arc > ROUTE_MAX_FIT_ARC_DAYS:
+        return False, f"the seed arc ({arc:.0f} d) fixes a distance"
+    det = seed_determined(obs80_text, obscodes)
+    if det is None:
+        return True, f"the seed ({arc:.2f} d) could not be fitted"
+    if det:
+        return False, f"the seed's fit ({arc:.2f} d) fixes a distance"
+    return True, f"the seed's fit ({arc:.2f} d) leaves the distance open"
+
+
+def _nights(sorted_jds):
+    """Nights in sorted times: a new night after a gap over ``GUARD_NIGHT_GAP_DAYS``."""
+    return 1 + sum(b - a > GUARD_NIGHT_GAP_DAYS for a, b in zip(sorted_jds, sorted_jds[1:]))
 
 
 def apparition_config(cfg, seed_jd, half_days=180.0):
@@ -837,52 +961,72 @@ def apparition_config(cfg, seed_jd, half_days=180.0):
                    ephem_steps=int(2 * half_days / cfg.ephem_step_days), archive_start="")
 
 
-def sr_then_apparition(seed_obs, source, obscodes, primary_desigs, itf_cfg, sr_cfg=None,
-                       log=None, **search_kw):
-    """The single-tracklet search, then -- when it links -- the regular ITF search over
-    the seed's apparition, seeded with the seed AND the linked tracklets.  Returns
+def sr_then_itf(seed_obs, source, obscodes, primary_desigs, itf_cfg, sr_cfg=None,
+                log=None, apparition_only=False, **search_kw):
+    """The single-tracklet search, then -- when it links -- the regular ITF search seeded
+    with the seed AND the linked tracklets: over every apparition, or over the seed's alone
+    (``apparition_only``, :func:`apparition_config`: a first step whose multi-apparition
+    search waits until the MPC has accepted what the first one sent).  Returns
     ``(sr_result, itf_result)``; ``itf_result`` is None when the SR stage found nothing.
-    The SR link rides in the regular search's SEED, where its gates do not judge it:
-    a caller that SENDS anything must judge every ITF tracklet itself."""
+    The SR link rides in the regular search's SEED, where its gates do not judge it, and
+    ``itf_result.itf_obs80`` lists only what that search ADDED: the caller judges the
+    whole find -- :func:`link_lines` plus the added tracklets, by
+    :func:`chimera_warnings_short_seed` -- so the regular search attaches no chimera
+    warnings of its own (``chimera_check=False``)."""
     from .search import itf_search
     sr = sr_search(seed_obs, source, obscodes, sr_cfg, log=log)
     if sr.link is None:
         return sr, None
-    lines = []
-    for o in seed_obs:
-        lines.append(o["obs80_line"])
-        if o.get("obs80_line2"):
-            lines.append(o["obs80_line2"])
-    for k in sr.link.trkids:
-        lines.extend(sr.link.lines[k])
-    t0 = min(o["jd_utc"] for o in seed_obs)
-    cfg = apparition_config(itf_cfg, t0)
+    lines = obs80_lines(seed_obs) + link_lines(sr.link)
+    cfg = (apparition_config(itf_cfg, min(o["jd_utc"] for o in seed_obs))
+           if apparition_only else itf_cfg)
     itf = itf_search(source, seed_obs80="\n".join(lines), primary_desigs=list(primary_desigs),
                      cfg=cfg, obscodes=obscodes, verbose=False,
-                     log=log or (lambda *a, **k: None), **search_kw)
+                     log=log or (lambda *a, **k: None), chimera_check=False, **search_kw)
     return sr, itf
 
 
-# ---------------------------------------------------------------------- the chimera guard
+def sr_then_apparition(seed_obs, source, obscodes, primary_desigs, itf_cfg, sr_cfg=None,
+                       log=None, **search_kw):
+    """:func:`sr_then_itf` over the seed's apparition only."""
+    return sr_then_itf(seed_obs, source, obscodes, primary_desigs, itf_cfg, sr_cfg=sr_cfg,
+                       log=log, apparition_only=True, **search_kw)
+
+
+def link_lines(link):
+    """The 80-column lines of an :class:`SrLink`'s tracklets, in link order."""
+    return [ln for k in link.trkids for ln in link.lines.get(k, ())]
+
+
+# ------------------------------------------------------- the 2-3 night chimera guard
 #
 # A link this search finds rides in the regular search's SEED, where nothing judges it, and
 # a weak or bent seed can absorb a foreign tracklet that fits as well as a true one: from
-# wrong seeds, 36 chimeras came back LINKED in 418 hand-offs.  Every caller that shows or
-# sends such a link asks the same guard, two independent tests, both of which must pass:
+# wrong seeds, 36 chimeras came back LINKED in 418 hand-offs.  The 2-3 NIGHT CHIMERA GUARD
+# judges linkages of at most three nights -- never more (see :func:`chimera_warnings`) --
+# with two independent tests, both of which must pass:
 #
 # * ARC CAPS on the whole linked astrometry: a linkage resting on 2 nights must span
-#   <= GUARD_MAX_ARC_2_NIGHTS days, on 3 nights <= GUARD_MAX_ARC_3_NIGHTS.  Every 2- and
-#   3-night chimera measured spanned 8-228 days; a short span leaves too little room for a
-#   foreign tracklet to fit by chance.  One night is never a linkage.
+#   <= GUARD_MAX_ARC_2_NIGHTS days, on 3 nights <= GUARD_MAX_ARC_3_NIGHTS (the MPC's own
+#   three-night limit for an ITF-to-ITF identification).  Every 2- and 3-night chimera
+#   measured spanned 8-228 days; a short span leaves too little room for a foreign tracklet
+#   to fit by chance.  One night is never a linkage.
 # * LEAVE-OUT on every judged tracklet: refit WITHOUT it (``leaveout.measure``) and the rest
 #   must PREDICT it -- the prediction informative (1-sigma <= GUARD_MAX_SIGMA_ARCSEC) and the
 #   tracklet within GUARD_MISS_SIGMAS of it (floor GUARD_MISS_FLOOR_ARCSEC), from >= 2
-#   observations.  The caps cannot see 4+ night chains (2 of 41 chimeras passed them); this
-#   can.  The strict leave-out bar (1-sigma <= 2") kept 9 of 49 true linkages, this relaxed
-#   one 28 of 49, with 0 of 41 chimeras through either (a 30" cap let one through).
+#   observations.
 #
-# What a refusal costs is the caller's: the NEOCP monitor never auto-submits it, the web
-# shows it as a caution the user must acknowledge before submitting.
+# Why not at 4+ nights: on 95 saved hand-offs the leave-out kept 27 of 44 true 4+ night
+# linkages where the MPC minimums and the fit's residual verdict kept 40, for ONE chimera
+# those let through (and perhaps not even that: its "foreign" tracklet sits ~3" from the
+# object's own orbit, so it may be the object's own high-residual measurements); on thousands of selected chimeras (a real core plus every foreign
+# tracklet inside its 3-sigma prediction) residuals and photometry let 1 of 2382 four-night
+# chimeras through.  A 4+ night linkage is judged by the search's own gates and the link
+# scorers (:mod:`itf.linkscore`) alone.
+#
+# What a guard objection costs is the caller's: it is a WARNING on the linkage (shown,
+# acknowledged before a person submits), and the NEOCP monitor never auto-submits a linkage
+# carrying one.
 
 GUARD_MAX_ARC_2_NIGHTS = 4.0
 GUARD_MAX_ARC_3_NIGHTS = 15.0
@@ -907,6 +1051,14 @@ def _line_jd(line):
     return mpc80_to_radec(line)[0]
 
 
+def _ut_label(jd_utc):
+    """``YYYY-MM-DD hh:mm UT`` for a message a person reads -- never a raw JD."""
+    from datetime import datetime, timedelta
+    t = datetime(1858, 11, 17) + timedelta(days=float(jd_utc) - 2400000.5)
+    t = (t + timedelta(seconds=30)).replace(second=0, microsecond=0)
+    return t.strftime("%Y-%m-%d %H:%M UT")
+
+
 def linkage_shape(obs80_text):
     """``(nights, arc_days)`` of 80-column astrometry: nights are runs of observations
     closer than ``GUARD_NIGHT_GAP_DAYS``; arc = last - first observation."""
@@ -921,8 +1073,7 @@ def linkage_shape(obs80_text):
     if not jds:
         return 0, 0.0
     jds.sort()
-    nights = 1 + sum(b - a > GUARD_NIGHT_GAP_DAYS for a, b in zip(jds, jds[1:]))
-    return nights, jds[-1] - jds[0]
+    return _nights(jds), jds[-1] - jds[0]
 
 
 def caps_problem(nights, arc_days):
@@ -974,11 +1125,29 @@ def leaveout_confirmed(m):
                                                            GUARD_MISS_SIGMAS * smaj)
 
 
-def chimera_guard(combined, unit_text, obscodes, measure=None, what="ITF tracklet"):
-    """``(ok, why)``: the arc caps on ``combined`` (all the linked astrometry), then the
-    relaxed leave-out on every tracklet of ``unit_text``."""
-    if measure is None:
-        from .leaveout import measure
+def _leaveout_why(m):
+    """Why ``leaveout_confirmed(m)`` is False, worded for a person: which test failed.
+    A loose prediction is not a miss -- the rest of the linkage simply cannot vouch."""
+    smaj, miss = m.get("smaj"), m.get("miss")
+    if m.get("error") or smaj is None or miss is None:
+        return f"could not be predicted from the rest of the linkage ({m.get('error') or 'no prediction'})"
+    if m.get("n_min", 2) < 2:
+        return "is a single observation: the rest of the linkage cannot check its motion"
+    if smaj > GUARD_MAX_SIGMA_ARCSEC:
+        return (f"cannot be vouched for by the rest of the linkage: its prediction there is too "
+                f"uncertain (1-sigma {smaj:.1f}\", the limit is {GUARD_MAX_SIGMA_ARCSEC:g}\"; "
+                f"it fell {miss:.1f}\" from the prediction)")
+    return (f"is not predicted by the rest of the linkage (missed by {miss:.1f}\", beyond "
+            f"{max(GUARD_MISS_FLOOR_ARCSEC, GUARD_MISS_SIGMAS * smaj):.1f}\" = "
+            f"max({GUARD_MISS_FLOOR_ARCSEC:g}\", {GUARD_MISS_SIGMAS:g} x 1-sigma {smaj:.1f}\"))")
+
+
+def chimera_guard(combined, unit_text, obscodes, what="ITF tracklet"):
+    """``(ok, why)`` of the 2-3 night chimera guard: the arc caps on ``combined`` (all the
+    linked astrometry), then the relaxed leave-out (``leaveout.measure``) on every tracklet
+    of ``unit_text``.  Callers ask :func:`chimera_warnings`, which asks this only of 1-3
+    night linkages."""
+    from . import leaveout
     if not (combined or "").strip() or not (unit_text or "").strip():
         return False, "no linked astrometry to judge"
     why = caps_problem(*linkage_shape(combined))
@@ -988,37 +1157,88 @@ def chimera_guard(combined, unit_text, obscodes, measure=None, what="ITF trackle
     if not units:
         return False, f"no {what} to judge"
     for u in units:
-        m = measure(u, combined, obscodes)
+        m = leaveout.measure(u, combined, obscodes)
         if not leaveout_confirmed(m):
             stn, jd = u[0][77:80].strip(), _line_jd(u[0])
-            detail = m.get("error") or (f"predicted 1-sigma {m.get('smaj', float('nan')):.1f}\", "
-                                        f"missed by {m.get('miss', float('nan')):.1f}\"")
-            return False, (f"the {what} ({stn}, JD {jd:.2f}) is not predicted by the "
-                           f"rest of the linkage ({detail})")
+            return False, f"the {what} ({stn}, {_ut_label(jd)}) {_leaveout_why(m)}"
     return True, None
 
 
-def chimera_guard_result(result, obscodes, measure=None):
-    """``(ok, why)`` for a LINKED regular search result: may its ITF tracklets be used?
-    The leave-out asks only the tracklets the search ADDED (its seed is vouched for by
-    whatever designations it carries)."""
+# ------------------------------------------------- one chimera rule, by night count
+
+#: Every chimera warning starts with this.
+CHIMERA_WARNING = "possible chimera: "
+#: The 2-3 night chimera guard's objection, ahead of its reason.
+CHIMERA_GUARD_WARNING = (CHIMERA_WARNING + "the 2-3 night chimera guard does not confirm "
+                         "this linkage: ")
+#: A chimera check that could not run (the guard or a link scorer raised, a scorer would not
+#: load, the whole check failed) has not confirmed the linkage: a warning that says so. It
+#: says nothing against the linkage, so a sender that trusts a link by default (the
+#: identification queue) does not count it (:func:`not_run`).
+CHECK_NOT_RUN = (CHIMERA_WARNING + "not confirmed, a check could not run: ")
+
+
+def not_run(warning):
+    """True for a :data:`CHECK_NOT_RUN` warning: a check that did not run, not an objection."""
+    return str(warning).startswith(CHECK_NOT_RUN)
+
+
+def chimera_warnings(combined, unit_text, obscodes, what="ITF tracklet"):
+    """The chimera WARNINGS on a linkage (a list, empty when nothing objects), one rule
+    for every surface:
+
+    * 1-2 nights: the 2-3 night chimera guard (:func:`chimera_guard`);
+    * 3 nights: the guard AND the link scorers (:mod:`itf.linkscore`);
+    * 4+ nights: the link scorers alone -- the search's own gates judge the rest.
+
+    ``combined`` is all the linked astrometry, ``unit_text`` the tracklets the guard asks
+    to be predicted.  A check that cannot run -- the guard, or a link scorer
+    (:func:`itf.linkscore.judge`) -- has not confirmed the linkage: a :data:`CHECK_NOT_RUN`
+    warning.  A warning is shown with the linkage and acknowledged before a person submits;
+    it never refuses the linkage by itself."""
+    nights, _arc = linkage_shape(combined)
+    out = []
+    if nights <= 3:
+        try:
+            ok, why = chimera_guard(combined, unit_text, obscodes, what=what)
+        except Exception as ex:                              # noqa: BLE001 -- unconfirmed
+            out.append(CHECK_NOT_RUN + f"the 2-3 night chimera guard ({type(ex).__name__})")
+        else:
+            if not ok:
+                out.append(CHIMERA_GUARD_WARNING + str(why))
+    if nights >= 3:
+        from . import linkscore
+        objections, failed = linkscore.judge(combined, obscodes)
+        out += [CHIMERA_WARNING + w for w in objections]
+        out += [CHECK_NOT_RUN + w for w in failed]
+    return out
+
+
+def chimera_warnings_result(result, obscodes):
+    """:func:`chimera_warnings` for a regular search result: the whole linked astrometry,
+    the guard asking only the tracklets the search ADDED (its seed is vouched for by the
+    designations it carries).  The search's own judgement (``vetting["chimera_warnings"]``)
+    is reused.  No ITF astrometry, nothing to judge: no warning."""
+    cached = (getattr(result, "vetting", None) or {}).get("chimera_warnings")
+    if cached is not None:
+        return list(cached)
     combined = getattr(result, "combined_obs80", "") or ""
     itf = getattr(result, "itf_obs80", "") or ""
-    if not itf.strip():
-        return False, "no linked astrometry to judge"
-    return chimera_guard(combined, itf, obscodes, measure=measure)
+    if not itf.strip() or not combined.strip():
+        return []
+    return chimera_warnings(combined, itf, obscodes)
 
 
-def chimera_guard_short_seed(seed_text, itf_text, obscodes, measure=None):
-    """``(ok, why)`` for a link grown from a seed too short to vouch for anything (this
-    search's hand-off): the caps on the whole linkage and the leave-out on EVERY tracklet,
-    the seed's own included.  A short seed cannot predict an outsider, and a chain of
-    another object's tracklets can vouch for itself (seeded with the wrong first tracklet
-    and nothing of the object in the ITF, the search linked further tracklets of ONE other
-    object); only asking the rest to predict the SEED exposes the outsider."""
+def chimera_warnings_short_seed(seed_text, itf_text, obscodes):
+    """:func:`chimera_warnings` for a link grown from a seed too short to vouch for anything
+    (this search's hand-off): the caps on the whole linkage and the leave-out on EVERY
+    tracklet, the seed's own included.  A short seed cannot predict an outsider, and a chain
+    of another object's tracklets can vouch for itself (seeded with the wrong first
+    tracklet and nothing of the object in the ITF, the search linked further tracklets of
+    ONE other object); only asking the rest to predict the SEED exposes the outsider."""
     if not (itf_text or "").strip():
-        return False, "no ITF tracklet to judge"
+        return [CHIMERA_GUARD_WARNING + "no ITF tracklet to judge"]
     # blank lines dropped, every line kept whole: an OBS80 line is read by column, and an
     # unnumbered or ITF line starts with five blank columns that a .strip() would eat
     combined = "\n".join(_guard_lines(seed_text) + _guard_lines(itf_text)) + "\n"
-    return chimera_guard(combined, combined, obscodes, measure=measure, what="tracklet")
+    return chimera_warnings(combined, combined, obscodes, what="tracklet")

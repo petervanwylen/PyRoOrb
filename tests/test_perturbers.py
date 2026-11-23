@@ -518,3 +518,75 @@ def test_concurrent_table_builds_never_share_a_temporary(monkeypatch, tmp_path):
     assert not errors
     assert len(saved) == len(set(saved))
     assert not list(tmp_path.glob("*.tmp.npy"))
+
+
+@needs_kernel
+def test_a_field_is_labelled_with_what_covers_the_arc():
+    """The extra bodies cover 1900-2100 and a sweep leaving that window runs in the 16
+    (force_assist._fallback_ephem). An orbit whose arc leaves it is pinned and labelled with
+    the field that actually integrates, and says what was asked for (`perturber_window`);
+    before, a "+(19)" label stood on an orbit integrated in the 16."""
+    from pyroorb import fit_object as fo, force_assist as fa
+    ctx = {"backend": fa, "backend_name": "ASSIST(DE440+GR)", "epoch_tdb": _jd(2020),
+           "times_tdb": np.array([_jd(1899), _jd(2020)])}
+    f19 = pt.Field([19])
+    used, note = fo._field_for_arc(ctx, f19, None)
+    assert used is True
+    assert note == {"asked": "ASSIST(DE440+GR+16ast+(19))", "used": "ASSIST(DE440+GR+16ast)",
+                    "arc": "1899-2020", "window": "1900-2100"}
+    ctx["times_tdb"] = np.array([_jd(1950), _jd(2020)])
+    assert fo._field_for_arc(ctx, f19, None) == (f19, None)
+    assert fa.covering_field(False, _jd(1700), _jd(2020)) is False
+
+
+@pytest.mark.slow
+@needs_kernel
+def test_a_radar_orbit_keeps_its_radar_and_is_judged_optically(monkeypatch):
+    """(162385)'s delivered state is the joint radar+optical solution. Compared with an
+    optical-only refit in the new field, its optical chi2 credited the radar's pull to the
+    perturbers (gain 8.74 for the 16, against 0.04 optical-to-optical), and the kept orbit
+    came back without its radar under a stale ``radar_used``. The screen is forced to pick the
+    16 here; on its own it picks nothing for this object."""
+    from pyroorb import fit_object as fo
+    from _fixtures import FIX, load_fixture
+    from pyroorb import obs_sources
+    fx = load_fixture(f"{FIX}/162385.json")
+    g = fo.fit_orbit(fx["obs"], obs_sources.load_obscodes(), desig=fx["meta"]["designation"],
+                     meta=fx["meta"], force=False, auto_nongrav=False)
+    assert g.radar["applied"]
+    monkeypatch.setattr(pt, "screen", lambda fit, *a, **k: pt.Screen({1: (5.0, 0.1, 2451545.0)}, 0.0))
+    f = fo.refine_perturbers(g)
+    assert f.perturber_screen["gain"] < 1.0
+    if f.perturber_screen["kept"]:
+        assert f.asteroids is True and f.radar["applied"]
+        assert f._ctx["meta"]["radar_used"] == g.radar["n_used"]
+
+
+@pytest.mark.slow
+@needs_kernel
+def test_a_screened_field_holds_through_reanchor_refit_and_products():
+    """Fortuna's 2011 pass on 2016 RM33 makes the field observable. Moving the epoch across it
+    in the bare 16 (re-anchor passed asteroids=True, overriding the pin) changed the residuals
+    the re-anchored orbit is evaluated with; refit(perturbers=...) with a non-gravitational
+    model solved in the fit's own field whatever was asked; a product past 2100 ran in the 16
+    without a word."""
+    from pyroorb import fit_object as fo
+    from pyroorb.products import fit_asteroids
+    g = fo.refine_perturbers(_refit("PAIR_2016RM33"))
+    assert g.asteroids == {19} and g.perturber_window is None
+    # re-anchored to 2008, before the 2011 pass: the same trajectory, so the same residuals
+    g2 = fo.reanchor_fit_to_epoch(g, _jd(2008))
+    assert fit_asteroids(g2) == {19}
+    a = np.array([[r["d_ra_arcsec"], r["d_dec_arcsec"]] for r in g.residuals()])
+    b = np.array([[r["d_ra_arcsec"], r["d_dec_arcsec"]] for r in g2.residuals()])
+    assert np.max(np.abs(a - b)) < 0.01
+    # a nongrav refit solves and delivers in the field asked for
+    off = pyroorb.refit(g, nongrav="yarkovsky", perturbers="off")
+    assert fit_asteroids(off) is False and not off.asteroids
+    r16 = pyroorb.refit(g, nongrav="yarkovsky", perturbers="16")
+    assert fit_asteroids(r16) is True and "+(19)" not in r16.force_model
+    assert fit_asteroids(pyroorb.refit(g, nongrav="yarkovsky")) == {19}
+    # a product leaving the field's window says so, on every call
+    for _ in range(2):
+        with pytest.warns(UserWarning, match="leaves the window"):
+            pyroorb.propagate(g, ["2150-01-01"])

@@ -25,6 +25,7 @@ from astropy.time import Time
 from pyroorb.forward_model import los_unit, build_base_sim
 from pyroorb.obs80 import pack_designation, cache_stem
 from pyroorb.iod import initial_orbit, select_subarc, best_seed_subarc
+from pyroorb import arc_extend as _arc_extend_mod
 from pyroorb.arc_extend import (Evaluator, attempt_extensions, _clusters, _stadd, _soft_polish,
                         _hsnap, _clamp, FIT_MIN_OBS, _link_oppositions,
                         auto_reject_within_arc, _final_redeem, _relax_overconfident_obscodes,
@@ -50,6 +51,7 @@ ROOT = Path(__file__).parent
 # ---------------------------------------------------------------------------
 # Orbit fit  (range-search IOD multi-start + LM differential correction)
 # ---------------------------------------------------------------------------
+@_arc_extend_mod.bridge_failure_scope
 def fit_orbit(obs, obscodes, desig="object", meta=None, verbose=False, force=False,
               auto_nongrav=None, _allow_sn_drop=True, mpc_seed=None, center=None,
               auto_center=None):
@@ -275,6 +277,13 @@ def fit_orbit(obs, obscodes, desig="object", meta=None, verbose=False, force=Fal
         if attr is not None:
             return _finalize(attr)
     fit = _fit_from_start(obs, obscodes, desig, meta, verbose)
+    # A SINGLE-APPARITION fit has no stranded or discordant apparition to show that it converged
+    # into a wrong range basin -- rejection makes the wrong minimum self-consistent. The basin
+    # audit reads the symptoms only a converged fit shows and, when they are there, scans the
+    # range axis for a basin that keeps clearly more observations (basinaudit). A no-op on a
+    # multi-apparition arc and on a clean fit.
+    from pyroorb import basinaudit as _basinaudit
+    fit = _basinaudit.audit(fit, verbose=verbose)
     # Auto-recover a poisoned IOD seed (a bad night left a whole apparition unlinked)
     # with the cheap drop-suspect-night screen even without --force -- restoring
     # resilience to a contaminated starting arc. The expensive multi-start stays
@@ -2207,6 +2216,15 @@ def with_force_model(ctx, asteroids, fit=None):
     # a perturbers.Field (the 16 plus extra bodies) is kept as it is; anything else on is True
     asteroids = (asteroids if isinstance(asteroids, frozenset) and asteroids else True) if on \
         else False
+    # The kernel's extra bodies cover 1900-2100 and the 16 1800-2200; a sweep leaving a field's
+    # window runs in the widest field that covers it (force_assist._fallback_ephem). Every
+    # sweep of this orbit spans its observations and epoch, so name THAT field here: pin,
+    # label and `fit.asteroids` then say what integrates, and `perturber_window` records what
+    # was asked for. A "+343ast" label on an orbit integrated in the 16 was the defect.
+    window_note = None
+    if asteroids:
+        used, window_note = _field_for_arc(ctx, asteroids, fit)
+        asteroids = used
     backend = pin(base, asteroids)
     ev = ctx["ev"]
     ev2 = _copy.copy(ev)
@@ -2218,12 +2236,39 @@ def with_force_model(ctx, asteroids, fit=None):
     ctx2["ev"] = ev2
     ctx2["backend"] = backend
     ctx2["asteroids"] = asteroids
-    meta = {k: v for k, v in (ctx.get("meta") or {}).items() if k != "asteroids"}
+    # `radar_used` names a radar solve; an orbit built from this ctx is solved optically until
+    # radar.refine_radar runs on it again, which writes the key back.
+    meta = {k: v for k, v in (ctx.get("meta") or {}).items()
+            if k not in ("asteroids", "perturber_window", "radar_used")}
     if ctx2["asteroids"]:
         meta["asteroids"] = _meta_asteroids(ctx2["asteroids"])
+    if window_note:
+        meta["perturber_window"] = window_note
     ctx2["meta"] = meta
     ctx2["backend_name"] = _force_model_label(ctx, ctx2["asteroids"], fit)
     return ev2, ctx2
+
+
+def _field_for_arc(ctx, asteroids, fit=None):
+    """``(used, note)``: the field every sweep of this ctx's orbit integrates in when
+    `asteroids` is asked for (force_assist.covering_field over the observation times and the
+    epoch), and None or a dict saying what was asked, what runs, and why."""
+    from pyroorb import force_assist as _fa
+    times = np.asarray(ctx.get("times_tdb") if ctx.get("times_tdb") is not None else [], float)
+    epoch = ctx.get("epoch_tdb")
+    pts = list(times) + ([float(epoch)] if epoch is not None else [])
+    if not pts or not is_assist(ctx.get("backend")):
+        return asteroids, None
+    lo, hi = min(pts), max(pts)
+    used = _fa.covering_field(asteroids, lo, hi)
+    if used is asteroids:                 # covering_field returns the asked field itself
+        return asteroids, None
+    w = _fa.field_window(asteroids)
+    note = {"asked": _force_model_label(ctx, asteroids, fit),
+            "used": _force_model_label(ctx, used, fit),
+            "arc": f"{_fa.jd_year(lo)}-{_fa.jd_year(hi)}",
+            "window": None if w is None else f"{_fa.jd_year(w[0])}-{_fa.jd_year(w[1])}"}
+    return used, note
 
 
 # The 16 asteroid perturbers at NONGRAV DELIVERY, gated. A long arc whose aphelion
@@ -4894,12 +4939,16 @@ def reanchor_fit_to_epoch(fit, new_epoch_tdb, mask=None):
     # gravity-only here would move the state through one field and then re-evaluate its
     # residuals and covariance in another -- disagreeing by exactly the perturbation the
     # polish exists to capture, while this function's contract claims the trajectory is
-    # unchanged. `asteroids` is only honoured by the ASSIST backend; the rebound one takes
-    # no such kwarg, so pass it only when the fit actually asked for perturbers.
-    _ast = bool(getattr(fit, "asteroids", False))
+    # unchanged. The field is the fit's OWN (products.fit_asteroids: the pinned one, extra
+    # bodies included): an explicit True overrides the pin, which moved a Fortuna-screened
+    # 2016 RM33 through the bare 16 and then evaluated it with Fortuna. `asteroids` is only
+    # honoured by the ASSIST backend; the rebound one takes no such kwarg, so pass it only
+    # when the fit has perturbers.
+    from pyroorb.products import fit_asteroids
+    _ast = fit_asteroids(fit)
     state1 = backend.predict_state(ctx["fit_base"], old_epoch,
                                    np.asarray(fit._state, float), new_epoch_tdb,
-                                   **({"asteroids": True} if _ast else {}))
+                                   **({"asteroids": _ast} if _ast else {}))
     ev = ctx["ev"]
     ev2 = Evaluator(new_base, new_epoch_tdb, ev.times_tdb, ev.Robs, ev.ra, ev.dec,
                     sigma_ra=ev.sig_ra, sigma_dec=ev.sig_dec,
@@ -5291,6 +5340,31 @@ def discover_nongrav_after_field(fit, obscodes, radar_rows=(), auto_nongrav=None
     return post_discovery_tail(found, obscodes, radar_rows, verbose=verbose)
 
 
+def _radar_input(fit):
+    """``(rows, obscodes)`` of the radar solve this orbit carries, or None when it is optical
+    (no radar, or radar.refine_radar declined it)."""
+    if not (getattr(fit, "radar", None) or {}).get("applied"):
+        return None
+    return (getattr(fit, "_ctx", None) or {}).get("radar_input")
+
+
+def _reapply_radar(f, radar_in, verbose=False):
+    """`f` (optical, rebuilt in a new asteroid field) with its radar solved in again: the
+    perturber steps refit optically, so without this an orbit that had radar left them with
+    none, under a stale ``radar_used``. A radar refine that fails is said on
+    ``nongrav_warning`` and the optical orbit delivered, as post_discovery_tail does."""
+    if radar_in is None or os.environ.get("PYROORB_RADAR", "1") == "0":
+        return f
+    rows, obscodes = radar_in
+    try:
+        import pyroorb.radar as _radar
+        return _radar.refine_radar(f, rows, obscodes, verbose=verbose)
+    except Exception as ex:
+        _ng_warn_on(f, f"the radar refine in the new perturber field did not complete "
+                       f"({type(ex).__name__}: {ex}) -- this orbit is optical only")
+        return f
+
+
 def refine_perturbers(fit, max_iter=6, verbose=False, mode="auto"):
     """Add the asteroid perturbers the observations call for (perturbers.screen), and refit.
 
@@ -5394,14 +5468,23 @@ def refine_perturbers(fit, max_iter=6, verbose=False, mode="auto"):
                 best = (c, s2)
         return best
 
-    old_same = chi2(ev, np.asarray(fit._state, float), mask0)
-    new_same, new_state = refit_on(ev2, (fit._state, state), mask0)
+    # Both sides OPTICAL optima. A radar orbit's state is the joint radar+optical solution,
+    # whose optical chi2 sits above the optical optimum by the radar's pull; set against an
+    # optical-only refit in the new field, that pull was credited to the perturbers, so the
+    # field was kept for the wrong reason and the radar then dropped.
+    radar_in = _radar_input(fit)
+    old_state = np.asarray(fit._state, float)
+    if radar_in is not None:
+        old_same, old_state = refit_on(ev, (fit._state,), mask0)
+    else:
+        old_same = chi2(ev, old_state, mask0)
+    new_same, new_state = refit_on(ev2, (old_state, state), mask0)
     gain = old_same - new_same
     # The same-obs RMS drop (per-axis arcsec) is what a viewer sees when toggling the field off
     # and on; the chi2 gain alone keeps a field whose difference is far below the displayed
     # precision (2011 WK115: gain 2.5 over 1315 obs, RMS 0.0009" lower). Recorded so a surface
     # can tell "kept" from "visibly improved" (ASTEROID_KEEP_RMS, the polish's margin).
-    rms_drop = ev.rms_arcsec(np.asarray(fit._state, float), mask0) - ev2.rms_arcsec(new_state, mask0)
+    rms_drop = ev.rms_arcsec(old_state, mask0) - ev2.rms_arcsec(new_state, mask0)
     if (mask_a & ~mask0).any() and (gain <= 0 or rms_drop <= ASTEROID_KEEP_RMS):
         old_a, old_a_state = refit_on(ev, (fit._state, state), mask_a)
         if gain <= 0:
@@ -5416,6 +5499,7 @@ def refine_perturbers(fit, max_iter=6, verbose=False, mode="auto"):
     if verbose:
         print(f"  perturbers: {fit.force_model} -> {fit2.force_model} (picks {sc.picks}, same-obs "
               f"chi2 gain {gain:.1f}; {int(mask0.sum())} -> {int(mask_a.sum())} obs)")
+    fit2 = _reapply_radar(fit2, radar_in, verbose)
     return done(fit2, kept=True, extras=fit2.extra_perturbers, **info)
 
 
@@ -5449,19 +5533,27 @@ def perturb_with_all(fit, max_iter=6, verbose=False):
         return done(fit, skipped="no extra-perturber kernel")
     cpu0 = time.process_time()
     mask0 = np.asarray(fit._mask, dtype=bool)
+    radar_in = _radar_input(fit)
 
     def chi2(e, st, m):
         return e.rms_norm(st, m) ** 2 * 2 * int(m.sum())
 
+    ev = ctx["ev"]
+    ev2, ctx2 = with_force_model(ctx, new, fit)
+    win = (ctx2.get("meta") or {}).get("perturber_window")
+    if win:
+        # the whole kernel covers 1900-2100; an arc beyond it would integrate in the 16 (or
+        # planets only) under a field the caller asked for by name -- refused, never relabelled
+        return done(fit, skipped=f"the arc ({win['arc']}) leaves the extra-perturber "
+                                 f"window ({win['window']}); it would run in {win['used']}")
+    if not ctx2["asteroids"]:
+        return done(fit, skipped="perturbers unavailable for this object")
     if getattr(fit, "nongrav_model", None):
         fit2 = refine_nongrav(fit, model=fit.nongrav_model, mask=mask0, revert_if_worse=False,
                               seed_state=np.asarray(fit._state, float), asteroids=new)
+        fit2 = _reapply_radar(fit2, radar_in, verbose)
         n = 16 + len(new) - (1 if sp is not None else 0)
         return done(fit2, mode="all", bodies=n, seconds=round(time.process_time() - cpu0, 2))
-    ev = ctx["ev"]
-    ev2, ctx2 = with_force_model(ctx, new, fit)
-    if not ctx2["asteroids"]:
-        return done(fit, skipped="perturbers unavailable for this object")
     ev2.nongrav = None
     mask_a = mask0.copy()
     state = np.asarray(fit._state, float).copy()
@@ -5478,7 +5570,13 @@ def perturb_with_all(fit, max_iter=6, verbose=False):
     fit2 = _build_orbit(ctx2, state, mask_a, result, fit.history)
     gain = None
     if np.array_equal(mask_a, mask0):
-        gain = round(chi2(ev, np.asarray(fit._state, float), mask0) - chi2(ev2, state, mask0), 2)
+        # optical against optical, as refine_perturbers compares (a radar orbit's own state
+        # is the joint solution)
+        old_state = np.asarray(fit._state, float)
+        if radar_in is not None:
+            old_state, _ = ev.fit(old_state[:6].copy(), mask0, thin=False)
+        gain = round(chi2(ev, old_state, mask0) - chi2(ev2, state, mask0), 2)
+    fit2 = _reapply_radar(fit2, radar_in, verbose)
     n = 16 + len(new) - (1 if sp is not None else 0)
     if verbose:
         print(f"  perturbers: all {n} -> {fit2.force_model}"
@@ -7248,6 +7346,11 @@ class FittedOrbit:
         # What refine_perturbers did ({"picks", "top", "seconds", "kept", "gain"} or
         # {"skipped": reason}); None when it did not run.
         self.perturber_screen = None
+        # Set when the field asked for does not cover this orbit's arc (observations and
+        # epoch): {"asked", "used", "arc", "window"} -- the label and `asteroids` name the field
+        # that integrates ("used"). None when the asked field ran.
+        self.perturber_window = (dict(meta["perturber_window"])
+                                 if meta.get("perturber_window") else None)
         self._elem = element_vector(self._state, epoch_tdb)
         self._state_cov = self._compute_state_cov()
         self._elem_cov = self._compute_elem_cov()
@@ -7781,10 +7884,14 @@ class FittedOrbit:
         tracklet 0.3" off its prediction scored at p < 1e-4; floored, the same tracklets read
         p 0.02-0.9, while a tracklet 8.5" off at 1.1" sigmas reads the same either way.
 
+        Only selected observations the fit INCLUDES are left out and scored: one the fit
+        already rejects is out of it, and refusing the whole test for it let a single
+        rejected point exempt its tracklet or night from the test every time.
+
         Returns ``{"chi2", "dof", "p", "miss"}`` (``miss`` the mean offset, arcsec) or
         ``{"error": ...}`` when the test cannot be made: no live evaluator, a
-        non-gravitational state, a selection this fit does not wholly include, or too
-        little left. Never raises, and never changes this fit."""
+        non-gravitational state, no included observation selected, or too little left.
+        Never raises, and never changes this fit."""
         from scipy.stats import chi2 as _chi2
         ctx = getattr(self, "_ctx", None)
         if ctx is None or ctx.get("ev") is None:
@@ -7794,11 +7901,9 @@ class FittedOrbit:
             return {"error": "a non-gravitational state"}
         ev = ctx["ev"]
         base = np.asarray(self._mask, bool)
-        out = np.array([bool(select(o)) for o in self._obs], bool)
+        out = base & np.array([bool(select(o)) for o in self._obs], bool)
         if not out.any():
-            return {"error": "no observation selected"}
-        if not base[out].all():
-            return {"error": "the fit does not include every selected observation"}
+            return {"error": "no included observation selected"}
         rest = base & ~out
         if rest.sum() < 4:
             return {"error": "too little left to fit"}
@@ -8397,6 +8502,8 @@ class FittedOrbit:
             "extra_perturbers": [dict(e) for e in self.extra_perturbers],
             # True in the whole kernel field (perturbers="all"), which names no bodies
             "perturbers_all": self.perturbers_all,
+            "perturber_window": (dict(self.perturber_window) if self.perturber_window
+                                 else None),
             "self_perturber": self.self_perturber,
         }
         for nm in ELEM_NAMES:

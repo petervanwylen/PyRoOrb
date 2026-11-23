@@ -164,15 +164,16 @@ SCORE_SAMPLE = 25     # max obs to evaluate a candidate seed against (it's only 
                       # ranking, not the fit) — keeps IOD O(1) in arc density.
 
 
-def score_orbit(state, base_sim, t0_tdb, obs, Robs):
+def score_orbit(state, base_sim, t0_tdb, obs, Robs, allow_unbound=False):
     """Lower is better; ~RMS in arcsec plus penalties for unphysical orbits.
     Analogue of find_orb's evaluate_initial_orbit(). Evaluated against at most
     SCORE_SAMPLE evenly-spaced obs (this is only a seed *ranking*, so a sample is
-    enough and avoids one propagation per obs on dense arcs)."""
+    enough and avoids one propagation per obs on dense arcs). `allow_unbound` drops only
+    the unbound term (see _rerank_by_corrected_fit)."""
     if not np.all(np.isfinite(state)):
         return 1e9
     a, e, q = quick_aeq(state)
-    penalty = unphysical_penalty(a, e, q)                # unbound / sun-plunging / absurd-a
+    penalty = unphysical_penalty(a, e, q, allow_unbound=allow_unbound)
     if penalty:
         # A degenerate candidate (unbound / sun-plunging / absurd a) is doomed regardless, and
         # INTEGRATING it makes the adaptive stepper crawl toward dt->0 for minutes inside C
@@ -381,11 +382,18 @@ def _rerank_by_corrected_fit(scored, best, base_sim, t0_tdb, sub_obs, sub_R):
             break
     if len(basins) < 2:
         return best                                      # only one basin -> nothing to resolve
+    # A corrected basin is judged on its fit, unbound or not. A near-parabolic orbit (a long-
+    # period comet) seen over a few nights corrects to e slightly above 1 -- e is undetermined
+    # there, and the bound/unbound decision belongs to the full fit's own rules
+    # (fit_object._prefer_bound_ecc). With the unbound penalty here, GS26063 (q 0.67 au,
+    # i 124 deg, 40 obs over 2.2 d) lost to a spurious Atira: corrected 1.24" and 2.51" (e 1.08,
+    # 1.01) against 17.5", and the Atira fit then rejected the discovery night at 100 sigma.
     rer = []
     for sc, m, st, a in basins:
         cst = _correct_seed(st, base_sim, t0_tdb, sub_obs, sub_R)
         if cst is not None:
-            rer.append((score_orbit(cst, base_sim, t0_tdb, sub_obs, sub_R), m, cst))
+            rer.append((score_orbit(cst, base_sim, t0_tdb, sub_obs, sub_R, allow_unbound=True),
+                        m, cst))
     if not rer:
         return best
     rer.sort(key=lambda x: x[0])
@@ -393,8 +401,26 @@ def _rerank_by_corrected_fit(scored, best, base_sim, t0_tdb, sub_obs, sub_R):
     winner_a = quick_aeq(winner_state)[0]
     different_basin = not (best_a and winner_a and 1.0 / SEED_BASIN_RATIO < winner_a / best_a < SEED_BASIN_RATIO)
     if winner_score < best_score and different_basin:
-        return winner_state, winner_method, winner_score
+        return _inside_parabola(winner_state), winner_method, winner_score
     return best
+
+
+PARABOLA_SPEED = 0.999      # fraction of the local escape speed an unbound seed is handed on at
+
+
+def _inside_parabola(state):
+    """An unbound seed moved just inside the parabola: same position and direction of motion,
+    speed PARABOLA_SPEED x escape (a ~ 500 r). Every later stage scores an unbound state as
+    unphysical until the arc has shown no bound orbit fits (arc_extend._score), so the seed must
+    start bound; the full fit is then free to move e as far as its own rules allow. A bound
+    state is returned unchanged."""
+    a, e, _ = quick_aeq(state)
+    if a > 0 and e < 1.0:
+        return state
+    r = float(np.linalg.norm(state[:3]))
+    v = np.asarray(state[3:], float)
+    vesc = math.sqrt(2.0 * MU_SUN / r)
+    return np.concatenate([state[:3], v * (PARABOLA_SPEED * vesc / float(np.linalg.norm(v)))])
 
 
 def _seed_for_subarc(s_idx, e_idx, obs, times, rhohats, Robs, base_sim, t0_tdb, rerank=False):

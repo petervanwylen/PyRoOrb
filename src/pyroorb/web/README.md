@@ -210,10 +210,11 @@ Two rules keep it that way, both asserted by `tests/test_pane_controls.js`:
   "2 oppositions, one of them a single night" and "possible linkage (not
   submittable)" instead. Presentation only — `itf/` and the CLI keep the
   numbers.
-- **A seed too short to fix a distance** — one night, or nights spanning under 2 days
-  (`itf.srsearch.short_arc`) — makes the same "Search ITF" button run the
-  single-tracklet search first and, on a link, the regular search over the seed's
-  apparition (`itf.srsearch.sr_then_apparition`); any longer arc runs the regular search
+- **A seed that fixes no distance** — one night, or a seed whose own fit leaves the
+  distance open, whatever its length (`itf.srsearch.needs_sr`) — makes the same "Search ITF"
+  button run the single-tracklet search first and, on a link, the full ITF search from the
+  seed and that link (`itf.srsearch.sr_then_itf`; only the NEOCP monitor bounds it to the
+  seed's apparition); a seed that fixes a distance, however short, runs the regular search
   as before. The `itf` block says which ran (`mode` "regular" / "single_tracklet",
   `mode_note`, the `sr` block; `engine_api._with_mode`), the tracklets the first stage
   linked are listed, fitted and named as ITF lines like any other (`stage:

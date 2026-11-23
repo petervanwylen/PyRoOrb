@@ -485,10 +485,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(411, {"ok": False, "error": "send the request body with a "
                              "Content-Length; Transfer-Encoding is not accepted"})
             return False
-        if addons.declared_length(self.headers) is None:
+        n = addons.declared_length(self.headers)
+        if n is None:
             self.close_connection = True
             self._send(400, {"ok": False, "error": "bad Content-Length header"})
             return False
+        if n and self.command != "POST":
+            # only POST reads a body: any other method's would be parsed as the next request
+            self.close_connection = True
         return True
 
     def log_message(self, fmt, *args):  # quieter console

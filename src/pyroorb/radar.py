@@ -593,6 +593,7 @@ def refine_radar(fit, radar, obscodes, verbose=False):
     # rows as the covariance source
     ctx2 = dict(ctx)
     ctx2["meta"] = {**(ctx.get("meta") or {}), "radar_used": int(included.sum())}
+    ctx2["radar_input"] = (list(radar), obscodes)      # a later re-solve re-applies it
     result = SimpleNamespace(x=state, fun=lsq.fun, jac=lsq.jac, success=True,
                              status=1, nfev=lsq.nfev,
                              cost=0.5 * float(np.dot(lsq.fun, lsq.fun)))
@@ -772,6 +773,7 @@ def _refine_radar_nongrav(fit, radar, obscodes, verbose=False):
     params_before = dict(getattr(fit, "nongrav_params", None) or {})
     ctx2 = dict(ctx)
     ctx2["meta"] = {**(ctx.get("meta") or {}), "radar_used": int(included.sum())}
+    ctx2["radar_input"] = (list(radar), obscodes)      # a later re-solve re-applies it
     result = SimpleNamespace(x=p, fun=lsq.fun, jac=lsq.jac, success=True,
                              status=1, nfev=lsq.nfev,
                              cost=0.5 * float(np.dot(lsq.fun, lsq.fun)))

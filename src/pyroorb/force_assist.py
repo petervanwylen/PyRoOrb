@@ -640,6 +640,33 @@ def _window_covers(w, lo, hi):
     return lo >= w[0] + 1.0 and hi <= w[1] - 1.0
 
 
+def field_window(field):
+    """(jd_lo, jd_hi) TDB that the ephemeris of asteroid field `field` covers, or None when
+    it is not bounded by a compacted kernel (planets only, or sb441-n16)."""
+    from pyroorb import perturbers as _pt
+    return _pt.window(get_ephem(field)) if field else None
+
+
+def covering_field(field, lo, hi):
+    """The field a sweep over [lo, hi] (JD TDB) actually integrates in when `field` is
+    asked for: `field` itself when its ephemeris covers the span, else the 16 (True) when
+    theirs does, else False (planets only) -- the same choice _fallback_ephem makes per sweep,
+    so a caller can label an orbit with the field that ran rather than the one it asked for."""
+    if not field:
+        return False
+    w = field_window(field)
+    if w is None or _window_covers(w, lo, hi):
+        return field
+    if isinstance(field, frozenset):
+        return covering_field(True, lo, hi)
+    return False
+
+
+def jd_year(jd):
+    """Calendar year (decimal, rounded to whole) of a JD, for messages."""
+    return f"{2000 + (float(jd) - 2451545.0) / 365.25:.0f}"
+
+
 _FALLBACK_SAID = set()
 _FALLBACK_LOCK = threading.Lock()
 

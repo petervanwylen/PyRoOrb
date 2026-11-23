@@ -19,6 +19,9 @@
       (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   }
   const num = (v, d) => (v == null || !isFinite(v) ? "–" : Number(v).toFixed(d));
+  // A UTC JD as "YYYY-MM-DD hh:mm:ss UTC": dates a person reads are never raw JDs.
+  const utc = (jd) => new Date((jd - 2440587.5) * 86400000).toISOString()
+    .slice(0, 19).replace("T", " ") + " UTC";
 
   function sexa(raDeg, decDeg) {
     let h = ((raDeg % 360) + 360) % 360 / 15;
@@ -61,7 +64,7 @@
   function renderField(res) {
     const [ra, dec] = sexa(res.ra, res.dec);
     let html = `<div class="panel"><b>${res.objects.length}</b> object(s) within ${res.radius_arcmin}' of ` +
-      `${ra} ${dec} at JD ${res.time_utc.toFixed(5)} UTC, station ${esc(res.obscode)}`;
+      `${ra} ${dec} at ${utc(res.time_utc)}, station ${esc(res.obscode)}`;
     (res.notes || []).forEach((n) => { html += `<div class="notes">note: ${esc(n)}</div>`; });
     if (res.objects.length) html += objectTable(res.objects, false);
     $("results").innerHTML = html + "</div>";

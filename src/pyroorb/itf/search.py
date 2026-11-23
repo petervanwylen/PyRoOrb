@@ -89,7 +89,7 @@ from .fitter import (fit_astrometry, seed_perturbers, drop_offending, residuals_
                      subset_included, worst_mag_residual, mag_outlier_tracklet,
                      screen_candidate, per_axis,
                      SCREEN_REJECT, SCREEN_PLAUSIBLE)
-from .linkage import (build_linkage, submit_linkage, collect_ids, db_trksubs,
+from .linkage import (build_linkage, submit_linkage, delivered, collect_ids, db_trksubs,
                       line_designation, line_identifier, comet_refusal)
 from . import anchor, gatelog, gatestats, mpcrules
 from .obsreg import AdesRegistry
@@ -380,6 +380,28 @@ def _choose(cfg, result):
     return alt
 
 
+def _attach_chimera_warnings(result, obscodes, log=print):
+    """Add the chimera warnings (:func:`srsearch.chimera_warnings_result`) to a result
+    that shows ITF astrometry -- a linkage or a reviewable possible -- and record them in
+    ``vetting["chimera_warnings"]`` so a caller asking again reuses this judgement.  A
+    check that cannot run is itself a warning (:data:`srsearch.CHECK_NOT_RUN`), this whole
+    check failing included: a sender then sees an unjudged result as one."""
+    if (result is None or not getattr(result, "reviewable", False)
+            or not (result.itf_obs80 or "").strip()):
+        return
+    from . import srsearch
+    try:
+        found = srsearch.chimera_warnings_result(result, obscodes)
+    except Exception as ex:                                  # noqa: BLE001 -- unconfirmed
+        log(f"chimera check not run ({type(ex).__name__}: {ex})")
+        found = [srsearch.CHECK_NOT_RUN + f"the chimera check ({type(ex).__name__})"]
+    result.vetting = dict(result.vetting or {})
+    result.vetting["chimera_warnings"] = list(found)
+    for w in found:
+        if w not in result.warnings:
+            result.warnings.append(w)
+
+
 def alternative_note(result):
     """One line naming the result the search held besides ``result`` (its
     ``alternative``), for a command-line report; "" when there is none."""
@@ -428,6 +450,8 @@ class SearchContext:
     prior_ids: set | None = None
     # packed/unpacked designations that ARE the seed object (own_designations)
     own_desigs: set = field(default_factory=set)
+    # the seed's detections by station, (jd, ra, dec) in degrees (own_detections)
+    own_dets: dict = field(default_factory=dict)
     # ADES fields the 80-column rendering can't hold, keyed by line identity;
     # every fit in the search is enriched through it (itf/obsreg.py)
     registry: object = None
@@ -470,6 +494,9 @@ class SearchContext:
     # verdict: ``(result, doc, trkid_map)``, sent only if that result stands
     # (see _release_held).  None = transmit at once.
     held_transmits: list | None = None
+    # this search judges its own answers by the chimera rule (``itf_search(chimera_check=)``):
+    # also each document it transmits, before it goes
+    chimera_check: bool = True
     # why the one-night show last declined a night that DID link, printed by
     # the rejection ledger instead of "without progress"; None = not asked
     show_refusal: str | None = None
@@ -533,6 +560,69 @@ def _pub_obs80_from_fetch(designations, obscodes, cfg, log=print,
     primaries = (designations if isinstance(designations, (list, tuple))
                  else [designations])
     return "\n".join(lines) + "\n", [str(d) for d in primaries]
+
+
+#: One detection in the seed and in the ITF table: same station, same instant to 2e-5 d (an
+#: OBS80 time is rounded to 1e-5 d, ~0.9 s) and same place to 1.5" (RA rounded to 0.01 s =
+#: 0.15"; a NEOCP object's ADES copy of an accepted ITF line sat 0.2" off it in Dec).
+OWN_DET_TIME_TOL_DAYS = 2.0e-5
+OWN_DET_POS_TOL_DEG = 1.5 / 3600.0
+
+
+def own_detections(pub_obs80):
+    """The seed's detections by station: ``{stn: [(jd_utc, ra_deg, dec_deg), ...]}``.
+
+    The byte identity :func:`obs_unique_id` misses a seed detection whose text was
+    rendered elsewhere: a NEOCP object's ADES copy of an ITF tracklet the MPC accepted
+    onto it differs from the ITF table's line by 0.2" in Dec, carries no designation the
+    table knows (its ``provid`` stays empty until the object is designated), and was
+    offered back to the object as a new tracklet and linked again (P22svsw)."""
+    from pyroorb.obs80 import mpc80_to_radec
+    out = {}
+    for line in (pub_obs80 or "").splitlines():
+        if len(line) < 80 or line[14] in "svr":   # a satellite / roving / radar second line
+            continue
+        try:
+            jd, ra, dec, _stn = mpc80_to_radec(line)
+        except Exception:                          # noqa: BLE001 -- an unreadable line is no detection
+            continue
+        out.setdefault(line[77:80], []).append((float(jd), float(ra), float(dec)))
+    return out
+
+
+def is_own_detection(own_dets, stn, jd, ra, dec):
+    """True when a detection (station, UTC jd, ra/dec degrees) is one of ``own_dets``
+    (:func:`own_detections`)."""
+    from pyroorb.orbit_common import same_detection
+    mine = own_dets.get(stn) if own_dets else None
+    return bool(mine) and any(
+        same_detection(jd, ra, dec, j, r, d, time_tol_days=OWN_DET_TIME_TOL_DAYS,
+                       pos_tol_deg=OWN_DET_POS_TOL_DEG, great_circle=True)
+        for j, r, d in mine)
+
+
+def own_lines(lines, own_dets):
+    """The 80-column ``lines`` that are detections in ``own_dets`` (a satellite / roving
+    second line is never a detection itself)."""
+    from pyroorb.obs80 import mpc80_to_radec
+    out = []
+    for line in lines:
+        if len(line) < 80 or line[14] in "svr":
+            continue
+        try:
+            jd, ra, dec, _stn = mpc80_to_radec(line)
+        except Exception:                          # noqa: BLE001 -- an unreadable line is no detection
+            continue
+        if is_own_detection(own_dets, line[77:80], float(jd), float(ra), float(dec)):
+            out.append(line)
+    return out
+
+
+def _seed_detection(own_dets, row):
+    """True when candidate ``row`` is one of the seed's own detections (:func:`own_detections`)."""
+    return is_own_detection(own_dets, row.get("stn"),
+                            float(row["epoch_sec"]) / 86400.0 + 2440587.5,
+                            row["ra"], row["dec"])
 
 
 def own_designations(pub_obs80, primaries=()):
@@ -675,7 +765,7 @@ def _score_tracklet(ctx, rows, window, likely_bound, own_ids,
     else:
         category = "unlikely"
 
-    # "Ours" three ways.  By OBS80 identity -- the observation is already in
+    # "Ours" four ways.  By OBS80 identity -- the observation is already in
     # the seed.  By DESIGNATION on the line, because the byte-exact identity
     # test misses the seed's own pseudo-ITF rows once the seed is RE-RENDERED
     # (the web UI synthesizes OBS80 from ADES).  And by the DB's provid,
@@ -687,6 +777,10 @@ def _score_tracklet(ctx, rows, window, likely_bound, own_ids,
     if not own_desig:
         own_desig = any(p in ctx.own_desigs
                         for p in (r.get("provid") for r in rows) if p)
+    # And by DETECTION (station, instant, place within tolerance): the seed's copy of a
+    # line may be rendered differently from the table's (own_detections).
+    if not own_desig:
+        own_desig = any(_seed_detection(getattr(ctx, "own_dets", None), r) for r in rows)
     tr = {
         "rows": rows,
         "astrometry": _astro_text(rows),
@@ -4143,11 +4237,16 @@ def _build_and_submit(ctx, result, trial, obs_out, tracklets_all,
 
 
 def _transmit(ctx, result, doc, trkid_map):
-    """Hand ``doc`` to :func:`submit_linkage` (dry-run unless enabled twice)."""
-    result.submitted, note, _mpc_msg = submit_linkage(doc, ctx.cfg,
-                                                   do_submit=ctx.do_submit,
-                                                   log=ctx.log,
-                                                   trkid_map=trkid_map)
+    """Hand ``doc`` to :func:`submit_linkage` (dry-run unless enabled twice).  A real send is
+    judged by the chimera rule first and its warnings logged: they never stop it (whoever
+    asked for the send answers for it), but they are read before it goes, not after."""
+    if ctx.do_submit and ctx.cfg.submit and ctx.chimera_check:
+        _attach_chimera_warnings(result, ctx.obscodes, ctx.log)
+        for w in (result.vetting or {}).get("chimera_warnings") or ():
+            ctx.log(f"WARNING (sent anyway): {w}")
+    sent, note, _mpc_msg = submit_linkage(doc, ctx.cfg, do_submit=ctx.do_submit,
+                                          log=ctx.log, trkid_map=trkid_map)
+    result.submitted = delivered(sent, note)
     result.reason = result.reason or note
 
 
@@ -6082,7 +6181,7 @@ def itf_search_live(designations=None, *, seed_obs80=None, primary_desigs=None,
                     seed_obs=None, seed_records=None, cfg=None,
                     max_uncert_deg=None,
                     uncert_mult=None, do_submit=False, verbose=True, log=print,
-                    trace=None, telemetry=None):
+                    trace=None, telemetry=None, chimera_check=True):
     """One ITF search against the LIVE SBN database, owning the connection
     lifecycle (``connect_pub`` -> ``DbSource`` with reconnect -> close); the
     entry point shared by the CLIs and the web endpoint.  Raises
@@ -6105,7 +6204,7 @@ def itf_search_live(designations=None, *, seed_obs80=None, primary_desigs=None,
                           max_uncert_deg=max_uncert_deg,
                           uncert_mult=uncert_mult, do_submit=do_submit,
                           verbose=verbose, log=log, trace=trace,
-                          telemetry=telemetry)
+                          telemetry=telemetry, chimera_check=chimera_check)
     finally:
         try:
             conn.close()
@@ -6119,7 +6218,7 @@ def itf_search(source, designations=None, *, seed_obs80=None,
                max_uncert_deg=None, uncert_mult=None, extrawidth=0.0,
                do_submit=False, co_credit=None, telemetry=None,
                verbose=True, log=print, collector=None, trace=None,
-               dlog=None):
+               dlog=None, chimera_check=True):
     """Search the ITF for tracklets belonging to a known object.
 
     ``source`` -- a candidate source (:class:`pyroorb.itf.candidates.DbSource`,
@@ -6135,6 +6234,10 @@ def itf_search(source, designations=None, *, seed_obs80=None,
     ``trace`` -- optional detail-feed sink (callable(str) or
     :class:`itf.trace.Tracer`): every decision the search makes is narrated to
     it, elapsed-stamped (the CLI live trace / the web UI "see trace" stream).
+    ``chimera_check`` -- False leaves the chimera warnings to a caller that judges a
+    larger linkage than this search added (the single-tracklet hand-off, whose seed
+    carries tracklets nothing vouched for): each leave-out is a refit, and a judgement
+    of the added tracklets alone would only be replaced.
 
     Returns an :class:`ItfSearchResult`.
     """
@@ -6207,6 +6310,7 @@ def itf_search(source, designations=None, *, seed_obs80=None,
         pub_obs80=pub_obs80,
         pub_ids=obs_ids(pub_obs80),
         own_desigs=own_designations(pub_obs80, primaries),
+        own_dets=own_detections(pub_obs80),
         registry=registry,
         pub=pub,
         perturbers=seed_field,
@@ -6215,6 +6319,7 @@ def itf_search(source, designations=None, *, seed_obs80=None,
         max_uncert_deg=max_uncert_deg,
         uncert_mult=uncert_mult,
         do_submit=do_submit,
+        chimera_check=chimera_check,
         co_credit=co_credit,
         telemetry=telemetry,
         log=log,
@@ -6291,6 +6396,11 @@ def itf_search(source, designations=None, *, seed_obs80=None,
                 result = scanned
     # a linkage and a fuller possible: ItfConfig.prefer picks which leads
     result = _choose(cfg, result)
+    # one chimera rule for every surface, asked once here of each answer the search
+    # gives (srsearch.chimera_warnings): warnings only -- shown with the linkage, never
+    # changing what the search decided or sent (unless the caller judges it, chimera_check)
+    for r in ((result, result.alternative) if chimera_check else ()):
+        _attach_chimera_warnings(r, obscodes, log)
     if result.alternative is not None and tracer.enabled:
         tracer.head(f"two answers kept (prefer={cfg.prefer}): the "
                     f"{'possible' if result.verdict is SearchVerdict.POSSIBLE else 'linkage'}"

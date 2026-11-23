@@ -90,6 +90,31 @@ def fit_asteroids(fit):
     return a if isinstance(a, frozenset) and a else bool(a)
 
 
+def warn_if_outside_field(fit, times_tdb, stacklevel=3):
+    """Warn, on every call, when a product's span leaves the fit's asteroid-field window: the
+    sweep then runs in the widest field that covers it (force_assist._fallback_ephem) -- e.g.
+    a close-approach search past 2100 from a fit with extra bodies runs in the 16 -- and the
+    result must not be read as computed in the fit's own field. (Issued each call; Python's
+    default filter then shows an identical message once per call site, as for any warning.)"""
+    ast = fit_asteroids(fit)
+    t = np.asarray(times_tdb, float).ravel()
+    if not ast or not len(t):
+        return
+    from pyroorb import force_assist as _fa
+    lo = min(float(t.min()), float(fit.epoch_tdb))
+    hi = max(float(t.max()), float(fit.epoch_tdb))
+    used = _fa.covering_field(ast, lo, hi)
+    if used is ast:
+        return
+    import warnings
+    w = _fa.field_window(ast)
+    what = "the 16 asteroid perturbers only" if used else "planets only"
+    warnings.warn(f"{getattr(fit, 'designation', 'orbit')}: {_fa.jd_year(lo)}-{_fa.jd_year(hi)} "
+                  f"leaves the window of the fit's asteroid field ({fit.force_model}: "
+                  f"{_fa.jd_year(w[0])}-{_fa.jd_year(w[1])}); computed in {what}",
+                  UserWarning, stacklevel=stacklevel)
+
+
 def _backend(fit):
     from pyroorb.obs_sources import _force_backend
     backend, _ = _force_backend(fit)
@@ -118,6 +143,7 @@ def _sweep(fit, times_tdb, nongrav, stm):
     steps and `cov` the ``(p, p)`` covariance over the same parameters (None without `stm`)."""
     from pyroorb.ephemerides import linear_parameters
     t = np.asarray(times_tdb, float).ravel()
+    warn_if_outside_field(fit, t, stacklevel=4)
     order = np.argsort(t)
     s0 = np.asarray(fit.state(), float)[:6]
     pair, free, cov = linear_parameters(fit, nongrav) if stm else (_nongrav(fit, nongrav), [], None)

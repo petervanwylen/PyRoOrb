@@ -587,12 +587,12 @@ def serialise_fit(fit):
                    "trace are shown; the elements and the 3D view are not meaningful. Check the "
                    "per-night residuals, or add observations.")
 
-    # Systematic-misfit flag: a within-apparition residual TREND that an otherwise
-    # clean overall rms hides -- the tell of a wrong linkage / contaminated
-    # apparition. Returns a short description past the operational threshold, else
-    # None. The front end paints the O-C pane title red when this is set.
+    # Residual-systematics flag: an apparition whose nights trend, or mostly sit
+    # coherently off the orbit, under an otherwise clean overall rms
+    # (ident_check.residual_warning). A short description, else None. The front end
+    # paints the O-C pane title red and shows the banner when this is set.
     try:
-        systematic = ident_check.systematic_misfit(fit)
+        systematic = ident_check.residual_warning(fit)
     except Exception:
         systematic = None
 
@@ -2458,30 +2458,24 @@ WEB_RIVAL_COUNT_K = 6
 #: reasons it fell short follow this text.
 SR_REVIEW_ONLY = ("found by the single-tracklet search: shown for review, not submittable "
                   "(it does not meet the ITF-to-ITF submission minimums: ")
-#: The caution a single-tracklet find carries when the chimera guard
-#: (:func:`itf.srsearch.chimera_guard_short_seed`) refuses it -- the guard that keeps the
-#: NEOCP monitor from sending the same kind of find.  It joins the result's warnings, so it
-#: is shown as a caution banner and must be acknowledged before the find can be submitted.
-SR_CHIMERA_CAUTION = ("possible chimera: the single-tracklet link is not confirmed by the "
-                      "chimera guard (the tracklets may belong to more than one object): ")
-#: The caution a single-tracklet find carries when the same-apparition search that grew it
-#: judged its own result a possible (0.6).  The find is still judged by the ITF-to-ITF
+#: The caution a single-tracklet find carries when the ITF search that grew it judged its
+#: own result a possible (0.6).  The find is still judged by the ITF-to-ITF
 #: minimums (a single-tracklet find is a hypothesis the regular search's seed tests cannot
 #: vouch for either way), but the regular search's reason must not vanish: it joins the
 #: warnings, so the user reads and acknowledges it before submitting.
-SR_APPARITION_CAUTION = ("the same-apparition search judged this linkage only a possible "
-                         "(0.6): ")
+SR_SEARCH_CAUTION = ("the ITF search that grew this find judged it only a possible "
+                     "(0.6): ")
 
 
-def _sr_guard_caution(seed_text, itf_text, obscodes):
-    """The :data:`SR_CHIMERA_CAUTION` warning for a single-tracklet find the chimera guard
-    refuses, else None.  A guard that cannot run counts as a refusal."""
+def _sr_chimera_cautions(seed_text, itf_text, obscodes):
+    """The chimera warnings on a single-tracklet find
+    (:func:`itf.srsearch.chimera_warnings_short_seed`: the 2-3 night chimera guard at 1-3
+    nights, asking every tracklet, the seed's own included; the link scorers at 3+ nights)
+    -- the rule that keeps the NEOCP monitor from sending the same kind of find.  They join
+    the result's warnings, so they are shown as caution banners and must be acknowledged
+    before the find can be submitted."""
     from pyroorb.itf import srsearch
-    try:
-        ok, why = srsearch.chimera_guard_short_seed(seed_text, itf_text, obscodes)
-    except Exception as ex:                                  # noqa: BLE001
-        ok, why = False, f"the guard could not run ({type(ex).__name__})"
-    return None if ok else SR_CHIMERA_CAUTION + str(why)
+    return list(srsearch.chimera_warnings_short_seed(seed_text, itf_text, obscodes))
 
 
 def _sr_seed(seed_obs, obs_by_line):
@@ -2499,7 +2493,7 @@ def _sr_seed(seed_obs, obs_by_line):
 
 def _sr_search_live(seed_obs, primaries, cfg, log, trace=None, max_uncert_deg=None,
                     uncert_mult=None):
-    """:func:`itf.srsearch.sr_then_apparition` against the live database, owning the
+    """:func:`itf.srsearch.sr_then_itf` (every apparition) against the live database, owning the
     connection the way :func:`itf.search.itf_search_live` does.  Never submits."""
     from pyroorb.itf import srsearch
     from pyroorb.itf.candidates import DbSource
@@ -2511,7 +2505,7 @@ def _sr_search_live(seed_obs, primaries, cfg, log, trace=None, max_uncert_deg=No
         raise ItfDbUnreachable(str(ex)) from ex
     try:
         source = DbSource(conn, cfg, reconnect=lambda: connect_pub(cfg))
-        return srsearch.sr_then_apparition(
+        return srsearch.sr_then_itf(
             seed_obs, source, _obscodes(), primaries, cfg, log=log,
             max_uncert_deg=max_uncert_deg, uncert_mult=uncert_mult, do_submit=False,
             trace=trace)
@@ -2553,15 +2547,15 @@ def _sr_web_result(sr, itf, seed_text, obscodes, primaries=(), cfg=None):
     """``(result, info)``: the single-tracklet hand-off as ONE search result the page's
     found / not-found paths can show, and the ``sr`` block that says which mode ran.
 
-    The SR-linked tracklets ride in the apparition search's seed, so they are missing from
+    The SR-linked tracklets ride in the ITF search's seed, so they are missing from
     its ``itf_obs80``; they are put back there, which lists them with the linked tracklets,
     fits them with the combined arc and names them as ITF lines in the document preview.
     A find whose whole arc meets the ITF-to-ITF minimums is LINKED with its document
     (:func:`_sr_linkage`), submittable like any linkage; one that does not is a review-only
-    possible (:data:`SR_REVIEW_ONLY` + the rules it failed).  When the apparition stage
+    possible (:data:`SR_REVIEW_ONLY` + the rules it failed).  When the ITF search
     adds nothing, the seed plus the SR link is the find on its own.  Every find is put to
     the chimera guard on the seed plus every linked tracklet; a refusal joins the result's
-    warnings (:func:`_sr_guard_caution`), which the user must acknowledge to submit."""
+    warnings (:func:`_sr_chimera_cautions`), which the user must acknowledge to submit."""
     from dataclasses import replace
     from pyroorb.itf.obs80_fields import split_obs80_long_lines
     from pyroorb.itf.search import ItfSearchResult
@@ -2604,16 +2598,18 @@ def _sr_web_result(sr, itf, seed_text, obscodes, primaries=(), cfg=None):
                     "single-tracklet find meeting the ITF-to-ITF submission minimums", subs)
         return SearchVerdict.POSSIBLE, None, SR_REVIEW_ONLY + why + ")", subs
 
-    def merged(r):
+    def merged(r, trial=None):
         itf_text = sr_text + (r.itf_obs80 or "")
         combined = r.combined_obs80 or (seed_text + itf_text)
-        verdict, doc, why, subs = judged(combined, None, itf_text, r.itf_trksubs)
+        verdict, doc, why, subs = judged(combined, trial, itf_text, r.itf_trksubs)
+        # the find is judged whole here, the seed and every linked tracklet (the
+        # ITF search attached no chimera judgement of its own)
         warns = list(r.warnings or [])
-        caution = _sr_guard_caution(seed_text, itf_text, obscodes)
-        if caution and caution not in warns:
-            warns.append(caution)
+        for caution in _sr_chimera_cautions(seed_text, itf_text, obscodes):
+            if caution not in warns:
+                warns.append(caution)
         if r.verdict == SearchVerdict.POSSIBLE and doc is not None:
-            demoted = SR_APPARITION_CAUTION + (r.reason or "no reason given")
+            demoted = SR_SEARCH_CAUTION + (r.reason or "no reason given")
             if demoted not in warns:
                 warns.append(demoted)
         return replace(r, verdict=verdict, linkage=doc, reason=why, itf_obs80=itf_text,
@@ -2624,11 +2620,11 @@ def _sr_web_result(sr, itf, seed_text, obscodes, primaries=(), cfg=None):
     if (itf is not None and itf.fit is not None
             and itf.verdict in (SearchVerdict.LINKED, SearchVerdict.POSSIBLE)):
         more = len(_trksub_counts(itf.itf_obs80))
-        info["apparition"] = {"outcome": itf.verdict.value, "reason": itf.reason,
+        info["follow_up"] = {"outcome": itf.verdict.value, "reason": itf.reason,
                               "added_tracklets": more}
-        info["note"] = (f"{head}, then same-apparition search: linked {more} more "
+        info["note"] = (f"{head}, then the full ITF search: linked {more} more "
                         f"tracklet(s)" if more else
-                        f"{head}, then same-apparition search: nothing further")
+                        f"{head}, then the full ITF search: nothing further")
         out = merged(itf)
         info["submittable"] = out.linkage is not None
         info["review_reason"] = "" if out.linkage is not None else out.reason
@@ -2637,28 +2633,25 @@ def _sr_web_result(sr, itf, seed_text, obscodes, primaries=(), cfg=None):
                 and alt.verdict in (SearchVerdict.LINKED, SearchVerdict.POSSIBLE)):
             out.alternative = merged(alt)
         return out, info
-    # the apparition stage linked nothing more (or did not run): the find is the seed
+    # the ITF search linked nothing more (or did not run): the find is the seed
     # plus the SR link, fitted here so the page has an orbit to fall back on
     from pyroorb.itf.fitter import fit_astrometry
     why = itf.reason if itf is not None else "not run"
-    info["apparition"] = {"outcome": itf.verdict.value if itf is not None else None,
+    info["follow_up"] = {"outcome": itf.verdict.value if itf is not None else None,
                           "reason": why, "added_tracklets": 0}
-    info["note"] = f"{head}, then same-apparition search: nothing further ({why})"
+    info["note"] = f"{head}, then the full ITF search: nothing further ({why})"
     combined = seed_text + sr_text
     tr = fit_astrometry(combined, obscodes)
     if not tr.ok or tr.fit is None:
         info["note"] = f"{head}, but the combined arc did not fit"
         return ItfSearchResult(verdict=SearchVerdict.NONE, reason=info["note"]), info
-    verdict, doc, reason, subs = judged(combined, tr, sr_text, {})
-    info["submittable"] = doc is not None
-    info["review_reason"] = "" if doc is not None else reason
-    caution = _sr_guard_caution(seed_text, sr_text, obscodes)
-    return ItfSearchResult(
-        verdict=verdict, reason=reason, fit=tr.fit, linkage=doc, itf_trksubs=subs,
-        combined_obs80=combined, itf_obs80=sr_text, warnings=[caution] if caution else [],
+    out = merged(ItfSearchResult(
+        verdict=SearchVerdict.NONE, fit=tr.fit, combined_obs80=combined,
         incomplete_sweep=itf.incomplete_sweep if itf is not None else None,
-        diagnostics=list(itf.diagnostics or ()) if itf is not None else [],
-        telemetry={"obs_count": sum(_trksub_counts(sr_text).values())}), info
+        diagnostics=list(itf.diagnostics or ()) if itf is not None else []), trial=tr)
+    info["submittable"] = out.linkage is not None
+    info["review_reason"] = "" if out.linkage is not None else out.reason
+    return out, info
 
 
 def _with_mode(payload, sr_info):
@@ -2705,10 +2698,10 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
     candidate_source (index|scan), jitter, mag_limit (overrides ItfConfig.mag_limit; omit for
     the engine default), trace_id, trace_level.
 
-    Automatic by arc: when the seed is one night, or nights spanning under 2 days
-    (:func:`itf.srsearch.short_arc`), the corridor has no distance to follow, so the
-    single-tracklet search runs first and, on a link, the regular search continues over the
-    seed's apparition (:func:`itf.srsearch.sr_then_apparition`).  The ``itf`` block says
+    Automatic by determinacy: when the seed fixes no distance -- one night, or a seed whose
+    own fit leaves the distance open (:func:`itf.srsearch.needs_sr`) -- the corridor has no
+    distance to follow, so the single-tracklet search runs first and, on a link, the full ITF search continues from the
+    seed and that link (:func:`itf.srsearch.sr_then_itf`).  The ``itf`` block says
     which ran (:func:`_with_mode`).
 
     ``_searcher(seed_obs80, primaries, cfg)`` and ``_sr_searcher(seed_obs, primaries, cfg,
@@ -2833,21 +2826,20 @@ def itf_search_web(session, options=None, mask_list=None, fit_key=None,
 
     from pyroorb.itf import srsearch
     # a single-tracklet search needs a tracklet: two or more observations of the seed
-    sr_mode = len(seed_obs) >= 2 and srsearch.short_arc(seed_obs)
+    sr_mode, sr_why = (srsearch.needs_sr(seed_obs, seed_obs80, _obscodes())
+                       if len(seed_obs) >= 2 else (False, ""))
     sr_info = None
 
     def _sr_log(msg):
         # every milestone of the hand-off is a stop point: the one between the
-        # single-tracklet stage and the apparition stage is the one that matters
+        # single-tracklet stage and the full ITF search is the one that matters
         _log(msg)
         _deadline.check_cancelled()
 
     try:
         if sr_mode:
             from pyroorb.itf.search import ItfDbUnreachable
-            span = seed_obs[-1]["jd_utc"] - seed_obs[0]["jd_utc"]
-            _log(f"single-tracklet search: the seed arc ({span:.2f} d) is too short to fix "
-                 f"a distance, so statistical ranging seeds the search")
+            _log(f"single-tracklet search: {sr_why}, so statistical ranging seeds the search")
             sr_seed = _sr_seed(seed_obs, parts_of)
             try:
                 if _sr_searcher is not None:
@@ -3264,7 +3256,8 @@ def itf_submit_web(session, acked_warnings=None, _submitter=None, *, name=None, 
         except Exception as ex:
             return {"ok": False, "error": errors.describe(ex),
                     "log": log_lines[-8:]}
-        accepted = bool(sent) and "200" in (status or "")
+        from pyroorb.itf.linkage import delivered
+        accepted = delivered(sent, status)
     if accepted:
         s["itf_linkage"] = None             # prevent a double submission
         s["itf_warnings"] = []

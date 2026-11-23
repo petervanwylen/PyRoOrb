@@ -1453,7 +1453,11 @@ class DbSource:
         ``trksubs``, a dict, is filled with ``{obs_unique_id(line): trksub}`` from the
         database column -- the name a document gives the tracklet (``linkage.db_trksubs``)."""
         out = {}
-        rows = self._retry(lambda: self._obs_for_trkids(list(trkids)))
+        rows = self._obs_for_trkids(list(trkids))            # retried there
+        if rows is self.CANCELLED:
+            # not "no observations": a lookup that did not run must not read as an answer
+            raise RuntimeError("the database gave up on the tracklets' observations "
+                               "(statement timeout)")
         for r in rows or []:
             if r.get("obs80"):
                 out.setdefault(r["trkid"], []).append(r["obs80"])

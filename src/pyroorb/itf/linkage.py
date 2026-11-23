@@ -1063,3 +1063,19 @@ def submit_linkage(doc, cfg, do_submit=False, log=print, trkid_map=None, dedup=T
     if resp.status_code == 200:
         record_submission(doc, cfg, trkid_map=trkid_map, log=log)
     return True, f"{resp.status_code} {resp.reason}", msg
+
+
+def http_status(status):
+    """The HTTP code in a :func:`submit_linkage` status string (``"200 OK"``), or None when
+    the status is not a transmission (a dry run, a refusal, an exception)."""
+    head = str(status or "").split(" ", 1)[0]
+    return int(head) if head.isdigit() else None
+
+
+def delivered(sent, status):
+    """Did the MPC TAKE the document :func:`submit_linkage` sent?  ``sent`` is True as soon
+    as the request went out, whatever came back, so a 500 or a 403 reads like a 200: a
+    transmission counts only on a 2xx.  Every sender asks this one question.  (A 2xx means
+    the MPC accepted the SUBMISSION; its verdict on the identification comes later.)"""
+    code = http_status(status) if sent else None
+    return code is not None and 200 <= code < 300

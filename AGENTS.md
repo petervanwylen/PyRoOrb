@@ -7,7 +7,8 @@ only with a measurement, and update its line here when you do.
 ## Layout (`src/pyroorb/`)
 
 - `fit_object.py` — orchestration, combined objects, `FittedOrbit`; `cli.py` — the command line.
-- `iod.py` — start-arc selection + Gauss/Väisälä/Herget IOD.
+- `iod.py` — start-arc selection + Gauss/Väisälä/Herget IOD; `basinaudit.py` — the post-fit
+  wrong-basin audit of a single-apparition fit.
 - `arc_extend.py` — extension, outlier rejection, cluster activation, single-night dropping.
 - `forward_model.py` / `force_assist.py` — rebound 8-planet and ASSIST (DE440+GR) propagators + batch sweeps.
   `perturbers.py` — the field (the 16 + extra bodies, `Field`) and the screen that fills it;
@@ -67,7 +68,10 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **One link builder, one document wrapper** (`build_linkage(fit=)`,
   `linkage.submission_document`); the `orbit` block rides in every link unless
   `constraint.assess` says undetermined. **No unsigned document exists**
-  (`linkage.header_problem`, `AnonymousDocument`).
+  (`linkage.header_problem`, `AnonymousDocument`). **The MPC took it only on a 2xx**
+  (`linkage.delivered`, asked by every sender): `submit_linkage` returns sent for any answer.
+  A search that transmits (`--itf-submit`) judges each document by the chimera rule first and
+  logs its warnings; they never stop the send.
 - **Nothing submits a 0.6 (`possible`).** Rules that demote to 0.6: seed obs fit
   worse under the link (`warn_rms_factor`); a 1.75→3 confirmation that raised any
   warning (a seed degradation the seed's own extended opposition already carries
@@ -122,7 +126,7 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **A seed at U >= 9 scans the population's orbit first** (`lov_variants.prior_variant`, `popprior.lov_weights`): one variant before the fan's union sweep; a link ends the search, a possible is kept against the fan's result, and the fan otherwise runs as it would have.
 - **Flat field** (`search.flat_field`: best likely P < 0.15, linear corridor): 30 singles and barren-take backtracking at ANY depth, not only depth 0. A take reached by resuming after a barren one never restarts the no-progress clock (`TrialQueue.resumed`).
 - **Terminal LOV fan** (`ItfConfig.terminal_fan`): a linear recursion ending on an orbit still at U >= `variant_corridor_U` scans the LOV fan from it, once per search, only from a take the vet calls reviewable (`_terminal_fan_due`), never inside a variant round (`SearchContext.terminal_fan_done`). A link the take's vet accepts is transmitted only if the fan does not supersede it (`_release_held`).
-- **A single tracklet seeds the ITF by statistical ranging** (`itf/srsearch.py`, `sr_search`): seed + candidate attributable = a 2-dof test over a bound (log rho, rhodot) family; ranked with a vagueness term (a two-observation tracklet's loose rate fits anything) and a capped population prior (where to look only); a pair is accepted in RANKING order, never by lowest engine chi2/dof (6-8 obs vs 6 parameters fit anything), a triplet only at 6-dof chi2 <= `trip_chi2_max`. Its link is a hypothesis: `sr_then_apparition` hands it to the regular search over the seed's apparition, where the link rides in the SEED unjudged -- a sender must judge it: the web submits a find meeting the ITF-to-ITF minimums (`srsearch.itfitf_check` = `mpcrules.check`). ONE chimera guard judges every such link (`srsearch.chimera_guard_short_seed`: arc caps 2 nights <= 4 d / 3 nights <= 15 d + a relaxed leave-out on every tracklet, the seed's own included; `chimera_guard_result` for a regular result's added tracklets): a refusal is never auto-submitted (neocpmon) and is a caution the web user must acknowledge before submitting (`engine_api._sr_web_result`).
+- **A single tracklet seeds the ITF by statistical ranging** (`itf/srsearch.py`, `sr_search`): seed + candidate attributable = a 2-dof test over a bound (log rho, rhodot) family, the seed's attributable from ONE night even when a short arc has two or three (`srsearch.seed_night`: a line through two nights missed by 2-40" under a 0.2"/day sigma and screened every true tracklet out; the other nights are judged by the engine fits, which pardon only what a 2+-night seed's own fit rejects, `srsearch._passes`); ranked with a vagueness term (a two-observation tracklet's loose rate fits anything) and a capped population prior (where to look only); a pair is accepted in RANKING order, never by lowest engine chi2/dof (6-8 obs vs 6 parameters fit anything), a triplet only at 6-dof chi2 <= `trip_chi2_max`; a proposal holding the seed's own detections is never fitted (`search.own_lines`, as the regular search's `own_detections`). It runs only when the seed fixes no distance (`srsearch.needs_sr`: one night, or a seed whose own fit `constraint.assess` calls unconstrained, at any length; a seed past `ROUTE_MAX_FIT_ARC_DAYS` is not fitted): on 80 real short seeds 49 already fixed one, and there the regular search linked 48/1/0 (correct/wrong/none) against SR's 43/2/4. Its link is a hypothesis: `sr_then_itf` hands it to the full ITF search (`sr_then_apparition`, bounded to the seed's apparition, is the NEOCP monitor's first step only), where the link rides in the SEED unjudged -- a sender must judge it: the web submits a find meeting the ITF-to-ITF minimums (`srsearch.itfitf_check` = `mpcrules.check`). ONE chimera rule, by night count, warns on every linkage the ITF shows (`srsearch.chimera_warnings`, attached by the regular search to each answer, `search._attach_chimera_warnings`, and by the single-tracklet find, `chimera_warnings_short_seed`, ONCE -- the search it seeds attaches none, `itf_search(chimera_check=False)`): 1-2 nights the 2-3 night chimera guard (arc caps 2 nights <= 4 d / 3 nights <= 15 d + a relaxed leave-out on every judged tracklet -- the seed's own included for a single-tracklet find, the added ones for a regular result), 3 nights the guard AND the link scorers, 4+ nights the link scorers alone (`itf/linkscore.py`: optional judges found like web add-ons; a guard or scorer that cannot run, or a chimera check that fails, never objects but has not confirmed: a `srsearch.CHECK_NOT_RUN` warning on every surface, which a sender trusting links by default need not count, `srsearch.not_run`). Measured on 95 hand-offs: at 4+ nights the guard kept 27/44 true linkages for one chimera the search's own gates let through. A chimera warning is a warning only: shown, acknowledged before a person submits, blocking only where any warning already blocks.
 - Faint cut `ItfConfig.mag_limit` 23.5 (`--mag-limit`/`--thorough`); UI fetches defaults
   from `/api/itf_defaults`, never hard-codes them. The DEFAULT is deepened per object to
   1 mag past its brightest predicted V since 1995 (`ephem.faint_cut`); a typed cut
@@ -153,24 +157,40 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   ctx): the gated polish starts from the gravity linker's links, too late to undo a refusal.
 - **One identification verdict for every surface** (`ident_check.linkage_verdict`): the web
   UI, `--submit-linkage` and the `--ident-check` batch (`cli._ident_check_one` only renders its
-  code, reason, cautions and `flags` as the classify code and the written record).
+  code, reason, cautions and `flags` as the classify code and the written record). A batch pair
+  that gives no answer (timeout, error, a child that died) is `unknown`, never `no`; its budget
+  is the joint fit's 120 s plus two `ident_check.SOLO_MAX_SEC` solo fits (`cli._pair_timeout_sec`).
+- **'y' carries no except: line; 'y2' carries at least one** (`ident_check.EXCEPT_CLEAN_MAX_OBS`
+  0): an except: line names a WHOLE tracklet with every obs > `EXCEPT_MIN_RESID_ARCSEC` off;
+  anything nearer is bad astrometry kept with the object, and a tracklet the body's own record
+  rejects too (`preexisting_exception`) is set aside where the list is built
+  (`_identify_pass`), so the record, the shape and the code read one list.
 - **An identification is held to the ITF submission floor** (`ident_check.itf_muster_problem`,
   asked by `linkage_verdict`): the MPC night profile (`mpcrules.opp_profile_counts_ok`) and the
   anchor apparition (`anchor.anchor_problem_points`) on the kept observations, NEOs waived
-  (`anchor.is_neo`). Failing it, a 'y' becomes 'y-examine' and nothing is submittable; a real
-  apparition plus a one-night tracklet under another designation otherwise read clean
-  (`tests/test_ident_itf_muster.py`).
+  (`anchor.is_neo`). Failing it, a 'y' or a 'y2' becomes 'y-examine' (a y2's exceptions named in
+  its cautions) and nothing is submittable; a real apparition plus a one-night tracklet under
+  another designation otherwise read clean (`tests/test_ident_itf_muster.py`).
 - **Asteroid perturbers are screened, not gated** (`perturbers.screen`,
   `fit_object.refine_perturbers`): each massive asteroid not in the field is scored by the
   linear chi2 it would remove from ALL observations, rejected ones included (on the included
   ones alone Fortuna's 2016 RM33 deflection scores 15; on all, 1159); at >= 1 it joins (at
   most 8; any pick brings the 16), the refit is warm with redemption/rejection, and kept only on
-  a same-obs chi2 gain. Passes under 0.002 au are taken as an analytic impulse (sampling scored
+  a same-obs OPTICAL chi2 gain, optical optimum against optical optimum (a radar orbit's state
+  is the joint solution: its pull read as perturber gain, 8.74 vs 0.04 for (162385)); a kept
+  field gets the radar solved in again (`fit_object._reapply_radar`, rows kept on the ctx by
+  `radar.refine_radar`). Passes under 0.002 au are taken as an analytic impulse (sampling scored
   a 0.00006 au pass 5 vs a refit gain of 1670). `asteroids` is False / True / `Field` (frozen
   set of extras, truthy); the kernel covers 1900-2100 (the 16 alone 1800-2200, so every
-  asteroid observed since 1801 keeps them on the default install) and a sweep outside a field's
-  window runs wholly in the 16 (sb441-n16, else the kernel's), else planets-only, with a
-  once-per-process warning (`force_assist._fallback_ephem`). It
+  asteroid observed since 1801 keeps them on the default install). An orbit is pinned and
+  labelled with the field that covers its arc (`fit_object._field_for_arc` in
+  `with_force_model`, `force_assist.covering_field`), the asked one recorded as
+  `FittedOrbit.perturber_window`; `perturbers="all"` / `refit(perturbers=...)` refuse an arc
+  the named field does not cover; a product leaving the window warns on every call
+  (`products.warn_if_outside_field`); a sweep outside it runs wholly in the 16 (sb441-n16,
+  else the kernel's), else planets-only (`force_assist._fallback_ephem`). Re-anchoring moves
+  the state in the fit's own field (`products.fit_asteroids`; an explicit True moved a
+  Fortuna-screened 2016 RM33 through the bare 16, 14" off its own residuals). It
   runs after public `fit_orbit`, the CLI, the web fit and identification services'
   identification fits (`itf.fitter.refine_trial`). ITF screens the SEED once per search and,
   when the refit keeps bodies beyond the 16, every trial fit runs in that field
@@ -212,8 +232,18 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **The multi-revolution bridge keeps its lowest-chi2 gluing candidate**, never the first that
   glues (`arc_extend._bridge_far_multirev`): a wrong revolution solution can glue under
   `LINK_NEW_TOL` and rejection then hides it (2008 VC46, `tests/test_multirev_best_candidate.py`).
+  A bridge that failed is not run again within one `fit_orbit` call for the same input
+  (`arc_extend.bridge_failure_scope`: same obs, weights, linked set and target, anchor rms and
+  offset to 0.1%): recovery re-anchors re-asked it unchanged (`tests/test_bridge_failure_record.py`).
 - **IOD long-window rescue** (`iod.rescue_window`): re-seed a catastrophic gap-free window
   > 230 d before extension; any length on a single apparition.
+- **A single-apparition fit is audited for a wrong basin** (`basinaudit.audit`, right after the
+  first fit, `PYROORB_BASIN_AUDIT=0` off): triggered by rms_n > 1.5, > 20% rejected, or (arc
+  <= 90 d) a whole tracklet rejected beyond 7σ; range-spread seeds corrected under a bounded
+  Cauchy loss over ALL obs; a candidate is adopted only with a strict majority of the arc and
+  clearly more obs at <= 1.2x the rms_n (or over a catastrophic fit). Never a random shake:
+  wrong basins of a short arc differ in range (`tests/test_basin_audit.py`).
+- **The fit banner says the orbit has problems, never why** (`ident_check.residual_warning`, web O-C pane and CLI alike): `systematic_misfit`'s spread and trend arms, else nights that mostly sit coherently off the orbit (`offset_nights_misfit`: >= 2 nights and >= half the apparition's, each >= 0.25" and 5 SE off zero; a bare count of two fired on 35-50% of correct long arcs). Banner only: identification verdicts keep their own arms.
 - **No nominal orbit when undetermined** (`constraint.assess`; single tracklets decided by
   the range profile `rangescan.py`, never by U or tracklet count): elements blanked,
   intervals shown, exports refused except ephemeris. "Show anyway" uses the

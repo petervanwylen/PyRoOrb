@@ -73,6 +73,12 @@ def max_days():
     return v
 
 
+def _utc_date(jd_utc):
+    """``YYYY-MM-DD`` for a message a person reads -- never a raw JD."""
+    from datetime import datetime, timedelta
+    return str((datetime(1858, 11, 17) + timedelta(days=float(jd_utc) - 2400000.5)).date())
+
+
 def _too_far(cat, times_utc, limit):
     """Why ``times_utc`` may not be checked against ``cat`` under ``limit`` (days), or None."""
     ep = cat.meta.get("main_epoch")
@@ -81,7 +87,7 @@ def _too_far(cat, times_utc, limit):
     far = float(np.max(np.abs(np.asarray(times_utc, float) - ep)))
     if far <= limit:
         return None
-    return (f"the time is {far:.0f} days from the catalogue's epoch (JD {ep:.1f}); this "
+    return (f"the time is {far:.0f} days from the catalogue's epoch ({_utc_date(ep)}); this "
             f"check is limited to times within {limit:g} days of it")
 
 

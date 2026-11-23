@@ -30,6 +30,9 @@ Residuals are in SIGMAS throughout, normalized per-observation (ADES rmsRA/rmsDe
 or the Veres-2017 lookup, supplied by weights.py); the flat SIGMA_ARCSEC is only the
 fallback when a caller hands the Evaluator no sigmas at all.
 """
+import contextvars as _contextvars
+import functools as _functools
+import hashlib as _hashlib
 import os as _os
 import numpy as np
 import time as _stime
@@ -1700,7 +1703,77 @@ MULTIREV_GAP_REVS = 0.75  # a far apparition this many orbital PERIODS or more f
                           # 2015/2021/2023/2026 single-night tracklets to the dense 2024 arc).
 
 
+# --- FAILED FAR-BRIDGE RECORD (one fit_orbit call) --------------------------------------------
+# A far bridge that failed is asked again, unchanged, by the recovery stage: a short sub-arc
+# anchor inside the apparition the regular fit seeded from extends to the very same apparition
+# fit, then runs the very same bridge. On a two-apparition NEO 28 years apart (a 4-obs
+# tracklet added to a 2026 arc, bridging back to 1998) the second bridge reached the same
+# offset to 2e-5 and failed again: two failed bridges were 206 s of a 238 s fit. A failed
+# bridge returns the anchor state unchanged, so remembering the failure loses nothing when the
+# input is the same: the same observations at the same weights, the same linked set, the same
+# target apparition, and the same anchor solution -- checked by its rms and its offset at the
+# far apparition (epoch-free, unlike the state, which each pass expresses at its own IOD
+# epoch), both to BRIDGE_REPEAT_RTOL. Kept per fit_orbit call (`bridge_failure_scope`): the
+# force model is fixed within one call and nothing outlives it.
+BRIDGE_REPEAT_RTOL = 1e-3
+_BRIDGE_FAILURES = _contextvars.ContextVar("pyroorb_bridge_failures", default=None)
+
+
+def bridge_failure_scope(fn):
+    """Decorator: run ``fn`` with a fresh failed-far-bridge record (see the block above)."""
+    @_functools.wraps(fn)
+    def scoped(*a, **k):
+        token = _BRIDGE_FAILURES.set({})
+        try:
+            return fn(*a, **k)
+        finally:
+            _BRIDGE_FAILURES.reset(token)
+    return scoped
+
+
+def _bridge_key(ev, mask, nbm):
+    """What a far bridge's answer depends on besides the anchor solution, or None when the
+    record does not apply (no scope, or a non-gravitational evaluator)."""
+    if _BRIDGE_FAILURES.get() is None or getattr(ev, "nongrav", None) is not None:
+        return None
+    h = _hashlib.blake2b(digest_size=16)
+    for a in (ev.times_tdb, ev.ra, ev.dec, ev.sig_ra, ev.sig_dec, ev.fit_sig_ra,
+              ev.fit_sig_dec, mask, nbm):
+        h.update(np.ascontiguousarray(a).tobytes())
+    h.update(bytes([bool(getattr(ev, "ident_mode", False))]))
+    return h.hexdigest()
+
+
+def _bridge_failed_before(key, off, anchor0):
+    """True when the record holds a failure for ``key`` at the same anchor rms and offset."""
+    record = _BRIDGE_FAILURES.get()
+    if key is None or record is None:
+        return False
+    return any(abs(off - o) <= BRIDGE_REPEAT_RTOL * max(abs(o), 1e-9)
+               and abs(anchor0 - a) <= BRIDGE_REPEAT_RTOL * max(abs(a), 1e-9)
+               for o, a in record.get(key, ()))
+
+
+def _note_bridge_failure(key, off, anchor0):
+    record = _BRIDGE_FAILURES.get()
+    if key is not None and record is not None:
+        record.setdefault(key, []).append((float(off), float(anchor0)))
+
+
 def _bridge_far_multirev(ev, state, mask, nbm, nb, off, anchor0, full, verbose):
+    key = _bridge_key(ev, mask, nbm)
+    if _bridge_failed_before(key, off, anchor0):
+        if verbose:
+            print(f"   link apparition obs[{nb[0]}..{nb[1]}]: off={off:.1f}\" -> reject "
+                  f"(this bridge already failed from the same anchor solution)")
+        return False, state
+    ok, out = _bridge_far_multirev_run(ev, state, mask, nbm, nb, off, anchor0, full, verbose)
+    if not ok:
+        _note_bridge_failure(key, off, anchor0)
+    return ok, out
+
+
+def _bridge_far_multirev_run(ev, state, mask, nbm, nb, off, anchor0, full, verbose):
     """TIER 2 (expensive, for a genuine multi-revolution gap): the cheap swarm cannot bridge whole
     revolutions, so densely sweep the period for distinct-revolution candidate clones, full-LM each,
     keeping whichever GLUES; fall back to the a-secant / phase / LOV single-axis slides. Returns

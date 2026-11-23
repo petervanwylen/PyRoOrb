@@ -31,7 +31,7 @@ PRIVATE = (
     # their tests
     "tests/private/",
     # never-released material, and the deployment
-    "lab/", "web_addons.txt", "Procfile", "railway.json", "requirements.txt",
+    "lab/", "web_addons.txt", "link_scorers.txt", "Procfile", "railway.json", "requirements.txt",
     # the read/ported/copied log, kept for the record; public modules credit their sources inline
     "PROVENANCE.md",
 )

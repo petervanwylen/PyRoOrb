@@ -252,23 +252,34 @@ def _is_written_match(code):
     return code.split("-")[0] in ("y", "y2") and not code.startswith(("y-examine", "y-systematic"))
 
 
-def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=120):
+def _pair_timeout_sec():
+    """A pair's whole budget: the joint fit's 120 s (the batch's budget before the verdict made
+    solo fits) plus the two solo baseline fits linkage_verdict may now make, each bounded by
+    ident_check.SOLO_MAX_SEC. Under the old 120 s for all three, exactly the long records the
+    pre-existing-fault rule exists for were killed mid-judgement."""
+    from pyroorb import ident_check
+    return 120.0 + 2 * ident_check.SOLO_MAX_SEC
+
+
+def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=None):
     """Batch driver: fit each candidate pair and append clean identifications to `out_path`.
 
-    Each pair runs in its OWN subprocess with a hard `pair_timeout` (seconds). A bogus /
-    chimera pair can spin forever inside an uninterruptible integrator call -- which a
-    Python signal can't break -- so we isolate it in a child process and SIGKILL it on
-    timeout. A timed-out pair is, by definition, not a clean identification, so it is
-    skipped. `pair_timeout=0` runs everything in-process with no timeout.
+    Each pair runs in its OWN subprocess with a hard `pair_timeout` (seconds; default
+    PAIR_TIMEOUT_SEC). A bogus / chimera pair can spin forever inside an uninterruptible
+    integrator call -- which a Python signal can't break -- so we isolate it in a child process
+    and SIGKILL it on timeout. A pair that gives no answer -- timed out, errored, or a child that
+    died before classifying -- is `unknown`, never `no`: a check that did not run is no evidence
+    against the link, and `no` is a lasting non-match. `pair_timeout=0` runs everything
+    in-process with no timeout.
 
     Also writes a companion CLASSIFICATION file next to `out_path` -- one row per pair, in
     input order: `d1<TAB>d2<TAB>code<TAB>secs` (secs = wall-clock for that pair, so a bulk scan
     can surface the slow-non-match tail without re-timing). The code is
     ident_check.linkage_verdict's, the verdict the web UI shows for the same fit:
       * `no`        -- not an identification;
-      * `y`         -- a clean match (at most one excepted obs; a tracklet the body's own
-                       record rejects too is not counted);
-      * `y2`        -- a match needing a clean tracklet exception or two;
+      * `y`         -- a clean match: NO except: line (a tracklet the body's own record
+                       rejects too is its junk astrometry, neither listed nor counted);
+      * `y2`        -- a match needing at least one tracklet exception (except: lines);
       * `y-examine` -- NOT a clean match, but worth a human look: the joint fit retains a
                        strong majority (>= MPC_MIN_RETENTION) of BOTH designations' obs and fits
                        sub-arcsec, or the identification falls short of the ITF submission floor
@@ -280,8 +291,9 @@ def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=120):
                        a note, not a doubt): be skeptical -- a human reviews it; not
                        auto-confirmed. When BOTH sides are SHORT arcs
                        (ident_check.short_arc_systematic) it is a plain `no` instead.
-      * `unknown`   -- the engine could not judge it (or could not render the record of a match):
-                       never written, worth a re-run or a look by hand.
+      * `unknown`   -- the engine could not judge it (no answer within the time budget, an
+                       error, or a record of a match it could not render): never written,
+                       worth a re-run or a look by hand.
     A `y`/`y2` may carry advisory suffixes (still written, flagged for review): `-falsepos?` when
     the match rests on ONE side collapsed to a single sub-day tracklet (ident_check.thin_arc_falsepos
     -- more likely a false positive than a real ID), `-short` when fewer than
@@ -291,6 +303,8 @@ def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=120):
     Only `y` and `y2` (with any advisory suffix) are written to the identifications file;
     `y-examine`/`y-systematic` are flagged here only."""
     import subprocess
+    if pair_timeout is None:
+        pair_timeout = _pair_timeout_sec()
     classify_path = _classify_path(out_path)
 
     def _write_class(d1, d2, code, secs):
@@ -304,9 +318,11 @@ def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=120):
         for d1, d2 in pairs:
             t0 = time.perf_counter()
             try:
-                code = _ident_check_one(d1, d2, out_path, obscodes, force=force) or "no"
+                code = _ident_check_one(d1, d2, out_path, obscodes, force=force) or "unknown"
             except Exception as ex:
-                print(f"[ident-check] {d1} + {d2}: error {str(ex)[:70]}", file=sys.stderr); code = "no"
+                print(f"[ident-check] {d1} + {d2}: error {str(ex)[:70]} -- not judged [unknown]",
+                      file=sys.stderr)
+                code = "unknown"
             _write_class(d1, d2, code, time.perf_counter() - t0)
         print(f"[ident-check] done -> {out_path}  (classification -> {classify_path})", file=sys.stderr)
         return
@@ -320,7 +336,7 @@ def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=120):
                                env=_child_env())
             verdict = next((l for l in r.stderr.splitlines() if l.startswith("[ident-check]")), None)
             code = next((l.split()[-1] for l in r.stderr.splitlines()
-                         if l.startswith("[ident-check-class]")), "no")
+                         if l.startswith("[ident-check-class]")), "unknown")
             if _is_written_match(code):
                 n_match += 1
             elif code.startswith("y-examine"):
@@ -329,12 +345,13 @@ def run_ident_check(pairs, out_path, obscodes, force=False, pair_timeout=120):
                 n_skip += 1
             print(verdict or f"[ident-check] {d1} + {d2}: {code}", file=sys.stderr)
         except subprocess.TimeoutExpired:
-            n_timeout += 1; code = "no"
-            print(f"[ident-check] {d1} + {d2}: TIMEOUT (>{int(pair_timeout)}s) -- skipped (bogus pair?)",
+            n_timeout += 1; code = "unknown"
+            print(f"[ident-check] {d1} + {d2}: TIMEOUT (>{int(pair_timeout)}s) -- not judged [unknown]",
                   file=sys.stderr)
         except Exception as ex:
-            n_err += 1; code = "no"
-            print(f"[ident-check] {d1} + {d2}: error {str(ex)[:70]}", file=sys.stderr)
+            n_err += 1; code = "unknown"
+            print(f"[ident-check] {d1} + {d2}: error {str(ex)[:70]} -- not judged [unknown]",
+                  file=sys.stderr)
         _write_class(d1, d2, code, time.perf_counter() - t0)
     print(f"[ident-check] done: {n_match} identified, {n_examine} examine, {n_skip} no-match, "
           f"{n_timeout} timeout, {n_err} errors -> {out_path}  (classification -> {classify_path})",
@@ -788,7 +805,8 @@ def main():
     ident_check_out = _opt(args, "--ident-check")
     if ident_check_out is not None:
         pairs_file = _opt(args, "--pairs")
-        pair_timeout = float(_opt(args, "--pair-timeout", "120") or 120)
+        _pt = _opt(args, "--pair-timeout")      # default: _pair_timeout_sec(); 0 = in-process
+        pair_timeout = float(_pt) if _pt not in (None, "") else None
         obscodes = load_obscodes()
         if pairs_file:                       # BATCH: one subprocess per pair (hard timeout)
             pairs = _read_pairs(pairs_file)
@@ -1281,16 +1299,16 @@ def main():
             print(f"    {rr['kind']:7s} {Time(rr['jd_utc'], format='jd').iso[:16]}  "
                   f"{_radar.station_name(rr['tx'])}→{_radar.station_name(rr['rx'])}"
                   f"  O-C {resid:+10.3f} {unit} ({rr['z']:+.1f}σ){mark}")
-    # Systematic-residual audit (same check the --ident-check batch uses, here for ANY object): an
-    # acceptable overall RMS can still hide an apparition whose residuals TREND across the arc -- a
-    # contaminated tracklet or a mislink the fit absorbed. Surface it so it isn't taken on faith.
+    # Residual-systematics audit (here for ANY object): an acceptable overall RMS can still hide an
+    # apparition whose nights trend, or mostly sit coherently off the orbit -- an orbit that does not
+    # belong to those nights. Say only that the orbit has problems and where to look; the cause
+    # (wrong linkage, contaminated nights) is for the reader to judge.
     import pyroorb.ident_check as _idc
-    _sys = _idc.systematic_misfit(fit)
+    _sys = _idc.residual_warning(fit)
     if _sys:
         # same sentence the web banner uses (app.js flashFitBanners), so the two surfaces agree
-        print(f"WARNING  : residuals trend instead of scatter -- {_sys}. Nights sitting coherently "
-              f"off the orbit is the usual sign of a wrong linkage or a contaminated night; check "
-              f"the residuals night by night before trusting this orbit")
+        print(f"WARNING  : this orbit has problems -- {_sys}. Look at the residuals night by night "
+              f"(the day-to-day systematics) before trusting it")
     if fit.history:
         stages = " -> ".join(f"{h['stage']}:{h['n_obs']}obs/{h['rms']:.2f}\"" for h in fit.history)
         print(f"arc-ext  : {stages}")

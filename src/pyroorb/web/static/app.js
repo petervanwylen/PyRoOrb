@@ -39,6 +39,13 @@ function jdToDate(jd) {
   const p2 = (n) => String(Math.floor(n)).padStart(2, "0");
   return `${year}-${p2(month)}-${p2(di)} ${p2(hh)}:${p2((hh % 1) * 60)}`;
 }
+// A TDB JD (an element such as Tp) as "YYYY-MM-DD.ddd TDB" with `dp` decimals of the day,
+// rounded BEFORE the split so .9996 cannot print as ".000" of the wrong day.
+function tpDateText(jd, dp) {
+  const k = Math.pow(10, dp), d = Math.round((jd + 0.5) * k) / k;   // days since civil noon
+  const whole = Math.floor(d);
+  return `${jdToDate(whole).slice(0, 10)}${dp ? (d - whole).toFixed(dp).slice(1) : ""} TDB`;
+}
 // Sexagesimal for DISPLAY. RA carries 0.01s of time (~0.15") and Dec 0.1" --
 // one digit finer than they used to be, because these sit in the observations
 // table beside residuals quoted to 0.01", and a Dec rounded to the arcsecond
@@ -200,17 +207,16 @@ function flashFitBanners(p) {
   const wkey = ngWarn ? `${p.object}|${p.nongrav.model}|${ngWarn}` : null;
   if (wkey && wkey !== _ngWarnKey) flashBanner(ngWarn, "warn");
   _ngWarnKey = wkey;
-  // Red: the engine flagged a systematic within-apparition residual trend.
+  // Red: the engine flagged residual systematics (nights trending, or mostly
+  // sitting coherently off the orbit).
   const sys = p.summary && p.summary.systematic;
   const key = sys ? `${p.object}|${sys}` : null;
-  // The engine's phrase names the apparition, axis and the two scales; the
-  // consequence and the next step are said here, once, in the same words the
-  // CLI uses (cli.py's WARNING line), so the two surfaces agree.
+  // The engine's phrase names the apparition, axis and the scales; the claim
+  // stays the simple one (the orbit has problems, look night by night), said
+  // here once in the same words the CLI uses (cli.py's WARNING line).
   if (key && key !== _sysFlashKey) {
-    flashBanner("Residuals trend instead of scatter: " + sys + ". Nights sitting " +
-      "coherently off the orbit is the usual sign of a wrong linkage or a " +
-      "contaminated night. Check the O−C plot night by night before trusting " +
-      "this orbit.", "alert");
+    flashBanner("This orbit has problems: " + sys + ". Look at the O−C plot " +
+      "night by night (the day-to-day systematics) before trusting it.", "alert");
   }
   _sysFlashKey = key;     // (re)set so the same flag won't re-fire, but a fresh one will
 }
@@ -1633,10 +1639,12 @@ function renderElements(p) {
     const sig = e.sigma !== null ? `± ${e.sigma < 1e-3 ? e.sigma.toExponential(1) : fmt(e.sigma, 4)}` : "";
     const sigTitle = e.sigma !== null
       ? ` title="1-σ (~68% confidence) formal uncertainty in ${sym}, from the linearised fit covariance"` : "";
-    const tpTitle = e.name === "Tp" && e.value !== null && e.value !== undefined && !Number.isNaN(e.value)
-      ? ` title="${jdToDate(e.value).slice(0, 10)}"` : "";
+    // Tp is a date: shown as one (YYYY-MM-DD.ddd TDB), its JD only in the hover title.
+    const isTp = e.name === "Tp" && typeof e.value === "number" && isFinite(e.value);
+    const tpTitle = isTp ? ` title="JD ${e.value.toFixed(5)} TDB"` : "";
+    const val = isTp ? tpDateText(e.value, 3) : `${fmt(e.value, 6)}${u}`;
     return `<tr><td class="k" title="${e.label}">${sym}</td>` +
-      `<td class="v"${tpTitle}>${fmt(e.value, e.name === "Tp" ? 3 : 6)}${u}</td><td class="s"${sigTitle}>${sig}</td></tr>`;
+      `<td class="v"${tpTitle}>${val}</td><td class="s"${sigTitle}>${sig}</td></tr>`;
   }).join("");
 }
 
@@ -1995,8 +2003,8 @@ const APPARITION_GAP_DAYS = 90;   // days
 function renderOCPlot(p) {
   const box = $("ocBody"), W = box.clientWidth || 400, H = box.clientHeight || 200;
   const m = { l: 34, r: 8, t: 8, b: 20 };
-  // Flag the pane title red when the engine reports a systematic within-apparition
-  // residual trend past its flagging threshold (the tell of a bad linkage).
+  // Flag the pane title red when the engine reports residual systematics
+  // (ident_check.residual_warning: nights trending or sitting off the orbit).
   const sys = p.summary && p.summary.systematic;
   const head = $("ocHead");
   if (head) { head.classList.toggle("sysflag", !!sys); head.title = sys || ""; }

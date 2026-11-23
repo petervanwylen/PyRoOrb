@@ -61,6 +61,27 @@ def test_a_preexisting_exception_leaves_the_floor_to_decide():
     assert v["code"] == "y-examine" and not v["submittable"], v
     assert "floor an ITF linkage must meet" in v["reason"], v["reason"]
     assert any("Not counted as an exception" in n for n in v["notes"]), v["notes"]
+    # ...and it is set aside where the except: list is built, so the record never lists it:
+    # a link the verdict does not count it against carries no except: line for it.
+    shape = ident_check.exception_shape(fit)
+    assert shape["n_except_obs"] == 0 and shape["set_aside"] == [
+        "3-obs 2019-03-08 T09 tracklet of 2025 PA77"], shape
+    assert "except" not in (ident_check.identify(fit) or "")
+
+
+def test_a_y2_short_of_the_floor_is_examined_too(monkeypatch):
+    # 2014 HZ280's link excepts one 4-obs F51 tracklet -- a y2 -- and meets the floor. Held short
+    # of it, it is examined like a y, never left a y2 (which the batch writes); the exception
+    # stays named in the cautions.
+    fx = FX.load_fixture(os.path.join(FX.FIX, "PAIR_2014HZ280.json"))
+    fit = _ident_fit(fx["obs"], fx["meta"]["designations"])
+    assert ident_check.linkage_verdict(fit)["code"] == "y2"
+    monkeypatch.setattr(ident_check, "itf_muster_problem", lambda f: "a stand-in floor failure")
+    v = ident_check.linkage_verdict(fit)
+    assert v["code"] == "y-examine" and not v["submittable"] and not v["clean"], v
+    assert "a stand-in floor failure" in v["reason"]
+    assert any("excepted observation" in c and "F51 tracklet of 2014 HZ280" in c
+               for c in v["cautions"]), v["cautions"]
 
 
 def test_the_profile_rule_is_one_rule():

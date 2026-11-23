@@ -44,6 +44,18 @@ def _yymmdd(jd_utc):
         return f"JD{_num(jd_utc, '.5f')}"
 
 
+def _tdb_date(jd_tdb, dp=5):
+    """``YYYY-MM-DD.ddddd TDB`` for a TDB JD (Tp): a date a person reads, never a raw JD."""
+    try:
+        from datetime import date, timedelta
+        d = round(float(jd_tdb) + 0.5, dp)                # days since civil noon, rounded first
+        whole = math.floor(d)
+        day = date(1858, 11, 17) + timedelta(days=whole - 2400001)
+        return f"{day.isoformat()}{f'{d - whole:.{dp}f}'[1:]} TDB"
+    except (TypeError, ValueError, OverflowError):
+        return "-"
+
+
 def _obs_display_line(o, r):
     """The observation as it should appear in the astrometry <pre> block: prefer the
     original OBS80 line; otherwise synthesise a readable date/RA/Dec/code line."""
@@ -87,7 +99,8 @@ def _elements_block(d):
         f"Epoch {_num(d.get('epoch'), '.5f')} JD (TDB)   = {html.escape(str(d.get('epoch_iso','')))[:23]} TDB",
         f"   M  {_num(d.get('M'), '12.5f')} deg{sig('M', '.2e')}"
         if is_closed else
-        f"   Tp {_num(d.get('Tp'), '.5f')} JD{sig('Tp', '.2e')}",
+        f"   Tp {_tdb_date(d.get('Tp'))}{sig('Tp', '.2e') and sig('Tp', '.2e') + ' d'}"
+        f"   (JD {_num(d.get('Tp'), '.5f')})",
         f"   Peri.dist. q  {_num(d.get('q'), '13.8f')} au{sig('q', '.2e')}",
         f"   Semimajor  a  {_num(d.get('a'), '13.8f')} au{sig('a', '.2e')}",
         f"   Eccentr.   e  {_num(d.get('e'), '13.8f')}{sig('e', '.2e')}",

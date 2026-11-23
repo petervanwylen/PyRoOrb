@@ -119,14 +119,12 @@ RMS_CEILING = 1.5          # arcsec. ...but only up to an absolute ceiling, beca
 # discriminator -- rejection HIDES a mislink's misfit in the dropped obs rather than in the rms,
 # which is why MPC_MIN_RETENTION is the decisive tell -- so the rms clause is only a backstop
 # against a garbage fit, and it does not need a per-side refinement it cannot support.
-EXCEPT_CLEAN_MAX_OBS = 1   # at most this many EXCEPTED observations still counts as a CLEAN
-                           # match ('y'); beyond it the link is a 'y2' -- an identification whose
-                           # join rests on a claim that whole tracklets are not this object. One
-                           # stray observation is astrometry; a tracklet is a night somebody
-                           # reported, and disowning it is a judgement a human has to make. This
-                           # is the same split the batch has always printed (cli._ident_check_one
-                           # counted the echoed lines), lifted here so the CLI code and the web
-                           # UI's caution cannot drift apart.
+EXCEPT_CLEAN_MAX_OBS = 0   # a 'y' carries NO except: line; any excepted observation makes the
+                           # link a 'y2' -- an identification whose join rests on a claim that a
+                           # whole tracklet is not this object. That is a definition, not a
+                           # tolerance: what is merely bad astrometry is decided before this
+                           # (EXCEPT_MIN_RESID_ARCSEC; a body's own rejected obs), and is never
+                           # listed. Was 1, which let a 'y' carry one except: line.
 EXCEPT_MIN_RESID_ARCSEC = 1.25  # an `except:` line is an MPC-facing claim that a TRACKLET does
                            # not belong to the object, so only a WHOLLY-dropped tracklet with
                            # EVERY obs beyond this total residual is listed. Partial-tracklet
@@ -267,6 +265,23 @@ SYS_TREND_MIN_SWING_RATIO = 8.0  # ...AND the walk must be LARGE against one nig
                            # arcsec arms, which it already fired.
 SYS_TREND_MIN_BLOCKS = 3   # station-nights needed in an apparition: a line through two points
                            # leaves nothing to judge it by.
+NIGHT_OFF_ARCSEC = 0.25    # A FOURTH pattern, for the fit banner only (:func:`offset_nights_misfit`):
+NIGHT_OFF_Z = 5.0          # nights that each sit coherently OFF ZERO -- a level offset per night,
+NIGHT_OFF_MIN = 2          # not a trend -- on at least NIGHT_OFF_MIN nights AND at least
+NIGHT_OFF_FRAC = 0.5       # NIGHT_OFF_FRAC of one apparition's station-nights (same axis). A night
+                           # is off when its mean is >= NIGHT_OFF_ARCSEC from zero and >= NIGHT_OFF_Z
+                           # x its own standard error. 2016 JN82 (2016 W84 arc, mislinked to a 2022
+                           # arc): Dec -- +0.47/-0.21/-0.30" on three nights each tight to
+                           # 0.05-0.08"; RA -0.47/+0.28" on two -- under every floor above (the
+                           # between-night rms is 0.32"/0.35") and no walk for the trend arm. The
+                           # FRACTION is load-bearing: a bare count of two off nights fires on
+                           # 35-50% of correct full arcs (any long arc from older stations has a few
+                           # displaced nights); with half the apparition's nights required it adds
+                           # no flag to 87 single-object fixtures, 65 short modern arcs later
+                           # confirmed by extension or 20 active objects, and 1 of 80 MPC-accepted
+                           # identifications; 6 of 197 synthetic correct links, every one on
+                           # pre-survey stations (118/209/611, 291/703, 029/672). Each night needs
+                           # SYS_MIN_NIGHT_OBS obs -- a lone night is never enough (the MIN).
 
 
 # --- Per-tracklet COHERENT-OFFSET flag (COMPARATIVE: needs a noise reference) -------------------
@@ -1296,14 +1311,24 @@ def _identify_pass(fit, _shape=False, _why=None):
     # astrometry the fit merely disfavors -- both stay excluded from the FIT but are NOT
     # exceptions. (2025 NM2 = 2021 WL5 lists exactly its junk ~76" 126 tracklet, matching the
     # MPC-accepted record; the I52/W05 sub-1.25" outliers are bad obs, not bad tracklets.)
+    # ...and never a tracklet its body's OWN record, fitted alone, rejects too: that is the body's
+    # junk astrometry, already in the MPC record, not a foreign object this link disowns. Decided
+    # HERE, once, so the record, the exception shape and the y / y2 code read one list: decided
+    # again by the verdict alone, a clean 'y' was written with that tracklet's except: lines.
     echo = np.zeros(len(obs), dtype=bool)
-    excepted = []                                 # the excepted tracklets, as index lists
+    excepted, set_aside = [], []                  # the excepted tracklets, as index lists
+    first_pass = fit.__dict__.get("_pre_drops") is None   # the second pass already excludes them
     for tr in _tracklets(times, codes, desigs):
         if all(excluded[i] for i in tr) and (R is None or all(
                 math.hypot(R[i, 0], R[i, 1]) > EXCEPT_MIN_RESID_ARCSEC for i in tr)):
+            if first_pass and preexisting_exception(fit, list(tr)):
+                set_aside.append(_except_label(obs, tr))
+                continue
             excepted.append(list(tr))
             for i in tr:
                 echo[i] = True
+    if _why is not None and set_aside:
+        _why["preexisting_except"] = set_aside
     if _shape:
         # Everything above passed: this IS an identification. Report WHAT it costs -- the
         # exception set -- and stop before rendering, which is the only step that needs a verbatim
@@ -1311,6 +1336,7 @@ def _identify_pass(fit, _shape=False, _why=None):
         return {"n_except_obs": int(echo.sum()), "n_except_tracklets": len(excepted),
                 "tracklets": [_except_label(obs, tr) for tr in excepted],
                 "except_idx": [list(tr) for tr in excepted],      # fit._obs indices, per tracklet
+                "set_aside": set_aside,
                 "renderable": all(obs[i].get("obs80_line") for i in range(len(obs)) if echo[i])}
     if not echo.any():
         body = header
@@ -1725,19 +1751,12 @@ def linkage_verdict(fit):
     except_labels = list(shape["tracklets"]) if is_ident else []
     # An excepted tracklet the body's OWN record rejects too is a fault already in the MPC's
     # record (see BASELINE_WORSEN_FACTOR's block): the identification does not introduce it, so
-    # it does not make the link a y2. Asked only when it would (solo fits cost a fit each).
-    pre_except = []
-    if is_ident and n_except > EXCEPT_CLEAN_MAX_OBS and shape.get("except_idx"):
-        n_except, except_labels = 0, []
-        for tr, label in zip(shape["except_idx"], shape["tracklets"]):
-            if preexisting_exception(fit, tr):
-                pre_except.append(label)
-            else:
-                n_except += len(tr)
-                except_labels.append(label)
-    # 'y' vs 'y2', the batch's own split: at most ONE excepted observation is a clean match; more
-    # than that, the join is bought by declaring whole tracklets not to be this object, and that
-    # claim is the thing a human has to agree with before anything is submitted.
+    # it is neither listed nor counted -- set aside where the except: list is built
+    # (_identify_pass), the one list the record and this code both read.
+    pre_except = list(shape.get("set_aside") or []) if is_ident else []
+    # 'y' vs 'y2' is a definition: a 'y' carries NO except: line, a 'y2' carries at least one --
+    # the join is bought by declaring whole tracklets not to be this object, and that claim is
+    # the thing a human has to agree with before anything is submitted.
     y2 = is_ident and n_except > EXCEPT_CLEAN_MAX_OBS
     clean = is_ident and not y2
     submittable = not y2 and not unknown   # ...until a residual trend withdraws it below
@@ -1847,11 +1866,17 @@ def linkage_verdict(fit):
     # Offered for review with the rule named; never transmitted.
     muster = itf_muster_problem(fit) if is_ident else None
     if muster:
-        if code_override is None and not y2:
+        # A y2 too: the floor judges the KEPT observations, which excepting tracklets does not
+        # strengthen. Left a y2, a link short of the floor was written to the batch's
+        # identifications file beside the y2s that meet it.
+        if code_override is None:
             code_override = "y-examine"
             reason = (f"NOT a clean identification -- the kept observations do not meet the floor "
                       f"an ITF linkage must meet before it is submitted: {muster}. Offered for "
                       f"review; not submittable.")
+            if y2:
+                cautions.append(f"It would also need {n_except} excepted observation(s) to "
+                                f"join: the {' and '.join(except_labels)}.")
         else:
             cautions.append(f"Also short of the ITF submission floor: {muster}.")
         clean = False
@@ -2080,6 +2105,63 @@ def _trend_candidates(fit):
                     "lo": float(t[app[0]]), "hi": float(t[app[-1]])}
             out.append(cand)
     return out
+
+
+def offset_nights_misfit(fit):
+    """Nights that each sit coherently OFF the orbit: per apparition and axis, the station-nights
+    (>= SYS_MIN_NIGHT_OBS included obs) whose mean residual is >= NIGHT_OFF_ARCSEC from zero and
+    >= NIGHT_OFF_Z x its standard error; flagged when they number >= NIGHT_OFF_MIN AND >=
+    NIGHT_OFF_FRAC of that apparition's station-nights. A correct orbit leaves each night's mean
+    near zero; an apparition whose nights mostly sit off it, each internally tight, is what an
+    orbit that does not belong to those nights leaves -- a level offset per night that neither the
+    arcsec floors nor the trend arm see (see NIGHT_OFF_FRAC). Returns a short description of the
+    strongest case (most off nights, then the largest offset), else None. Judged on INCLUDED obs.
+    Used by :func:`residual_warning` (the fit banner) only; identification verdicts keep their own
+    calibrated arms."""
+    from pyroorb import nightmodel
+    if getattr(fit, "_resid_all", None) is None:
+        return None
+    m = np.asarray(fit._mask, dtype=bool)
+    idx = sorted((i for i in range(len(fit._obs)) if m[i]), key=lambda i: fit._obs[i]["jd_utc"])
+    if len(idx) < 6:
+        return None
+    R = np.asarray(fit._resid_all)
+    t = np.array([fit._obs[i]["jd_utc"] for i in idx])
+    codes = [str(fit._obs[i].get("obscode") or "500") for i in idx]
+    best = None
+    for app in _split(list(t), OPP_GAP_DAYS):
+        app = np.asarray(app)
+        gid = nightmodel.station_night_index(t[app], [codes[k] for k in app])
+        blocks = [app[gid == g] for g in np.unique(gid)]
+        blocks = [b for b in blocks if len(b) >= SYS_MIN_NIGHT_OBS]
+        for ax in (0, 1):
+            off = []
+            for b in blocks:
+                v = np.array([R[idx[k], ax] for k in b])
+                mean, se = float(v.mean()), float(v.std(ddof=1) / np.sqrt(len(v)))
+                if abs(mean) >= NIGHT_OFF_ARCSEC and abs(mean) >= NIGHT_OFF_Z * max(se, 1e-3):
+                    off.append((float(t[b].mean()), mean, float(v.std(ddof=1))))
+            if len(off) < NIGHT_OFF_MIN or len(off) < NIGHT_OFF_FRAC * len(blocks):
+                continue
+            key = (len(off), max(abs(o[1]) for o in off))
+            if best is None or key > best[0]:
+                best = (key, ax, off, len(blocks), _jd_year(t[app[0]]))
+    if best is None:
+        return None
+    _, ax, off, nb, year = best
+    off.sort()
+    means = ", ".join(f"{o[1]:+.2f}\"" for o in off)
+    within = float(np.mean([o[2] for o in off]))
+    return (f"in the {year} apparition {len(off)} of {nb} nights sit off the orbit in "
+            f"{'RA' if ax == 0 else 'Dec'} ({means}) while each night scatters only "
+            f"{within:.2f}\"")
+
+
+def residual_warning(fit):
+    """The fit banner's verdict on the residuals (web O-C pane and CLI WARNING line): the
+    :func:`systematic_misfit` description, else the :func:`offset_nights_misfit` one, else None.
+    One function so both surfaces say the same thing."""
+    return systematic_misfit(fit) or offset_nights_misfit(fit)
 
 
 def short_arc_systematic(fit):

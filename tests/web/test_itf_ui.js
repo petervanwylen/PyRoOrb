@@ -266,7 +266,7 @@ for (const src of [appjs, confjs]) {
     itfResponse.session = "sSR";
     itfResponse.itf = { found: true, possible: true, added_obs: 6, mode: "single_tracklet",
       mode_note: "single-tracklet search: linked 2 tracklet(s) (triplet), then "
-        + "same-apparition search: linked 1 more tracklet(s)",
+        + "the full ITF search: linked 1 more tracklet(s)",
       reason: "found by the single-tracklet search: shown for review",
       tracklets: [{ trksub: "SR00001", date: "2016 01 02", stn: "F51", n_obs: 2,
                     stage: "single-tracklet" },

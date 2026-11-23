@@ -22,6 +22,22 @@
     return String(Number(v.toPrecision(5)));
   }
 
+  // One value of element `e` with its unit. Tp is a DATE and is shown as one, never as a raw
+  // JD: "YYYY-MM-DD.ddd TDB" (`dp` decimals of the day; 0 = the date alone).
+  function vfmt(e, v, dp) {
+    if (e.name === "Tp" && typeof v === "number" && isFinite(v)) {
+      if (typeof tpDateText === "function") return tpDateText(v, dp);       // app.js
+      return `${new Date((v - 2440587.5) * 86400000).toISOString().slice(0, 10)} TDB`;
+    }
+    return `${nfmt(v)}${e.unit ? ` ${e.unit}` : ""}`;
+  }
+  window.elementValueText = vfmt;
+  // An interval of element `e`, the unit once at the end (Tp: two dates).
+  function rfmt(e, r) {
+    return e.name === "Tp" ? `${vfmt(e, r[0], 0)} … ${vfmt(e, r[1], 0)}`
+                           : `${nfmt(r[0])} … ${nfmt(r[1])}${e.unit ? ` ${e.unit}` : ""}`;
+  }
+
   // The tbody HTML for a suppressed orbit, or null when the fit is determined (app.js then
   // renders its ordinary value +/- sigma rows). `rows` is whichever element set is on screen --
   // heliocentric or planetocentric -- so the satellite toggle cannot walk around the rule.
@@ -36,10 +52,9 @@
     const lbl = `${nfmt(pct[0])}–${nfmt(pct[1])}%`;
     return (rows || []).map(function (e) {
       const s = SYM[e.name] || e.name;
-      const u = e.unit ? ` ${e.unit}` : "";
       const r = e.range;
       const cell = (r && typeof r[0] === "number" && typeof r[1] === "number")
-        ? `${nfmt(r[0])} … ${nfmt(r[1])}${u}`
+        ? rfmt(e, r)
         : `<span class="os-none">not determined</span>`;
       const title = (r ? `${lbl} of ${how}. No single value is shown because this arc does not `
                        + `determine one.` : "The family of fitting orbits could not be characterised.");
@@ -61,10 +76,11 @@
       const u = e.unit ? ` ${e.unit}` : "";
       const r = e.range;
       const span = (r && typeof r[0] === "number" && typeof r[1] === "number")
-        ? ` The ${lbl} span of the orbits that fit is ${nfmt(r[0])} … ${nfmt(r[1])}${u}.` : "";
+        ? ` The ${lbl} span of the orbits that fit is ${rfmt(e, r)}.` : "";
       const title = `Shown at your request: this arc does not determine ${e.label || s}.${span}`;
       const v = (typeof e.value === "number" && isFinite(e.value))
-        ? `≈ ${typeof fmt === "function" ? fmt(e.value, e.name === "Tp" ? 3 : 6) : nfmt(e.value)}${u}`
+        ? `≈ ${e.name === "Tp" ? vfmt(e, e.value, 3)
+               : (typeof fmt === "function" ? fmt(e.value, 6) : nfmt(e.value)) + u}`
         : `<span class="os-none">—</span>`;
       return `<tr><td class="k" title="${e.label}">${s}</td>` +
              `<td class="v os-optin" title="${title}">${v}</td>` +

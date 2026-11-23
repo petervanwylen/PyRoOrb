@@ -78,11 +78,100 @@ def test_the_true_tracklet_ranks_first(synthetic, obscodes):
     assert ranked[0]["chi2"] < 6.0
 
 
-def test_short_arc_routes_to_the_single_tracklet_search():
+@pytest.fixture(scope="module")
+def two_night(obscodes):
+    """A 0.1 au object seen from F51 on two nights a day apart (a NEOCP seed the short-arc
+    rule sends here), its own tracklet six days later, 300 random distractors."""
+    rng = np.random.default_rng(11)
+    jd0 = 2460400.5 + 0.30
+    x = np.radians([150.0, 12.0, -1.2, 0.4])
+    R, V = sr.fast_observers(np.array([jd0]), ["F51"], obscodes)
+    rho = 0.1
+    pos, vel = sr.states(x, rho, -0.003, R[0], V[0])
+    t_emit = jd0 + sr.TT_UTC_DAYS - rho / sr.C_AU_DAY
+    sjd = [jd0 + night + k * 0.012 for night in (0.0, 1.0) for k in range(4)]
+    seed = [{"jd_utc": j, "ra_deg": a, "dec_deg": d, "obscode": "F51", "sigma_ra": 0.2,
+             "sigma_dec": 0.2}
+            for j, (a, d) in zip(sjd, _observe(pos, vel, t_emit, sjd, ["F51"] * 8, obscodes))]
+    tj = [jd0 + 6.0 + k * 0.01 for k in range(3)]
+    trk = _observe(pos, vel, t_emit, tj, ["G96"] * 3, obscodes)
+    (a0, d0), (a2, d2) = trk[0], trk[-1]
+    rows = [{"tracklet_id": "TRUTH", "stn": "G96",
+             "epoch_mid_sec": (tj[1] - sr.UNIX_JD0) * 86400,
+             "center_ra": trk[1][0], "center_dec": trk[1][1],
+             "dra_cosdec_rate": (a2 - a0) * math.cos(math.radians(d0)) / (tj[-1] - tj[0]),
+             "ddec_rate": (d2 - d0) / (tj[-1] - tj[0]), "sig_pos_e_arcsec": 0.4,
+             "sig_pos_n_arcsec": 0.4, "sig_vel_e_degday": 0.004, "sig_vel_n_degday": 0.004,
+             "n_obs": 3}]
+    rows += [{"tracklet_id": f"D{i}", "stn": "G96",
+              "epoch_mid_sec": (jd0 + rng.uniform(-30, 30) - sr.UNIX_JD0) * 86400,
+              "center_ra": rng.uniform(100, 200), "center_dec": rng.uniform(-20, 40),
+              "dra_cosdec_rate": rng.normal(0, 1.2), "ddec_rate": rng.normal(0, 0.5),
+              "sig_pos_e_arcsec": 0.4, "sig_pos_n_arcsec": 0.4, "sig_vel_e_degday": 0.004,
+              "sig_vel_n_degday": 0.004, "n_obs": 3} for i in range(300)]
+    return seed, rows
+
+
+def test_a_two_night_seed_screens_its_own_tracklet(two_night, obscodes):
+    """The attributable comes from one night: a line through both nights missed this object
+    by ~40" under a 0.2"/day rate sigma and screened the true tracklet out (chi2 ~2500)."""
+    seed, rows = two_night
+    assert sr._nights([o["jd_utc"] for o in seed]) == 2
+    cfg = sr.SrConfig(n_rho=80, n_v=80, w_prior=0.0)
+    att = sr.seed_attributable(seed, obscodes, cfg)
+    assert att["n"] == 4 and att["t0"] > seed[4]["jd_utc"] - 0.01     # the later night
+    cand = sr.candidate_arrays(rows, obscodes)
+    ranked = sr.rank(att, cand, cfg, obscodes)
+    assert ranked and cand["id"][ranked[0]["ci"]] == "TRUTH"
+    assert ranked[0]["chi2"] < 6.0
+    both = sr.line_attributable(seed, obscodes, cfg)                    # the old seed
+    assert "TRUTH" not in [cand["id"][r["ci"]] for r in sr.rank(both, cand, cfg, obscodes)]
+
+
+def test_seed_night_is_the_busiest_station_night():
+    o = lambda stn, *jds: [{"obscode": stn, "jd_utc": j} for j in jds]   # noqa: E731
+    pick = lambda obs: [x["jd_utc"] for x in sr.seed_night(obs)]       # noqa: E731
+    # the most-observed station first, then its busiest night
+    assert pick(o("F51", 1.0, 1.01, 2.0, 2.01, 2.02) + o("G96", 1.5, 1.51)) == [2.0, 2.01, 2.02]
+    assert pick(o("F51", 1.0, 1.01) + o("G96", 1.5, 2.6, 2.61)) == [2.6, 2.61]
+    # equal counts: the longer night, then the later one
+    assert pick(o("F51", 1.0, 1.05, 2.0, 2.01)) == [1.0, 1.05]
+    assert pick(o("F51", 1.0, 1.125, 2.0, 2.125)) == [2.0, 2.125]
+    # a gap of exactly 0.5 days stays one night, as the short-arc rule counts it
+    assert pick(o("F51", 1.0, 1.5, 3.0)) == [1.0, 1.5]
+
+
+def test_only_the_seeds_own_rejections_are_pardoned():
+    """A proposal must keep every observation, except one the seed's own fit rejects."""
+    cfg = sr.SrConfig()
+    bad = ("691", 212364893506)
+    fit = {"ok": True, "count": 24, "used": 23, "chi2_dof": 0.5, "max_z": 2.2,
+           "dropped": [bad]}
+    assert not sr._passes(fit, cfg, 24)
+    assert sr._fits_but_drops(fit, cfg, 24)
+    assert sr._passes(fit, cfg, 24, frozenset({bad}))
+    other = dict(fit, dropped=[("G96", 1)])                     # a different observation
+    assert not sr._passes(other, cfg, 24, frozenset({bad}))
+    two = dict(fit, used=22, dropped=[bad, ("G96", 1)])         # one more than pardoned
+    assert not sr._passes(two, cfg, 24, frozenset({bad}))
+    worse = dict(fit, chi2_dof=2.5)                             # the other tests still hold
+    assert not sr._passes(worse, cfg, 24, frozenset({bad}))
+    assert not sr._fits_but_drops(worse, cfg, 24)
+
+
+def test_the_router_asks_whether_the_seed_fixes_a_distance(monkeypatch):
+    """One night goes to SR unfitted; any other seed by its own fit's verdict, whatever its
+    length (an unfittable seed is ranged); past the routing arc it is never fitted."""
     one = [{"jd_utc": 2460000.5 + k * 0.01} for k in range(4)]
-    two_close = one + [{"jd_utc": 2460001.6}]
-    two_far = one + [{"jd_utc": 2460004.6}]
-    assert sr.short_arc(one) and sr.short_arc(two_close) and not sr.short_arc(two_far)
+    two = one + [{"jd_utc": 2460001.6}]
+    week = one + [{"jd_utc": 2460007.6}]
+    long = one + [{"jd_utc": 2460000.5 + sr.ROUTE_MAX_FIT_ARC_DAYS + 1}]
+    route = lambda obs: sr.needs_sr(obs, "text", {})[0]        # noqa: E731
+    monkeypatch.setattr(sr, "seed_determined", lambda *a, **k: pytest.fail("no fit"))
+    assert route(one) and not route(long) and not route([])
+    for verdict, use_sr in ((True, False), (False, True), (None, True)):
+        monkeypatch.setattr(sr, "seed_determined", lambda *a, v=verdict, **k: v)
+        assert route(two) is use_sr and route(week) is use_sr
 
 
 def test_apparition_config_bounds_the_sweep():
@@ -147,7 +236,29 @@ def test_guard_relaxed_leave_out():
     assert not ok({"error": "leave-out fit failed"})
 
 
-def test_guard_result_asks_only_the_added_tracklets():
+def test_guard_refusal_names_the_failed_test_and_a_real_date(monkeypatch):
+    """A loose prediction is reported as unvouched, not as a miss; the tracklet is dated
+    YYYY-MM-DD hh:mm UT, never by a raw JD."""
+    assert sr._ut_label(2457415.98) == "2016-01-28 11:31 UT"
+    loose = sr._leaveout_why({"smaj": 189.7, "miss": 135.8, "n_min": 3})
+    assert "too uncertain" in loose and "not predicted" not in loose and "189.7" in loose
+    missed = sr._leaveout_why({"smaj": 4.0, "miss": 8.5, "n_min": 3})
+    assert "not predicted" in missed and "8.5" in missed
+    assert "single observation" in sr._leaveout_why({"smaj": 0.3, "miss": 0.2, "n_min": 1})
+    assert "fit failed" in sr._leaveout_why({"error": "leave-out fit failed"})
+    own = _tracklet(1, "G96", "K23D00W") + _tracklet(4, "G96", "K23D00W")
+    itf = _tracklet(8, "I41", "ZT00002")
+    _measuring(monkeypatch, lambda *a: {"smaj": 189.7, "miss": 135.8, "n_min": 3})
+    ok, why = sr.chimera_guard("\n".join(own + itf), "\n".join(itf), {})
+    assert not ok and "JD" not in why and " UT)" in why
+
+
+def _measuring(monkeypatch, fn):
+    from pyroorb.itf import leaveout
+    monkeypatch.setattr(leaveout, "measure", fn)
+
+
+def test_guard_result_asks_only_the_added_tracklets(monkeypatch):
     from types import SimpleNamespace
     own = _tracklet(1, "G96", "K23D00W") + _tracklet(9, "G96", "K23D00W")
     itf_a, itf_b = _tracklet(18, "703", "ZT00001"), _tracklet(28, "I41", "ZT00002")
@@ -158,19 +269,23 @@ def test_guard_result_asks_only_the_added_tracklets():
     def measure(unit, combined, oc, good=True):
         seen.append(unit[0][77:80])
         return {"smaj": 0.5, "miss": 0.4 if good else 9.0, "n_min": len(unit)}
-    assert sr.chimera_guard_result(res, {}, measure=measure) == (True, None)
+    guard = lambda r: sr.chimera_guard(r.combined_obs80, r.itf_obs80, {})   # noqa: E731
+    _measuring(monkeypatch, measure)
+    assert guard(res) == (True, None)
     assert sorted(seen) == ["703", "I41"]                       # every ITF tracklet asked
-    bad = lambda u, c, o: measure(u, c, o, good=u[0][77:80] != "I41")   # noqa: E731
-    ok, why = sr.chimera_guard_result(res, {}, measure=bad)
+    _measuring(monkeypatch, lambda u, c, o: measure(u, c, o, good=u[0][77:80] != "I41"))
+    ok, why = guard(res)
     assert not ok and "I41" in why and "not predicted" in why
-    # the caps refuse before any leave-out fit is made
+    # the caps refuse before any leave-out fit is made -- and the rule asks the guard of
+    # a regular result's ADDED tracklets
     short = SimpleNamespace(combined_obs80="\n".join(_tracklet(1) + _tracklet(9)),
                             itf_obs80="\n".join(_tracklet(9)))
-    ok, why = sr.chimera_guard_result(short, {}, measure=lambda *a: pytest.fail("no leave-out"))
-    assert not ok and "two nights" in why
+    _measuring(monkeypatch, lambda *a: pytest.fail("no leave-out"))
+    (why,) = sr.chimera_warnings_result(short, {})
+    assert why.startswith(sr.CHIMERA_GUARD_WARNING) and "two nights" in why
 
 
-def test_guard_short_seed_asks_the_seed_too():
+def test_guard_short_seed_asks_the_seed_too(monkeypatch):
     """A short seed vouches for nothing: its own tracklet must be predicted by the rest, so a
     chain of another object's tracklets cannot vouch for itself."""
     seed = _tracklet(1, "G96", "SEED001")
@@ -181,10 +296,12 @@ def test_guard_short_seed_asks_the_seed_too():
         seen.append(unit[0][77:80])
         return {"smaj": 0.5, "miss": 9.0 if unit[0][77:80] == "G96" else 0.4,
                 "n_min": len(unit)}
-    ok, why = sr.chimera_guard_short_seed("\n".join(seed), "\n".join(itf), {}, measure=measure)
-    assert not ok and "G96" in why
+    _measuring(monkeypatch, measure)
+    (why,) = sr.chimera_warnings_short_seed("\n".join(seed), "\n".join(itf), {})
+    assert "G96" in why
     assert "G96" in seen
-    assert sr.chimera_guard_short_seed("\n".join(seed), "", {}, measure=measure)[0] is False
+    assert sr.chimera_warnings_short_seed("\n".join(seed), "", {}) == [
+        sr.CHIMERA_GUARD_WARNING + "no ITF tracklet to judge"]
 
 
 def test_unacceptable_triplets_never_crowd_out_a_pair(monkeypatch):
@@ -218,7 +335,34 @@ def test_unacceptable_triplets_never_crowd_out_a_pair(monkeypatch):
     assert res.link is not None and res.link.kind == "pair" and res.link.trkids == ["T12"]
 
 
-def test_guard_short_seed_keeps_every_line_whole():
+@pytest.mark.parametrize("nights", [1, 2])
+def test_the_seeds_own_rejection_is_asked_only_of_a_multi_night_seed(monkeypatch, nights):
+    bad = ("691", 1)
+    monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
+    monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
+    monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {"id": ["T0"], "tdb": [5.0]})
+    monkeypatch.setattr(sr, "rank", lambda *a: [{"ci": 0, "chi2": 1.0}])
+    monkeypatch.setattr(sr, "triplets", lambda *a: [])
+    monkeypatch.setattr(sr, "_fit_summary", lambda seed, cl, oc, max_sec: {
+        "ok": True, "count": 6, "used": 5, "chi2_dof": 0.5, "max_z": 1.0, "dropped": [bad]})
+    asked = []
+    monkeypatch.setattr(sr, "_seed_rejects",
+                        lambda *a: asked.append(1) or frozenset({bad}))
+
+    class Source:
+        def window_rows(self, a, b):
+            return [{}]
+
+        def tracklet_obs80(self, keys, trksubs=None):
+            return {k: [f"{k}-a", f"{k}-b"] for k in keys}
+    seed = [{"jd_utc": 2460000.5 + (i // 2) * (nights - 1) + 0.01 * i, "obs80_line": "seed"}
+            for i in range(4)]
+    res = sr.sr_search(seed, Source(), {}, cfg=sr.SrConfig())
+    assert (res.link is not None) == (nights == 2)
+    assert asked == ([1] if nights == 2 else [])
+
+
+def test_guard_short_seed_keeps_every_line_whole(monkeypatch):
     """OBS80 is read by column: the first seed line and the first ITF line keep their five
     leading blank columns, so no observation is lost from a unit or from the leave-out fit
     (a two-observation tracklet read as one is always refused)."""
@@ -230,9 +374,263 @@ def test_guard_short_seed_keeps_every_line_whole():
         units.append(list(unit))
         combos.append(combined)
         return {"smaj": 0.5, "miss": 0.4, "n_min": len(unit)}
-    ok, why = sr.chimera_guard_short_seed("\n" + "\n".join(seed) + "\n",
-                                          "\n".join(itf) + "\n\n", {}, measure=measure)
-    assert ok, why
+    _measuring(monkeypatch, measure)
+    ws = sr.chimera_warnings_short_seed("\n" + "\n".join(seed) + "\n",
+                                        "\n".join(itf) + "\n\n", {})
+    assert ws == []
     assert sorted(len(u) for u in units) == [2, 3]
     assert combos[0].splitlines() == seed + itf
     assert all(ln[:5] == "     " for u in units for ln in u)
+
+
+def test_a_guard_that_cannot_run_has_not_confirmed(monkeypatch):
+    """One rule for every surface: a check that crashes has not confirmed the linkage -- a
+    warning saying so, told apart from an objection (``not_run``)."""
+    def boom(*a, **k):
+        raise RuntimeError("leave-out exploded")
+    _measuring(monkeypatch, boom)
+    text = "\n".join(_tracklet(1) + _tracklet(3)) + "\n"
+    (why,) = sr.chimera_warnings(text, text, {})
+    assert why == sr.CHECK_NOT_RUN + "the 2-3 night chimera guard (RuntimeError)"
+    assert sr.not_run(why) and "could not run" in why
+    assert not sr.not_run(sr.CHIMERA_GUARD_WARNING + "tracklet 2 is 9\" off")
+
+
+# ------------------------------------------------- one chimera rule, by night count
+
+def _rule(lines, measure_ok=True, scorer_says=None):
+    """chimera_warnings on ``lines`` with a stub leave-out and a stub link scorer; returns
+    (warnings, guard asked, scorer asked)."""
+    from pyroorb.itf import leaveout, linkscore
+    asked = {"guard": 0, "scorer": 0}
+
+    def measure(u, c, oc):
+        asked["guard"] += 1
+        return {"smaj": 0.5, "miss": 0.4 if measure_ok else 9.0, "n_min": len(u)}
+
+    def scorer(text, oc):
+        asked["scorer"] += 1
+        return scorer_says
+    text = "\n".join(lines) + "\n"
+    mp = pytest.MonkeyPatch()
+    mp.setattr(leaveout, "measure", measure)
+    linkscore.set_for_tests([scorer])
+    try:
+        ws = sr.chimera_warnings(text, text, {})
+    finally:
+        mp.undo()
+        linkscore.set_for_tests(())
+    return ws, asked["guard"], asked["scorer"]
+
+
+def test_chimera_rule_two_nights_is_the_guard_alone():
+    ws, g, s = _rule(_tracklet(1) + _tracklet(3), measure_ok=False, scorer_says="never asked")
+    assert g and not s
+    assert len(ws) == 1 and ws[0].startswith(sr.CHIMERA_GUARD_WARNING)
+    assert ws[0].startswith(sr.CHIMERA_WARNING)
+    assert _rule(_tracklet(1) + _tracklet(3))[0] == []
+
+
+def test_chimera_rule_three_nights_asks_the_guard_and_the_scorers():
+    lines = _tracklet(1) + _tracklet(3) + _tracklet(6)
+    ws, g, s = _rule(lines, scorer_says="the model objects")
+    assert g and s and ws == [sr.CHIMERA_WARNING + "the model objects"]
+    ws, g, s = _rule(lines, measure_ok=False, scorer_says=None)
+    assert g and s and len(ws) == 1 and "2-3 night chimera guard" in ws[0]
+
+
+def test_chimera_rule_four_nights_never_asks_the_guard():
+    lines = _tracklet(1) + _tracklet(3) + _tracklet(6) + _tracklet(9)
+    ws, g, s = _rule(lines, measure_ok=False, scorer_says=None)
+    assert g == 0 and s == 1 and ws == []
+    ws, _g, _s = _rule(lines, scorer_says="the model objects")
+    assert ws == [sr.CHIMERA_WARNING + "the model objects"]
+
+
+def test_a_link_scorer_that_raises_never_objects_but_has_not_confirmed():
+    from pyroorb.itf import linkscore
+
+    def broken(text, oc):
+        raise RuntimeError("no model")
+    objections, not_run = linkscore.judge("x", {}, scorers=[broken, lambda t, o: "real"])
+    assert objections == ["real"]
+    assert not_run == ["link scorer test_a_link_scorer_that_raises_never_objects_but_has_not_"
+                       "confirmed.<locals>.broken failed (RuntimeError)"]
+    # at 4 nights (the scorers alone) it reaches the linkage as a not-run warning, beside
+    # the objection
+    linkscore.set_for_tests([broken, lambda t, o: "real"])
+    text = "\n".join(_tracklet(1) + _tracklet(3) + _tracklet(6) + _tracklet(9)) + "\n"
+    assert sr.chimera_warnings(text, text, {}) == [sr.CHIMERA_WARNING + "real",
+                                                   sr.CHECK_NOT_RUN + not_run[0]]
+
+
+def test_a_link_scorer_that_does_not_load_has_not_confirmed(tmp_path, monkeypatch):
+    from pyroorb.itf import linkscore
+    reg = tmp_path / "scorers.txt"
+    reg.write_text("no_such_module_xyz:SCORER\n", encoding="utf-8")
+    monkeypatch.setenv(linkscore.FILE_ENV, str(reg))
+    linkscore.set_for_tests(None)                            # discover from the file
+    assert linkscore.judge("x", {}) == ([], ["link scorer no_such_module_xyz:SCORER "
+                                              "did not load"])
+
+
+def test_link_scorers_found_through_the_registry_file(tmp_path, monkeypatch):
+    import os
+    from pyroorb.itf import linkscore
+    reg = tmp_path / "scorers.txt"
+    reg.write_text("# comment\nos.path:join\nno_such_module_xyz:SCORER\nos.path:join\n",
+                   encoding="utf-8")
+    monkeypatch.setenv(linkscore.FILE_ENV, str(reg))
+    said = []
+    assert linkscore.discover(log=said.append) == [os.path.join]      # once; bad one skipped
+    assert said and "no_such_module_xyz" in said[0]
+
+
+def test_chimera_warnings_result_reuses_the_search_judgement():
+    from types import SimpleNamespace
+    res = SimpleNamespace(combined_obs80="x", itf_obs80="y",
+                          vetting={"chimera_warnings": ["possible chimera: cached"]})
+    assert sr.chimera_warnings_result(res, {}) == ["possible chimera: cached"]
+    empty = SimpleNamespace(combined_obs80="", itf_obs80="", vetting={})
+    assert sr.chimera_warnings_result(empty, {}) == []
+
+
+def test_a_chimera_check_that_crashes_is_a_warning_not_silence(monkeypatch):
+    # an unjudged result must not read as a clean one to any sender
+    from pyroorb.itf.search import ItfSearchResult, _attach_chimera_warnings
+    from pyroorb.itf.verdict import SearchVerdict
+
+    def boom(result, obscodes):
+        raise OSError("station table unreadable")
+    monkeypatch.setattr(sr, "chimera_warnings_result", boom)
+    res = ItfSearchResult(verdict=SearchVerdict.LINKED, combined_obs80="a\n", itf_obs80="b\n")
+    _attach_chimera_warnings(res, {}, log=lambda *a: None)
+    assert res.warnings == [sr.CHECK_NOT_RUN + "the chimera check (OSError)"]
+    assert res.vetting["chimera_warnings"] == res.warnings
+
+
+def test_a_real_send_is_judged_before_it_goes_and_a_500_is_not_submitted(monkeypatch):
+    from types import SimpleNamespace
+    from pyroorb.itf import search as S
+    from pyroorb.itf.verdict import SearchVerdict
+    said = []
+    monkeypatch.setattr(sr, "chimera_warnings_result",
+                        lambda r, oc: [sr.CHIMERA_WARNING + "the model objects"])
+    monkeypatch.setattr(S, "submit_linkage", lambda doc, cfg, **k: (
+        said.append("SEND") or (True, "500 Internal Server Error", None)))
+    ctx = SimpleNamespace(do_submit=True, cfg=SimpleNamespace(submit=True), chimera_check=True,
+                          obscodes={}, log=said.append)
+    res = S.ItfSearchResult(verdict=SearchVerdict.LINKED, combined_obs80="a\n",
+                            itf_obs80="b\n")
+    S._transmit(ctx, res, {"links": {}}, {})
+    # the warning is read before the send, and the send still goes (who asked answers for it)
+    assert said == ["WARNING (sent anyway): possible chimera: the model objects", "SEND"]
+    assert res.submitted is False                       # the MPC answered, but did not take it
+
+
+def test_the_mpc_took_it_only_on_a_2xx():
+    from pyroorb.itf.linkage import delivered
+    assert delivered(True, "200 OK") and delivered(True, "201 Created")
+    assert not delivered(True, "500 Internal Server Error")
+    assert not delivered(True, "403 Forbidden")
+    assert not delivered(False, "dry-run (submission disabled)")
+    assert not delivered(True, "")
+
+
+def test_the_search_attaches_the_chimera_warnings_once():
+    from pyroorb.itf import linkscore
+    from pyroorb.itf.search import ItfSearchResult, _attach_chimera_warnings
+    from pyroorb.itf.verdict import SearchVerdict
+    lines = _tracklet(1) + _tracklet(3) + _tracklet(6) + _tracklet(9)
+    res = ItfSearchResult(verdict=SearchVerdict.LINKED, combined_obs80="\n".join(lines) + "\n",
+                          itf_obs80="\n".join(_tracklet(9)) + "\n", warnings=["seed rms up"])
+    linkscore.set_for_tests([lambda t, o: "the model objects"])
+    _attach_chimera_warnings(res, {})
+    _attach_chimera_warnings(res, {})
+    assert res.warnings == ["seed rms up", sr.CHIMERA_WARNING + "the model objects"]
+    assert res.vetting["chimera_warnings"] == [sr.CHIMERA_WARNING + "the model objects"]
+    none = ItfSearchResult(verdict=SearchVerdict.NONE)
+    _attach_chimera_warnings(none, {})
+    assert none.warnings == []
+
+
+# ------------------------------------------- contract pins (night counts, the link's lines)
+
+def test_router_and_linkage_shape_night_boundaries(monkeypatch):
+    """A new night starts strictly past a 0.5-day gap, in both the router and the guard."""
+    monkeypatch.setattr(sr, "seed_determined", lambda *a, **k: True)
+    o = lambda *jds: [{"jd_utc": j} for j in jds]               # noqa: E731
+    assert sr.needs_sr(o(1.0, 1.5, 2.0, 2.5, 3.0), "", {})[0]  # gaps of exactly 0.5: one night
+    assert not sr.needs_sr(o(1.0, 1.51), "", {})[0]            # two nights: fitted, determined
+    assert sr._nights([1.0, 1.51, 2.99]) == 3
+    assert not sr.needs_sr(o(None), "", {})[0]
+    one = _tracklet(1)
+    assert sr.linkage_shape("\n".join(one)) == (1, pytest.approx(30 / 1440, abs=1e-5))
+    assert sr.linkage_shape("\n".join(one + _tracklet(2)))[0] == 2
+    sat = [ln[:14] + "s" + ln[15:] for ln in _tracklet(9)]     # position records: ignored
+    assert sr.linkage_shape("\n".join(one + sat))[0] == 1
+    assert sr.linkage_shape("") == (0, 0.0)
+
+
+def test_sr_search_hands_back_second_lines_and_db_trksubs(monkeypatch):
+    monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
+    monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
+    monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {
+        "id": ["A", "B"], "tdb": [3.0, 5.0]})
+    monkeypatch.setattr(sr, "rank", lambda *a: [{"ci": 1, "chi2": 1.0}])
+    monkeypatch.setattr(sr, "triplets", lambda *a: [])
+    seeds = []
+
+    def fit(seed, cl, oc, max_sec):
+        seeds.append(list(seed))
+        return {"ok": True, "count": len(seed) + len(cl), "used": len(seed) + len(cl),
+                "chi2_dof": 0.5, "max_z": 1.0}
+    monkeypatch.setattr(sr, "_fit_summary", fit)
+
+    class Source:
+        def window_rows(self, a, b):
+            return [{}]
+
+        def tracklet_obs80(self, keys, trksubs=None):
+            trksubs.update({f"{k}-a": f"sub{k}" for k in keys})
+            return {k: [f"{k}-a", f"{k}-b"] for k in keys}
+    seed = [{"jd_utc": 2460000.5 + 0.01 * i, "obs80_line": f"s{i}"} for i in range(2)]
+    seed[1]["obs80_line2"] = "s1-second"
+    res = sr.sr_search(seed, Source(), {}, cfg=sr.SrConfig())
+    assert seeds == [["s0", "s1", "s1-second"]]
+    assert res.link.trkids == ["B"] and res.link.lines == {"B": ["B-a", "B-b"]}
+    assert res.link.trksubs == {"B-a": "subB"} and res.link.dts == [5.0]
+
+
+def test_sr_search_never_links_the_seeds_own_detections(monkeypatch):
+    """An accepted ITF tracklet stays in the ITF table under its trkSub while it sits on a
+    NEOCP object, so a seed holding it can be offered it back: such a proposal is never
+    fitted, the next one is."""
+    monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
+    monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
+    monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {
+        "id": ["OWN", "NEW"], "tdb": [3.0, 5.0]})
+    monkeypatch.setattr(sr, "rank", lambda *a: [{"ci": 0, "chi2": 0.5}, {"ci": 1, "chi2": 1.0}])
+    monkeypatch.setattr(sr, "triplets", lambda *a: [])
+    fitted = []
+
+    def fit(seed, cl, oc, max_sec):
+        fitted.append(cl[0][5:12].strip())
+        return {"ok": True, "count": len(seed) + len(cl), "used": len(seed) + len(cl),
+                "chi2_dof": 0.5, "max_z": 1.0}
+    monkeypatch.setattr(sr, "_fit_summary", fit)
+    own, new = _tracklet(4, "703", "ZT00001"), _tracklet(6, "I41", "ZT00002")
+    # the seed's copy of its accepted tracklet, re-rendered under the object's own name
+    seed_own = [ln[:5] + "P22abc " + ln[12:] for ln in own]
+
+    class Source:
+        def window_rows(self, a, b):
+            return [{}]
+
+        def tracklet_obs80(self, keys, trksubs=None):
+            return {"OWN": own, "NEW": new}
+    seed = [{"jd_utc": 2460000.5, "obs80_line": ln} for ln in _tracklet(1, "F51", "P22abc")]
+    seed += [{"jd_utc": 2460003.5, "obs80_line": ln} for ln in seed_own]
+    res = sr.sr_search(seed, Source(), {}, cfg=sr.SrConfig())
+    assert fitted == ["ZT00002"] and res.link.trkids == ["NEW"]
+    assert res.proposals[0]["why"] == "the seed's own detections"

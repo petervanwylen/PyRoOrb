@@ -179,9 +179,10 @@ def compute_ephemeris(fit, obscodes, jd_start, jd_stop, step_days, site="500",
     # Arete's ephemeris sat 0.08-0.38" (7-25 sigma of its own ellipse) off its own orbit across
     # its 2030 Vesta pass. Only the ASSIST backend takes the flag; the rebound fallback has no
     # perturbers to choose.
-    from pyroorb.products import fit_asteroids
+    from pyroorb.products import fit_asteroids, warn_if_outside_field
     ast = ({"asteroids": fit_asteroids(fit)} if hasattr(backend, "ensure_asteroid_kernel")
            else {})
+    warn_if_outside_field(fit, tt)
 
     # nominal RA/Dec (+ analytic Jacobian if the backend supplies one) and the geometry
     jacfn = getattr(backend, "predict_radec_jac_batch", None)

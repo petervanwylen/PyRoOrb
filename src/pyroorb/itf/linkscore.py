@@ -1,0 +1,113 @@
+"""Link scorers: optional judges of a whole linkage that the ITF learns about at run time
+instead of importing by name.
+
+A link scorer is a callable ``scorer(obs80_text, obscodes) -> str | None``: given the whole
+linked astrometry (80-column lines), it returns one sentence when it objects to the linkage as
+a possible chimera (tracklets of more than one body), else None.  An objection is a WARNING on
+the linkage -- shown with it, never a refusal by itself (see ``srsearch.chimera_warnings``).
+
+Discovery, in this order (duplicates ignored), exactly as web add-ons are found:
+
+1. Python entry points in the group ``pyroorb.link_scorers`` -- a scorer installed as its own
+   package; each entry point names the callable.
+2. A registry file, ``link_scorers.txt`` at the checkout root (or the path in
+   ``PYROORB_LINK_SCORERS_FILE``): one ``module:attribute`` per line, ``#`` comments allowed.
+
+A scorer that cannot be loaded, or raises while scoring, never objects (its failure is not
+evidence about the linkage) -- but it has not confirmed the linkage either: :func:`judge`
+names it, and the caller says so (``srsearch.CHECK_NOT_RUN``).
+"""
+import importlib
+import os
+import threading
+from pathlib import Path
+
+GROUP = "pyroorb.link_scorers"
+FILE_ENV = "PYROORB_LINK_SCORERS_FILE"
+_CHECKOUT = Path(__file__).resolve().parents[3]
+_LOCK = threading.Lock()
+_LOADED = None
+_UNLOADED = ()
+
+
+def _from_spec(spec):
+    mod, _, attr = spec.strip().partition(":")
+    obj = importlib.import_module(mod)
+    for part in (attr or "SCORER").split("."):
+        obj = getattr(obj, part)
+    if not callable(obj):
+        raise TypeError(f"{spec} is not callable")
+    return obj
+
+
+def _registry_file():
+    want = os.environ.get(FILE_ENV, "").strip()
+    return Path(want) if want else _CHECKOUT / "link_scorers.txt"
+
+
+def discover(log=print, failed=None):
+    """Every link scorer this process can find (entry points, then the registry file); the
+    spec of each one that would not load is appended to ``failed``."""
+    found, seen = [], set()
+
+    def add(spec):
+        if spec in seen:
+            return
+        seen.add(spec)
+        try:
+            found.append(_from_spec(spec))
+        except Exception as ex:                              # noqa: BLE001
+            log(f"link scorer {spec}: not loaded ({type(ex).__name__}: {ex})")
+            if failed is not None:
+                failed.append(spec)
+
+    try:
+        from importlib.metadata import entry_points
+        for ep in entry_points(group=GROUP):
+            add(ep.value)
+    except Exception as ex:                                  # pragma: no cover - defensive
+        log(f"link scorers: entry points unreadable ({ex})")
+    path = _registry_file()
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            spec = line.split("#", 1)[0].strip()
+            if spec:
+                add(spec)
+    return found
+
+
+def installed():
+    """The loaded link scorers (discovered once per process)."""
+    global _LOADED, _UNLOADED
+    if _LOADED is None:
+        with _LOCK:
+            if _LOADED is None:
+                failed = []
+                _LOADED, _UNLOADED = tuple(discover(failed=failed)), tuple(failed)
+    return _LOADED
+
+
+def set_for_tests(scorers):
+    """Replace the loaded scorers (tests only); None re-discovers on next use."""
+    global _LOADED, _UNLOADED
+    _LOADED, _UNLOADED = (None if scorers is None else tuple(scorers)), ()
+
+
+def judge(obs80_text, obscodes, scorers=None):
+    """``(objections, not_run)`` for the linkage ``obs80_text``: every scorer's objection
+    (sentences), and every scorer that could not judge it -- one that would not load, or
+    raised.  ``scorers`` replaces the installed ones."""
+    loaded = installed() if scorers is None else scorers
+    objections = []
+    not_run = [f"link scorer {spec} did not load" for spec in (_UNLOADED if scorers is None
+                                                                else ())]
+    for fn in loaded:
+        try:
+            why = fn(obs80_text, obscodes)
+        except Exception as ex:                              # noqa: BLE001 -- no verdict
+            name = getattr(fn, "__qualname__", None) or type(fn).__name__
+            not_run.append(f"link scorer {name} failed ({type(ex).__name__})")
+            continue
+        if why:
+            objections.append(str(why))
+    return objections, not_run

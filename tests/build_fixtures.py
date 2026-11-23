@@ -288,6 +288,13 @@ OBJECTS = [
     #     FROZEN here; a future rebuild can't re-fetch it (the union will re-fetch under 2016 BV14
     #     once MPC attributes it). ---
     ("P12orpW_2016BV14", ["P12orpW", "2016 BV14"]),
+    # --- NEAR-PARABOLIC basin in the IOD range re-rank. GS26063: 40 NEOCP obs over 2.2 d of a
+    #     retrograde comet-like orbit (q 0.673 au, i 124 deg, e ~1; find_orb: 33/40 @ 0.54").
+    #     Its rivals corrected to e 1.01-1.08 at 1.2-2.5" and were scored unphysical, so a
+    #     17.5" Atira won and rejected the N86 discovery night at 100 sigma (27/40 @ 3.9").
+    #     Guards iod._rerank_by_corrected_fit's unbound-blind judgement + _inside_parabola.
+    #     NOTE: a live NEOCP tempdesig -- these obs are FROZEN here. ---
+    ("GS26063", ["GS26063"]),
     # --- WIDE MULTI-REVOLUTION re-anchoring (BENCHMARK -- the suite's most expensive object).
     #     2008 NA = 2025 MF90, an Aten (a=0.96, q=0.67, P=0.94 yr) whose two arcs sit ~17 yr / ~18
     #     revolutions apart. Its true a sits 6.2-6.9 sigma_a from every well-determined anchor -- a

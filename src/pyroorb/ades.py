@@ -308,6 +308,75 @@ def fetch_neocp_xml(desig, cache=None):
     return txt
 
 
+def fetch_neocp_obs80(desig, cache=None):
+    """GET the 80-column listing (``obs=y``) for one NEOCP/temporary designation
+    (cached as text).  Read ONLY for its col-13 discovery asterisk: the ADES XML of
+    the same CGI carries no discovery flag (its rare ``<disc>`` elements are blank)."""
+    if cache_fresh(cache, NEOCP_CACHE_TTL_S):
+        txt = Path(cache).read_text(encoding="utf-8")
+        if txt.strip():
+            return txt
+        Path(cache).unlink()
+    url = NEOCP_OBS_CGI + "?" + urllib.parse.urlencode({"Obj": desig, "obs": "y"})
+    req = urllib.request.Request(url, method="GET")
+    txt = urllib.request.urlopen(req, context=_CTX, timeout=90).read().decode("utf-8", "replace")
+    if cache and txt.strip():
+        datadirs.write_cache(cache, txt)
+    return txt
+
+
+def neocp_discovery_marks(obs80_text):
+    """``[(station, datetime UTC, tolerance s), ...]`` for every line of an 80-column
+    listing that carries the col-13 discovery asterisk.  The tolerance is one unit of
+    the line's last printed decimal of the day (5 decimals = 0.86 s) plus 0.5 s."""
+    import datetime as _dt
+    out = []
+    for line in (obs80_text or "").splitlines():
+        if len(line) < 80 or line[12] != "*" or line[14] in "sv":
+            continue
+        try:
+            y, m, d = int(line[15:19]), int(line[20:22]), line[23:32].strip()
+            day = float(d)
+        except ValueError:
+            continue
+        decimals = len(d.split(".", 1)[1]) if "." in d else 0
+        t = (_dt.datetime(y, m, 1, tzinfo=_dt.timezone.utc)
+             + _dt.timedelta(days=day - 1.0))
+        out.append((line[77:80], t, 86400.0 * 10.0 ** -decimals + 0.5))
+    return out
+
+
+def _ades_time(text):
+    """An ADES ``obsTime`` ('2026-11-16T10:50:15.400Z') as an aware UTC datetime, or None."""
+    import datetime as _dt
+    try:
+        t = _dt.datetime.fromisoformat(str(text).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=_dt.timezone.utc)
+
+
+def mark_neocp_discovery(records, marks):
+    """Set ``disc="*"`` on the record each discovery mark names: same station, nearest
+    ``obsTime`` within the mark's tolerance.  Returns how many were marked."""
+    n = 0
+    for stn, t, tol in marks:
+        best, best_dt = None, None
+        for r in records:
+            if str(r.get("stn") or "").strip() != stn.strip():
+                continue
+            rt = _ades_time(r.get("obstime"))
+            if rt is None:
+                continue
+            dt = abs((rt - t).total_seconds())
+            if dt <= tol and (best_dt is None or dt < best_dt):
+                best, best_dt = r, dt
+        if best is not None:
+            best["disc"] = "*"
+            n += 1
+    return n
+
+
 def fetch_combined_neocp(desigs, obscodes, cache_dir=None):
     """NEOCP analogue of fetch_combined_ades: fetch + merge temporary tracklets via
     the NEOCP CGI (ADES XML). Returns (obs, meta).
@@ -333,7 +402,19 @@ def fetch_combined_neocp(desigs, obscodes, cache_dir=None):
     records, asked_for = [], {}
     for d in desigs:
         cache = (cache_dir / f"neocp_{cache_stem(d)}.xml") if cache_dir else None
-        for r in _neocp_xml_to_records(fetch_neocp_xml(d, cache=cache)):
+        mine = _neocp_xml_to_records(fetch_neocp_xml(d, cache=cache))
+        # The discovery tracklet names a NEOCP object in an identification link
+        # (itf.linkage.collect_ids); only the 80-column listing flags it.  Without the
+        # listing nothing is marked and the link falls back to the first tracklet.
+        try:
+            c80 = (cache_dir / f"neocp_{cache_stem(d)}.obs80.txt") if cache_dir else None
+            marks = neocp_discovery_marks(fetch_neocp_obs80(d, cache=c80))
+            if marks and not mark_neocp_discovery(mine, marks):
+                print(f"(NEOCP: {d}: discovery asterisk matches no ADES row)")
+        except Exception as ex:
+            print(f"(NEOCP: {d}: no 80-column listing for the discovery asterisk: "
+                  f"{type(ex).__name__})")
+        for r in mine:
             trksub = str(r.get("trksub") or "").strip()
             published = str(r.get("provid") or "").strip() or str(r.get("permid") or "").strip()
             if trksub and not published:

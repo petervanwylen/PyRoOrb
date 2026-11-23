@@ -1,8 +1,8 @@
-"""The web ITF search picks the single-tracklet (SR) search by arc, offline.
+"""The web ITF search picks the single-tracklet (SR) search by determinacy, offline.
 
-``engine_api.itf_search_web`` runs ``itf.srsearch.sr_then_apparition`` when the seed is too
-short to fix a distance (``srsearch.short_arc``: one night, or nights spanning under 2 days)
-and the regular search otherwise.  Both searches are replaced by the ``_sr_searcher`` /
+``engine_api.itf_search_web`` runs ``itf.srsearch.sr_then_itf`` when the seed fixes no
+distance (``srsearch.needs_sr``: one night, or a seed whose own fit leaves the distance
+open, ``srsearch.seed_determined`` -- stubbed here) and the regular search otherwise.  Both searches are replaced by the ``_sr_searcher`` /
 ``_searcher`` seams and the page's refit by a stub, so no database, network or engine fit is
 touched: these test the routing and the payload, not the search.
 
@@ -49,8 +49,8 @@ def web(monkeypatch):
                         (list(state["obs"]), None))
     monkeypatch.setattr(E, "_fit_for", lambda session=None, fit_key=None: None)
     monkeypatch.setattr(E.obs80, "obs80_base_line", lambda o: o["_line"])
-    # the chimera guard refits per tracklet; it passes here unless a test says otherwise
-    monkeypatch.setattr(srsearch, "chimera_guard_short_seed", lambda *a, **k: (True, None))
+    # the chimera check refits per tracklet; it passes here unless a test says otherwise
+    monkeypatch.setattr(srsearch, "chimera_warnings_short_seed", lambda *a, **k: [])
 
     def refit(obs, meta, obscodes, meta_extra=None):
         sid = f"sr-test-{len(state['refits'])}"
@@ -71,9 +71,9 @@ def _no_sr(*a, **k):
     raise AssertionError("the single-tracklet search ran on a long arc")
 
 
-def test_short_arc_routes_to_the_single_tracklet_search(web):
+def test_one_night_routes_to_the_single_tracklet_search(web, monkeypatch):
     web["obs"] = _seed([JD0 + 0.01 * i for i in range(4)])
-    assert srsearch.short_arc(web["obs"])
+    monkeypatch.setattr(srsearch, "seed_determined", lambda *a, **k: pytest.fail("no fit"))
     seen = {}
 
     def sr(seed_obs, primaries, cfg, log):
@@ -85,16 +85,23 @@ def test_short_arc_routes_to_the_single_tracklet_search(web):
     assert seen["primaries"] == ["ZZ00001"]
 
 
-def test_two_nights_under_two_days_is_short(web):
-    web["obs"] = _seed([JD0, JD0 + 0.02, JD0 + 1.0, JD0 + 1.02])
+@pytest.mark.parametrize("jds", [[JD0, JD0 + 0.02, JD0 + 1.0, JD0 + 1.02],
+                                 [JD0, JD0 + 0.02, JD0 + 3.0, JD0 + 3.02, JD0 + 9.0]])
+def test_an_undetermined_seed_of_any_length_is_ranged(web, monkeypatch, jds):
+    web["obs"] = _seed(jds)
+    monkeypatch.setattr(srsearch, "seed_determined", lambda *a, **k: False)
     out = E.itf_search_web("s", _searcher=_no_regular,
                            _sr_searcher=lambda *a: (SrResult(reason="x"), None))
     assert out["itf"]["mode"] == "single_tracklet"
 
 
-def test_long_arc_runs_the_regular_search(web):
-    web["obs"] = _seed([JD0, JD0 + 0.02, JD0 + 3.0, JD0 + 3.02, JD0 + 9.0])
-    assert not srsearch.short_arc(web["obs"])
+@pytest.mark.parametrize("jds", [[JD0, JD0 + 0.02, JD0 + 1.0, JD0 + 1.02],
+                                 [JD0, JD0 + 0.02, JD0 + 3.0, JD0 + 3.02, JD0 + 9.0]])
+def test_a_determined_seed_runs_the_regular_search(web, monkeypatch, jds):
+    """Two nights a day apart included: a seed that fixes a distance is searched by the
+    regular search, which linked more of them than SR did."""
+    web["obs"] = _seed(jds)
+    monkeypatch.setattr(srsearch, "seed_determined", lambda *a, **k: True)
     ran = []
 
     def regular(seed_obs80, primaries, cfg):
@@ -124,8 +131,8 @@ def test_a_space_based_seed_is_refused_with_its_reason(web):
     web["obs"] = _seed([JD0 + 0.01 * i for i in range(3)], stn="C57")
 
     def sr(seed_obs, primaries, cfg, log):
-        return srsearch.sr_then_apparition(seed_obs, None, E._obscodes(), primaries, cfg,
-                                           log=log)
+        return srsearch.sr_then_itf(seed_obs, None, E._obscodes(), primaries, cfg,
+                                    log=log)
     out = E.itf_search_web("s", _searcher=_no_regular, _sr_searcher=sr)
     assert out["ok"] is True and out["itf"]["found"] is False
     assert "not on the ground" in out["itf"]["reason"]
@@ -164,7 +171,7 @@ def test_sr_link_then_apparition_lists_both_stages(web, monkeypatch):
     blk = out["itf"]
     assert blk["found"] is True and blk["mode"] == "single_tracklet"
     assert blk["mode_note"] == ("single-tracklet search: linked 2 tracklet(s) (triplet), "
-                                "then same-apparition search: linked 1 more tracklet(s)")
+                                "then the full ITF search: linked 1 more tracklet(s)")
     stage = {t["trksub"]: t.get("stage") for t in blk["tracklets"]}
     assert stage == {"SR00001": "single-tracklet", "SR00002": "single-tracklet",
                      "PR00009": None}
@@ -180,7 +187,7 @@ def test_sr_link_then_apparition_lists_both_stages(web, monkeypatch):
     assert pend["submittable"] is False and "review_only" not in pend
     ids = {E.obs_unique_id(l) for l in sr_text.splitlines()}
     assert ids <= set(pend["itf_ids"])
-    assert blk["sr"]["kind"] == "triplet" and blk["sr"]["apparition"]["added_tracklets"] == 1
+    assert blk["sr"]["kind"] == "triplet" and blk["sr"]["follow_up"]["added_tracklets"] == 1
 
 
 def test_sr_link_stands_alone_when_the_apparition_adds_nothing(web, monkeypatch):
@@ -194,7 +201,7 @@ def test_sr_link_stands_alone_when_the_apparition_adds_nothing(web, monkeypatch)
     out = E.itf_search_web("s", _searcher=_no_regular, _sr_searcher=lambda *a: (sr, itf))
     blk = out["itf"]
     assert blk["found"] is True and blk["possible"] is True
-    assert blk["mode_note"].endswith("then same-apparition search: nothing further "
+    assert blk["mode_note"].endswith("then the full ITF search: nothing further "
                                      "(no likely matches)")
     assert sorted(t["trksub"] for t in blk["tracklets"]) == ["SR00001", "SR00002"]
     assert all(t["stage"] == "single-tracklet" for t in blk["tracklets"])
@@ -224,14 +231,15 @@ def test_sr_find_meeting_the_itfitf_minimums_is_submittable(web, monkeypatch):
 
 
 def _submittable_sr(web, monkeypatch, guard):
-    """A single-tracklet find meeting the ITF-to-ITF minimums, the chimera guard stubbed."""
+    """A single-tracklet find meeting the ITF-to-ITF minimums, the chimera check stubbed
+    (``guard`` = the warnings it returns)."""
     _judge(monkeypatch, True)
     import pyroorb.itf.linkage as L
     monkeypatch.setattr(L, "build_linkage", lambda combined, cfg, **k: (
         {"links": {"link_0": {}}}, None))
     asked = []
-    monkeypatch.setattr(srsearch, "chimera_guard_short_seed",
-                        lambda seed, itf, oc, **k: (asked.append((seed, itf)) or guard))
+    monkeypatch.setattr(srsearch, "chimera_warnings_short_seed",
+                        lambda seed, itf, oc, **k: (asked.append((seed, itf)) or list(guard)))
     web["obs"] = _seed([JD0 + 0.01 * i for i in range(3)])
     itf = ItfSearchResult(verdict=SearchVerdict.NONE, reason="no likely matches")
     out = E.itf_search_web("s", _searcher=_no_regular,
@@ -242,8 +250,9 @@ def _submittable_sr(web, monkeypatch, guard):
 def test_sr_find_the_chimera_guard_refuses_carries_a_caution(web, monkeypatch):
     """The guard that keeps automated senders from sending a find warns the web user: it is
     shown, and the find is not submitted until the user acknowledges it."""
-    out, asked = _submittable_sr(web, monkeypatch, (False, "the tracklet (G96, JD 2460020.50) "
-                                                    "is not predicted by the rest"))
+    out, asked = _submittable_sr(web, monkeypatch, [
+        srsearch.CHIMERA_GUARD_WARNING + "the tracklet (G96, 2023-03-21 00:00 UT) is not "
+        "predicted by the rest"])
     blk = out["itf"]
     # the seed and both SR tracklets were put to the guard
     assert asked and asked[0][0].count("\n") == 3 and asked[0][1].count("\n") == 4
@@ -255,7 +264,7 @@ def test_sr_find_the_chimera_guard_refuses_carries_a_caution(web, monkeypatch):
 
 
 def test_sr_find_the_chimera_guard_passes_carries_no_caution(web, monkeypatch):
-    out, asked = _submittable_sr(web, monkeypatch, (True, None))
+    out, asked = _submittable_sr(web, monkeypatch, [])
     assert asked
     assert not [w for w in out["itf"]["warnings"] if "possible chimera" in w]
 
@@ -288,7 +297,7 @@ def test_stop_between_the_stages_is_honoured(web):
 
 
 def test_the_live_hand_off_owns_its_connection_and_never_submits(monkeypatch):
-    """``_sr_search_live`` through the real ``sr_then_apparition``: the database and the two
+    """``_sr_search_live`` through the real ``sr_then_itf``: the database and the two
     searches stubbed, the arguments the apparition search receives checked."""
     import pyroorb.itf.candidates as C
     import pyroorb.itf.dbio as D
@@ -306,8 +315,10 @@ def test_the_live_hand_off_owns_its_connection_and_never_submits(monkeypatch):
     monkeypatch.setattr(S, "itf_search", itf_search)
     seed = [{**o, "obs80_line": o["_line"]} for o in _seed([JD0 + 0.01 * i for i in range(3)])]
     from pyroorb.itf.config import ItfConfig
-    sr, itf = E._sr_search_live(seed, ["ZZ00001"], ItfConfig(), lambda m: None,
+    cfg = ItfConfig()
+    sr, itf = E._sr_search_live(seed, ["ZZ00001"], cfg, lambda m: None,
                                 max_uncert_deg=2.0, uncert_mult=1.5)
+    assert got["cfg"] is cfg                 # the full ITF search, not the seed's apparition
     assert sr.link is not None and itf.reason == "no likely matches"
     assert got["source"] == ("source", conn) and closed == [True]
     assert got["do_submit"] is False and got["primary_desigs"] == ["ZZ00001"]
@@ -327,7 +338,7 @@ def test_an_unreachable_database_is_reported_not_raised(web, monkeypatch):
 
 
 def _grown_sr(web, monkeypatch, verdict, reason):
-    """A single-tracklet find meeting the ITF-to-ITF minimums whose same-apparition search
+    """A single-tracklet find meeting the ITF-to-ITF minimums whose ITF search
     added one tracklet and returned ``verdict``."""
     _judge(monkeypatch, True)
     import pyroorb.itf.linkage as L
@@ -347,19 +358,19 @@ def _grown_sr(web, monkeypatch, verdict, reason):
 
 
 def test_sr_find_the_apparition_search_called_possible_carries_its_reason(web, monkeypatch):
-    """A find the same-apparition search judged a possible (0.6) is still judged by the
+    """A find the ITF search judged a possible (0.6) is still judged by the
     ITF-to-ITF minimums, but the regular search's own reason joins the warnings: the user
     reads and acknowledges it before the find can be submitted."""
     why = "seed observations fit 1.9x worse under the link"
     out = _grown_sr(web, monkeypatch, SearchVerdict.POSSIBLE, why)
     blk = out["itf"]
     assert blk["found"] is True and blk["possible"] is False
-    cautions = [w for w in blk["warnings"] if w.startswith(E.SR_APPARITION_CAUTION)]
-    assert cautions == [E.SR_APPARITION_CAUTION + why]
+    cautions = [w for w in blk["warnings"] if w.startswith(E.SR_SEARCH_CAUTION)]
+    assert cautions == [E.SR_SEARCH_CAUTION + why]
     assert cautions[0] in E._SESSIONS[out["session"]]["itf_warnings"]
 
 
 def test_a_linked_apparition_result_carries_no_possible_caution(web, monkeypatch):
     out = _grown_sr(web, monkeypatch, SearchVerdict.LINKED, "linked")
     assert out["itf"]["possible"] is False
-    assert not [w for w in out["itf"]["warnings"] if w.startswith(E.SR_APPARITION_CAUTION)]
+    assert not [w for w in out["itf"]["warnings"] if w.startswith(E.SR_SEARCH_CAUTION)]

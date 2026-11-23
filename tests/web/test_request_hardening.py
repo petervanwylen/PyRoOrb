@@ -105,6 +105,14 @@ def test_conflicting_lengths_close_the_connection():
     assert out.startswith(b"HTTP/1.1 400") and out.count(b"HTTP/1.1 ") == 1
 
 
+def test_a_get_body_is_never_run_as_a_second_request():
+    """GET never reads a body: a declared one was left on the keep-alive connection."""
+    hidden = b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n"
+    out = _exchange(b"GET /healthz HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n"
+                    % len(hidden) + hidden)
+    assert out.count(b"HTTP/1.1 ") == 1
+
+
 # ------------------------------------------------------------------ client identity
 class _Req:
     def __init__(self, headers, peer="10.0.0.7"):

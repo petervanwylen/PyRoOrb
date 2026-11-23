@@ -6635,7 +6635,7 @@ def test_a_linkage_the_terminal_fan_may_supersede_is_sent_only_if_it_stands(
     sent = []
     monkeypatch.setattr(S, "submit_linkage",
                         lambda doc, cfg, **kw: (sent.append(doc) or True,
-                                                "sent", None))
+                                                "200 OK", None))
     monkeypatch.setattr(S, "build_linkage",
                         lambda *a, **kw: ({"doc": len(sent)}, None))
     monkeypatch.setattr(S, "display_obs80", lambda ctx, text: text)
@@ -6681,7 +6681,7 @@ def test_a_vetted_terminal_is_sent_once_whatever_the_fan_does(monkeypatch, fan):
     sent, logged = [], []
     monkeypatch.setattr(S, "submit_linkage",
                         lambda doc, cfg, **kw: (sent.append(doc) or True,
-                                                "sent", None))
+                                                "200 OK", None))
     fan_link = S.ItfSearchResult(verdict=SearchVerdict.LINKED)
 
     def fake_scan(*a, **kw):
@@ -6787,3 +6787,24 @@ def test_tracklet_repair_runs_through_a_seed_failure_but_not_others():
     assert S._repair_blocked(a([], other=True))                    # unknown cause
     assert S._repair_blocked(a([tracklet], ok=True))               # nothing to repair
     assert S._repair_blocked(a([{"kind": "seed"}], bad_=[]))       # no bad tracklet
+
+
+def test_a_seed_detection_rendered_differently_is_the_seed_own():
+    """A NEOCP object's copy of an ITF line the MPC accepted onto it can differ from the
+    ITF table's line (here 0.2" in Dec), so the byte identity misses it; the detection
+    test still calls it the seed's own, and a neighbour 2" away or another station not."""
+    from pyroorb.itf import search as S
+    from pyroorb.itf.obs80_fields import obs_unique_id
+    seed = "     P22svsw  C2006 11 19.27888 04 56 53.89 +21 42 13.2          21.1 VcNEOCP691\n"
+    itf = "     GBIR15   C2006 11 19.27888 04 56 53.89 +21 42 13.4          21.1 Vc     691"
+    assert obs_unique_id(itf) not in S.obs_ids(seed)
+    own = S.own_detections(seed)
+    jd = 2454058.5 + 0.27888
+    ra = (4 + 56 / 60 + 53.89 / 3600) * 15
+    dec = 21 + 42 / 60 + 13.4 / 3600
+    row = {"obs80": itf, "stn": "691", "epoch_sec": (jd - 2440587.5) * 86400.0,
+           "ra": ra, "dec": dec}
+    assert S._seed_detection(own, row)
+    assert not S._seed_detection(own, dict(row, dec=dec + 2.0 / 3600))
+    assert not S._seed_detection(own, dict(row, stn="703"))
+    assert not S._seed_detection({}, row)
