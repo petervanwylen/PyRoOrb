@@ -388,19 +388,26 @@ def _rerank_by_corrected_fit(scored, best, base_sim, t0_tdb, sub_obs, sub_R):
     # (fit_object._prefer_bound_ecc). With the unbound penalty here, GS26063 (q 0.67 au,
     # i 124 deg, 40 obs over 2.2 d) lost to a spurious Atira: corrected 1.24" and 2.51" (e 1.08,
     # 1.01) against 17.5", and the Atira fit then rejected the discovery night at 100 sigma.
+    # A basin is named by its bound raw representative's a, never by the corrected state's: a
+    # correction that crosses e = 1 has a < 0, and comparing that with the incumbent's a would
+    # call the incumbent's own basin a different one.
     rer = []
     for sc, m, st, a in basins:
         cst = _correct_seed(st, base_sim, t0_tdb, sub_obs, sub_R)
         if cst is not None:
             rer.append((score_orbit(cst, base_sim, t0_tdb, sub_obs, sub_R, allow_unbound=True),
-                        m, cst))
+                        m, cst, a))
     if not rer:
         return best
     rer.sort(key=lambda x: x[0])
-    winner_score, winner_method, winner_state = rer[0]
-    winner_a = quick_aeq(winner_state)[0]
-    different_basin = not (best_a and winner_a and 1.0 / SEED_BASIN_RATIO < winner_a / best_a < SEED_BASIN_RATIO)
+    winner_score, winner_method, winner_state, winner_a = rer[0]
+    different_basin = not (best_a and best_a > 0
+                           and 1.0 / SEED_BASIN_RATIO < winner_a / best_a < SEED_BASIN_RATIO)
     if winner_score < best_score and different_basin:
+        # the score handed on is the basin's corrected fit, not that of the bound hand-off
+        # state: moving an e > 1 correction inside the parabola is a seeding device that the
+        # full fit undoes, and scoring it (GS26063: 1.2" -> 78") would rank the basin below
+        # the one it beat (a later window rescue must beat this score)
         return _inside_parabola(winner_state), winner_method, winner_score
     return best
 

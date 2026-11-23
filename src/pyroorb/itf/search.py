@@ -497,6 +497,10 @@ class SearchContext:
     # this search judges its own answers by the chimera rule (``itf_search(chimera_check=)``):
     # also each document it transmits, before it goes
     chimera_check: bool = True
+    # seed observations that are NOT the object's published arc (``itf_search(
+    # unvouched_obs80=)``): ITF tracklets a caller linked first.  A caution about them stays
+    # a caution, never an own-data note.
+    unvouched_ids: frozenset = frozenset()
     # why the one-night show last declined a night that DID link, printed by
     # the rejection ledger instead of "without progress"; None = not asked
     show_refusal: str | None = None
@@ -3690,9 +3694,17 @@ def _mag_caution(magt):
 def _linked_jds(ctx, trial):
     """The epochs (jd rounded to 1e-5 d, ``mag_outlier_tracklet``'s
     ``jd_subset`` key) of the fit's observations that are not the object's own."""
-    pub_ids = getattr(ctx, "pub_ids", set())
+    own = _own_ids(ctx)
     return {round(o["jd_utc"], 5) for o in getattr(trial.fit, "_obs", ())
-            if o.get("obs80_line") and obs_unique_id(o["obs80_line"]) not in pub_ids}
+            if o.get("obs80_line") and obs_unique_id(o["obs80_line"]) not in own}
+
+
+def _own_ids(ctx):
+    """The ids of the object's OWN published observations: the seed's, less any seed line a
+    caller linked from the ITF first (``SearchContext.unvouched_ids``)."""
+    pub_ids = getattr(ctx, "pub_ids", set())
+    unvouched = getattr(ctx, "unvouched_ids", frozenset())
+    return pub_ids - unvouched if unvouched else pub_ids
 
 
 def _mag_tracklet_is_own(ctx, trial, magt):
@@ -3711,7 +3723,7 @@ def _mag_tracklet_is_own(ctx, trial, magt):
         rows = trial.fit.magnitude_residuals()
     except Exception:
         return False
-    pub_ids = getattr(ctx, "pub_ids", set())
+    pub_ids = _own_ids(ctx)
     own_keys = {(o.get("obscode"), o["jd_utc"]) for o in trial.fit._obs
                 if o.get("obs80_line")
                 and obs_unique_id(o["obs80_line"]) in pub_ids}
@@ -4000,11 +4012,11 @@ def _own_nights_as_ident(ctx, fit):
     idx = sorted((i for i in range(len(fit._obs)) if m[i]),
                  key=lambda i: fit._obs[i]["jd_utc"])
     times = [fit._obs[i]["jd_utc"] for i in idx]
-    own = set()
+    own, own_ids = set(), _own_ids(ctx)
     for ni in ident_check._split(times, ident_check.NIGHT_GAP_DAYS):
         for k in ni:
             line = fit._obs[idx[k]].get("obs80_line")
-            if line and obs_unique_id(line) in ctx.pub_ids:
+            if line and obs_unique_id(line) in own_ids:
                 own.add(_night_label(times[ni[0]]))
                 break
     return own
@@ -6218,7 +6230,7 @@ def itf_search(source, designations=None, *, seed_obs80=None,
                max_uncert_deg=None, uncert_mult=None, extrawidth=0.0,
                do_submit=False, co_credit=None, telemetry=None,
                verbose=True, log=print, collector=None, trace=None,
-               dlog=None, chimera_check=True):
+               dlog=None, chimera_check=True, unvouched_obs80=None):
     """Search the ITF for tracklets belonging to a known object.
 
     ``source`` -- a candidate source (:class:`pyroorb.itf.candidates.DbSource`,
@@ -6238,6 +6250,9 @@ def itf_search(source, designations=None, *, seed_obs80=None,
     larger linkage than this search added (the single-tracklet hand-off, whose seed
     carries tracklets nothing vouched for): each leave-out is a refit, and a judgement
     of the added tracklets alone would only be replaced.
+    ``unvouched_obs80`` -- seed lines that are not the object's published arc (the ITF
+    tracklets the single-tracklet search linked): an offset night or photometric outlier
+    on them is a caution about the linkage, never filed as the object's own data.
 
     Returns an :class:`ItfSearchResult`.
     """
@@ -6320,6 +6335,7 @@ def itf_search(source, designations=None, *, seed_obs80=None,
         uncert_mult=uncert_mult,
         do_submit=do_submit,
         chimera_check=chimera_check,
+        unvouched_ids=frozenset(obs_ids(unvouched_obs80 or "")),
         co_credit=co_credit,
         telemetry=telemetry,
         log=log,

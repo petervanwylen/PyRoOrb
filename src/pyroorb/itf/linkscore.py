@@ -6,8 +6,11 @@ linked astrometry (80-column lines), it returns one sentence when it objects to 
 a possible chimera (tracklets of more than one body), else None.  An objection is a WARNING on
 the linkage -- shown with it, never a refusal by itself (see ``srsearch.chimera_warnings``).
 
-Discovery, in this order (duplicates ignored), exactly as web add-ons are found:
+Discovery, in this order (duplicates ignored):
 
+0. The scorers that ship with PyRoOrb (:data:`BUILTIN`): the mislinkage model
+   (``pyroorb.mislink.linkscore``).  Its model runtime (xgboost) comes with the ``itf`` extra;
+   without it the scorer does not load, and every linkage says the check was not run.
 1. Python entry points in the group ``pyroorb.link_scorers`` -- a scorer installed as its own
    package; each entry point names the callable.
 2. A registry file, ``link_scorers.txt`` at the checkout root (or the path in
@@ -23,6 +26,8 @@ import threading
 from pathlib import Path
 
 GROUP = "pyroorb.link_scorers"
+#: The link scorers that ship with the package, loaded before any discovered one.
+BUILTIN = ("pyroorb.mislink.linkscore:SCORER",)
 FILE_ENV = "PYROORB_LINK_SCORERS_FILE"
 _CHECKOUT = Path(__file__).resolve().parents[3]
 _LOCK = threading.Lock()
@@ -46,8 +51,8 @@ def _registry_file():
 
 
 def discover(log=print, failed=None):
-    """Every link scorer this process can find (entry points, then the registry file); the
-    spec of each one that would not load is appended to ``failed``."""
+    """Every link scorer this process can find (:data:`BUILTIN`, entry points, then the
+    registry file); the spec of each one that would not load is appended to ``failed``."""
     found, seen = [], set()
 
     def add(spec):
@@ -61,6 +66,8 @@ def discover(log=print, failed=None):
             if failed is not None:
                 failed.append(spec)
 
+    for spec in BUILTIN:
+        add(spec)
     try:
         from importlib.metadata import entry_points
         for ep in entry_points(group=GROUP):

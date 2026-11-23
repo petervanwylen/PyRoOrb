@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyRoOrb — Mislinkage Watch List</title>
+<link rel="icon" href="/static/icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/pyroorb-32.png">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/mislink.css">
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-956W73JTP9"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-956W73JTP9');
+</script>
+<style>
+  body { display: block; height: auto; overflow: auto; padding: 0 0 60px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 18px 16px; }
+  header.bar { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 16px; }
+  header.bar h1 { font-size: 17px; }
+  header.bar .sub { color: var(--muted); font-size: 12px; }
+  header.bar .spacer { flex: 1; }
+  .intro { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--warn);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px; line-height: 1.55; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px; margin-bottom: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; }
+  .card .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  .card .v { font-size: 18px; font-family: var(--mono); margin-top: 3px; }
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px;
+    font-size: 12.5px; }
+  .filters label { display: flex; gap: 5px; align-items: center; color: var(--muted); }
+  .filters input[type="search"] { width: 150px; }
+  .tablewrap { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; white-space: nowrap;
+    border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .4px; cursor: pointer; user-select: none; }
+  th.num { text-align: right; }
+  th.sorted::after { content: " ▾"; } th.sorted.asc::after { content: " ▴"; }
+  td { padding: 5px 8px; border-bottom: 1px solid #22272e; vertical-align: top; }
+  td.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+  td.mono { font-family: var(--mono); white-space: nowrap; }
+  tr.row { cursor: pointer; }
+  tr.row:hover td { background: var(--panel2); }
+  tr.row.open td { background: var(--panel2); border-bottom-color: transparent; }
+  tr.detail > td { background: var(--panel2); padding: 10px 14px 14px; }
+  .score-hi { color: #ff9b94; font-weight: 600; }
+  .badge { display: inline-block; font-size: 10.5px; padding: 0 6px; border-radius: 9px;
+    border: 1px solid var(--border); color: var(--muted); margin-left: 4px; white-space: nowrap; }
+  .badge.chim { border-color: var(--bad); color: #ff9b94; }
+  .badge.gone { border-color: var(--good); color: #7ee08a; }
+  td .tier { color: var(--muted); font-size: 10.5px; font-weight: 400; }
+  .reason { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .facts { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; margin-bottom: 8px;
+    color: var(--muted); }
+  .facts b { color: var(--fg); font-family: var(--mono); font-weight: 500; }
+  .links { margin: 6px 0 10px; font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .note { color: var(--muted); font-size: 11.5px; }
+  #err { color: var(--bad); margin: 12px 0; }
+  .foot { margin-top: 26px; color: var(--muted); font-size: 11.5px; line-height: 1.6;
+    border-top: 1px solid var(--border); padding-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <h1>Mislinkage Watch List</h1>
+    <span class="sub" id="when">loading…</span>
+    <span class="spacer"></span>
+    <a href="/" class="note">← PyRoOrb</a>
+  </header>
+  <div class="intro">
+    Single-opposition objects (3–5 nights) whose observations a machine-learning model reads as
+    <b>likely holding more than one body</b>: tracklets of different asteroids linked into one
+    designation. Each score is at or above the model's operating point (<span id="thr">0.93</span>),
+    where no control arc in its external test set was flagged while about half of the known
+    mislinkages were. Scores read as 0.97+ very likely, 0.93+ likely (this list), 0.70+ possible,
+    0.27+ small chance (higher than 99% of real arcs), 0.02+ very remote chance, below that no sign. A score is a ranking, not a probability. <b>Click an object</b> to see why
+    the model flagged it: each feature's contribution, adding up to the score.
+    The list is fixed in the code (not generated live); the “now” column is the same model run on
+    the published observations when the list was exported, so a fixed or re-observed object shows
+    there.
+  </div>
+  <div class="cards" id="cards"></div>
+  <div class="filters">
+    <label>Search <input type="search" id="q" placeholder="2023 RE178"></label>
+    <label>Year <select id="year"><option value="">all</option></select></label>
+    <label>Nights <select id="nights"><option value="">all</option>
+      <option>3</option><option>4</option><option>5</option></select></label>
+    <label><input type="checkbox" id="hideGone"> hide objects no longer flagged now</label>
+    <label><input type="checkbox" id="rulesOnly"> only arcs the MPC's ITF rules accept</label>
+    <span class="note" id="count"></span>
+  </div>
+  <div id="err" hidden></div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr id="head"></tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+  <div class="foot">
+    The model is a gradient-boosted tree classifier over 26 features of the arc: how its nights
+    and gaps are built, the photometry of each tracklet, one orbit fit to every night, a refit
+    that leaves out the smaller side of the largest gap and predicts it, and a night-by-night
+    chain grown from the best-observed pair of nights. Explanations are exact TreeSHAP values
+    in log-odds. It was trained on main-belt to Hilda arcs; objects with q &lt; 1.3 au or
+    a &gt; 5.5 au are not scored here. “Reviewed chimera” and “known mislinkage” mark objects
+    already judged by hand; their scores come from a model that never saw that judgement.
+  </div>
+</div>
+<script src="/static/mislinkexplain.js"></script>
+<script src="/static/mislinkcands.js"></script>
+</body>
+</html>

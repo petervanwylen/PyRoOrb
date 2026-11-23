@@ -76,6 +76,34 @@ def test_inside_parabola_keeps_position_and_direction():
     assert iod._inside_parabola(bound) is bound
 
 
+def _state_with_a(a_au, r_au=1.0):
+    """A heliocentric state at r with semi-major axis a (vis-viva; a < 0 = hyperbolic)."""
+    mu = iod.MU_SUN
+    r = np.array([r_au, 0.0, 0.0])
+    v = np.sqrt(mu * (2 / r_au - 1 / a_au))
+    return np.concatenate([r, [0.0, v, 0.0]])
+
+
+def test_incumbent_basin_correcting_past_parabola_is_not_a_new_basin(monkeypatch):
+    # The incumbent's own basin (a 1.2) corrects to e > 1 and fits best: that is the same
+    # basin, so the incumbent stands -- an unbound correction has a < 0, which must not be
+    # read as "a different a".
+    best = _state_with_a(1.2)
+    rival = _state_with_a(3.0)
+    corrected = {id(best): _state_with_a(-5.0), id(rival): _state_with_a(3.1)}
+    monkeypatch.setattr(iod, "_correct_seed", lambda st, *a, **k: corrected[id(st)])
+    monkeypatch.setattr(iod, "score_orbit",
+                        lambda st, *a, **k: 1.0 if iod.quick_aeq(st)[0] < 0 else 9.0)
+    scored = [(20.0, "vaisala", best), (21.0, "gauss", rival)]
+    out = iod._rerank_by_corrected_fit(scored, (best, "vaisala", 20.0), None, 0.0, [], [])
+    assert out[0] is best and out[2] == 20.0
+    # the same correction from a DIFFERENT basin is adopted, handed on bound
+    corrected = {id(best): _state_with_a(1.25), id(rival): _state_with_a(-5.0)}
+    out = iod._rerank_by_corrected_fit(scored, (best, "vaisala", 20.0), None, 0.0, [], [])
+    a, e, _ = iod.quick_aeq(out[0])
+    assert out[1] == "gauss" and a > 0 and e < 1.0 and out[2] == 1.0
+
+
 @pytest.mark.slow
 def test_gs26063_delivers_the_near_parabolic_orbit():
     """End to end on the frozen GS26063 obs: the delivered ORBIT, not just its rms. The

@@ -20,7 +20,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 PRIVATE = (
     # private modules, at the path each will have when it is released
     "src/pyroorb/neocpmon/", "src/pyroorb/idqueue/", "src/pyroorb/hyperlinc/",
-    "src/pyroorb/mislink/", "src/pyroorb/itfprio/",
+    "src/pyroorb/itfprio/",
     "src/pyroorb/photcal.py", "src/pyroorb/rubin/", "src/pyroorb/activity/", "src/pyroorb/identscan/",
     "src/pyroorb/itf/heliolinc.py", "src/pyroorb/itf/exitf.py", "src/pyroorb/itf/batch.py",
     "src/pyroorb/itf/collect.py", "src/pyroorb/itf/sampling.py", "src/pyroorb/itf/backup/",

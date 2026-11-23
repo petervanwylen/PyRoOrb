@@ -2467,15 +2467,17 @@ SR_SEARCH_CAUTION = ("the ITF search that grew this find judged it only a possib
                      "(0.6): ")
 
 
-def _sr_chimera_cautions(seed_text, itf_text, obscodes):
+def _sr_chimera_cautions(seed_text, itf_text, obscodes, core_text=None):
     """The chimera warnings on a single-tracklet find
     (:func:`itf.srsearch.chimera_warnings_short_seed`: the 2-3 night chimera guard at 1-3
     nights, asking every tracklet, the seed's own included; the link scorers at 3+ nights)
     -- the rule that keeps the NEOCP monitor from sending the same kind of find.  They join
     the result's warnings, so they are shown as caution banners and must be acknowledged
-    before the find can be submitted."""
+    before the find can be submitted.  ``core_text`` is the single-tracklet link, judged
+    on its own as well when the full search added more."""
     from pyroorb.itf import srsearch
-    return list(srsearch.chimera_warnings_short_seed(seed_text, itf_text, obscodes))
+    return list(srsearch.chimera_warnings_short_seed(seed_text, itf_text, obscodes,
+                                                     core_text=core_text))
 
 
 def _sr_seed(seed_obs, obs_by_line):
@@ -2605,7 +2607,8 @@ def _sr_web_result(sr, itf, seed_text, obscodes, primaries=(), cfg=None):
         # the find is judged whole here, the seed and every linked tracklet (the
         # ITF search attached no chimera judgement of its own)
         warns = list(r.warnings or [])
-        for caution in _sr_chimera_cautions(seed_text, itf_text, obscodes):
+        for caution in _sr_chimera_cautions(seed_text, itf_text, obscodes,
+                                            core_text=sr_text):
             if caution not in warns:
                 warns.append(caution)
         if r.verdict == SearchVerdict.POSSIBLE and doc is not None:

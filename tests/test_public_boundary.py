@@ -95,7 +95,7 @@ def _couplings():
 def test_private_module_list_is_derived():
     """A path-list change must not silently empty the module list."""
     for m in ("pyroorb.neocpmon", "pyroorb.idqueue", "pyroorb.itf.batch", "pyroorb.itf.heliolinc",
-              "pyroorb.itfprio", "pyroorb.photcal", "pyroorb.mislink"):
+              "pyroorb.itfprio", "pyroorb.photcal"):
         assert m in PRIVATE_MODULES, PRIVATE_MODULES
     assert "pyroorb.itf.search" not in PRIVATE_MODULES
     assert "pyroorb.itf.training" not in PRIVATE_MODULES

@@ -1,0 +1,32 @@
+/* The mislinkage add-on's styles (loaded after the main page's style.css). */
+/* Mislinkage explanation (mislinkexplain.js): TreeSHAP log-odds bars, red toward chimera,
+   green toward one body, centred on a zero axis. */
+.mx { font-size: 12px; }
+.mx-head, .mx-row { display: grid; grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(0, 2fr) 92px;
+  gap: 8px; align-items: center; padding: 2px 0; }
+.mx-head { color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--border); }
+.mx-dir { display: flex; justify-content: space-between; }
+.mx-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-key { color: var(--muted); font-size: 10.5px; margin-left: 4px; }
+.mx-val, .mx-shap { font-family: var(--mono); text-align: right; white-space: nowrap; }
+.mx-track { position: relative; height: 12px; }
+.mx-axis { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border); }
+.mx-bar { position: absolute; top: 1px; height: 10px; border-radius: 2px; }
+.mx-pos { background: var(--bad); } .mx-neg { background: var(--good); }
+.mx-pos-t { color: #ff9b94; } .mx-neg-t { color: #7ee08a; }
+.mx-base, .mx-total { color: var(--muted); }
+.mx-total { border-top: 1px solid var(--border); color: var(--fg); }
+.mx-gloss { margin-top: 6px; color: var(--muted); }
+.mx-gloss dt { color: var(--fg); margin-top: 4px; }
+.mx-gloss dd { margin: 0 0 0 12px; }
+@media (max-width: 600px) {
+  .mx-head, .mx-row { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 64px; }
+  .mx-head > :nth-child(3), .mx-row > .mx-track { display: none; }
+}
+/* Mislinkage note when no score is shown (mislinknote.js): one quiet line saying why. */
+.mislink-muted { margin: 0 0 8px; font-size: 11.5px; color: var(--muted); }
+/* A scored arc below "possible" (or outside the model's domain): informational, not amber. */
+.constraint-warn.mx-calm { background: rgba(88,166,255,.07); border-color: var(--border);
+  border-left-color: var(--accent); }
+.constraint-warn.mx-calm .cw-head { color: var(--fg); }
+.mislink-muted button { font-size: 11px; padding: 0 6px; margin-left: 4px; }

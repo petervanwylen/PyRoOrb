@@ -131,14 +131,33 @@ def test_a_two_night_seed_screens_its_own_tracklet(two_night, obscodes):
 def test_seed_night_is_the_busiest_station_night():
     o = lambda stn, *jds: [{"obscode": stn, "jd_utc": j} for j in jds]   # noqa: E731
     pick = lambda obs: [x["jd_utc"] for x in sr.seed_night(obs)]       # noqa: E731
-    # the most-observed station first, then its busiest night
+    # the busiest station-night, whichever station it belongs to
     assert pick(o("F51", 1.0, 1.01, 2.0, 2.01, 2.02) + o("G96", 1.5, 1.51)) == [2.0, 2.01, 2.02]
     assert pick(o("F51", 1.0, 1.01) + o("G96", 1.5, 2.6, 2.61)) == [2.6, 2.61]
     # equal counts: the longer night, then the later one
     assert pick(o("F51", 1.0, 1.05, 2.0, 2.01)) == [1.0, 1.05]
     assert pick(o("F51", 1.0, 1.125, 2.0, 2.125)) == [2.0, 2.125]
-    # a gap of exactly 0.5 days stays one night, as the short-arc rule counts it
-    assert pick(o("F51", 1.0, 1.5, 3.0)) == [1.0, 1.5]
+    # a night is a 12-hour window from its first observation: 0.49 d later is the same
+    # night, 0.5 d later the next one
+    assert pick(o("F51", 1.0, 1.49, 3.0)) == [1.0, 1.49]
+    assert pick(o("F51", 1.0, 1.5, 1.51)) == [1.5, 1.51]
+
+
+def test_a_seed_with_one_obs_a_night_is_refused_not_a_crash():
+    # F51 once on each of two nights + G96 once: no station-night holds two positions
+    obscodes = {"F51": (0.9, 0.3, 0.9), "G96": (0.8, 0.4, 0.9), "C51": (0.0, 0.0, 0.0)}
+    o = lambda stn, jd: {"obscode": stn, "jd_utc": jd, "ra_deg": 10.0, "dec_deg": 5.0}  # noqa: E731
+    seed = [o("F51", 1.0), o("F51", 2.0), o("G96", 1.5)]
+    assert "twice in one night" in sr.seed_night_problem(seed, obscodes)
+    res = sr.sr_search(seed, source=None, obscodes=obscodes)
+    assert res.link is None and "twice in one night" in res.reason
+    # a less-observed station's two-position night is used rather than refused
+    seed2 = seed + [o("G96", 2.6), o("G96", 2.61)]
+    assert sr.seed_night_problem(seed2, obscodes) is None
+    assert [x["jd_utc"] for x in sr.seed_night(seed2, obscodes)] == [2.6, 2.61]
+    # a space-based station's night is never the one ranged from
+    seed3 = seed + [o("C51", 3.0), o("C51", 3.01), o("C51", 3.02)]
+    assert sr.seed_night_problem(seed3, obscodes) is not None
 
 
 def test_only_the_seeds_own_rejections_are_pardoned():
@@ -161,7 +180,9 @@ def test_only_the_seeds_own_rejections_are_pardoned():
 
 def test_the_router_asks_whether_the_seed_fixes_a_distance(monkeypatch):
     """One night goes to SR unfitted; any other seed by its own fit's verdict, whatever its
-    length (an unfittable seed is ranged); past the routing arc it is never fitted."""
+    length (a seed no orbit fits answers False and is ranged; a fit with no answer -- out of
+    time, an error -- is no evidence and leaves it to the regular search); past the routing
+    arc it is never fitted."""
     one = [{"jd_utc": 2460000.5 + k * 0.01} for k in range(4)]
     two = one + [{"jd_utc": 2460001.6}]
     week = one + [{"jd_utc": 2460007.6}]
@@ -169,9 +190,38 @@ def test_the_router_asks_whether_the_seed_fixes_a_distance(monkeypatch):
     route = lambda obs: sr.needs_sr(obs, "text", {})[0]        # noqa: E731
     monkeypatch.setattr(sr, "seed_determined", lambda *a, **k: pytest.fail("no fit"))
     assert route(one) and not route(long) and not route([])
-    for verdict, use_sr in ((True, False), (False, True), (None, True)):
+    for verdict, use_sr in ((True, False), (False, True), (None, False)):
         monkeypatch.setattr(sr, "seed_determined", lambda *a, v=verdict, **k: v)
         assert route(two) is use_sr and route(week) is use_sr
+
+
+def test_seed_determined_tells_no_answer_from_no_orbit(monkeypatch):
+    from types import SimpleNamespace
+    from pyroorb.itf import fitter
+    import numpy as np
+
+    class Fit:
+        def __init__(self, cov, det):
+            self.cov, self.det = cov, det
+
+        def covariance_matrix(self, kind):
+            return self.cov
+
+        def determinacy(self):
+            return self.det
+
+    def answer(tr):
+        monkeypatch.setattr(fitter, "fit_astrometry", lambda *a, **k: tr)
+        return sr.seed_determined("text", {})
+    ok = lambda fit: SimpleNamespace(ok=True, fit=fit, timed_out=False)   # noqa: E731
+    assert answer(SimpleNamespace(ok=False, fit=None, timed_out=True)) is None
+    assert answer(SimpleNamespace(ok=False, fit=None, timed_out=False)) is False
+    assert answer(ok(Fit(np.eye(6), None))) is True
+    assert answer(ok(Fit(np.eye(6), {"level": "unconstrained"}))) is False
+    # no readable covariance: no answer, never "determined"
+    assert answer(ok(Fit(np.full((6, 6), np.nan), None))) is None
+    monkeypatch.setattr(fitter, "fit_astrometry", lambda *a, **k: 1 / 0)
+    assert sr.seed_determined("text", {}) is None
 
 
 def test_apparition_config_bounds_the_sweep():
@@ -304,12 +354,64 @@ def test_guard_short_seed_asks_the_seed_too(monkeypatch):
         sr.CHIMERA_GUARD_WARNING + "no ITF tracklet to judge"]
 
 
+def test_a_grown_handoff_also_judges_the_sr_link_on_its_own(monkeypatch):
+    """At 4+ nights the guard is skipped because the search's gates judged the tracklets --
+    but the SR link rode in that search's seed, so seed + SR link is judged as a linkage of
+    its own too (where, at 1-3 nights, the guard runs)."""
+    seed = _tracklet(1, "G96", "SEED001")
+    core = _tracklet(2, "703", "ZT00001")
+    added = _tracklet(5, "I41", "ZT00002") + _tracklet(9, "F51", "ZT00003")
+    judged = []
+
+    def fake(combined, unit_text, obscodes, what="ITF tracklet"):
+        n = sr.linkage_shape(combined)[0]
+        judged.append(n)
+        return [f"warning at {n} nights"]
+    monkeypatch.setattr(sr, "chimera_warnings", fake)
+    out = sr.chimera_warnings_short_seed("\n".join(seed), "\n".join(core + added), {},
+                                         core_text="\n".join(core))
+    assert judged == [4, 2]
+    assert out == ["warning at 4 nights", "warning at 2 nights"]
+    judged.clear()
+    # nothing added beyond the SR link: one judgement, the whole
+    sr.chimera_warnings_short_seed("\n".join(seed), "\n".join(core), {},
+                                   core_text="\n".join(core))
+    assert judged == [2]
+
+
+def test_sr_then_itf_names_the_link_unvouched_and_never_transmits(monkeypatch):
+    link = sr.SrLink(trkids=["T1"], kind="pair", lines={"T1": ["LINE-T1"]}, sr_chi2=1.0,
+                     dts=[1.0], fit={})
+    res = sr.SrResult()
+    res.link = link
+    monkeypatch.setattr(sr, "sr_search", lambda *a, **k: res)
+    monkeypatch.setattr(sr, "obs80_lines", lambda obs: ["SEEDLINE"])
+    got = {}
+    import pyroorb.itf.search as S
+    monkeypatch.setattr(S, "itf_search", lambda source, **kw: got.update(kw) or "ITF")
+    seed = [{"jd_utc": 2460000.5}]
+    assert sr.sr_then_itf(seed, object(), {}, ["X"], object(), do_submit=False)[1] == "ITF"
+    assert got["unvouched_obs80"] == "LINE-T1" and got["do_submit"] is False
+    assert got["chimera_check"] is False
+    with pytest.raises(ValueError):
+        sr.sr_then_itf(seed, object(), {}, ["X"], object(), do_submit=True)
+
+
+def test_unvouched_seed_lines_are_not_the_objects_own():
+    from types import SimpleNamespace
+    from pyroorb.itf import search as S
+    ctx = SimpleNamespace(pub_ids={"a", "b", "c"}, unvouched_ids=frozenset({"c"}))
+    assert S._own_ids(ctx) == {"a", "b"}
+    assert S._own_ids(SimpleNamespace(pub_ids={"a"})) == {"a"}
+
+
 def test_unacceptable_triplets_never_crowd_out_a_pair(monkeypatch):
     """A triplet over ``trip_chi2_max`` can never be picked, so it is not proposed: six of
     them must not take every engine-fit slot from a pair that passes."""
     ids = [f"T{i}" for i in range(13)]
     monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
     monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
+    monkeypatch.setattr(sr, "seed_night_problem", lambda *a: None)
     monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {
         "id": ids, "tdb": [float(i) for i in range(13)]})
     monkeypatch.setattr(sr, "rank", lambda *a: [{"ci": 12, "chi2": 1.0}])
@@ -340,6 +442,7 @@ def test_the_seeds_own_rejection_is_asked_only_of_a_multi_night_seed(monkeypatch
     bad = ("691", 1)
     monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
     monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
+    monkeypatch.setattr(sr, "seed_night_problem", lambda *a: None)
     monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {"id": ["T0"], "tdb": [5.0]})
     monkeypatch.setattr(sr, "rank", lambda *a: [{"ci": 0, "chi2": 1.0}])
     monkeypatch.setattr(sr, "triplets", lambda *a: [])
@@ -468,6 +571,7 @@ def test_a_link_scorer_that_does_not_load_has_not_confirmed(tmp_path, monkeypatc
     from pyroorb.itf import linkscore
     reg = tmp_path / "scorers.txt"
     reg.write_text("no_such_module_xyz:SCORER\n", encoding="utf-8")
+    monkeypatch.setattr(linkscore, "BUILTIN", ())
     monkeypatch.setenv(linkscore.FILE_ENV, str(reg))
     linkscore.set_for_tests(None)                            # discover from the file
     assert linkscore.judge("x", {}) == ([], ["link scorer no_such_module_xyz:SCORER "
@@ -480,6 +584,7 @@ def test_link_scorers_found_through_the_registry_file(tmp_path, monkeypatch):
     reg = tmp_path / "scorers.txt"
     reg.write_text("# comment\nos.path:join\nno_such_module_xyz:SCORER\nos.path:join\n",
                    encoding="utf-8")
+    monkeypatch.setattr(linkscore, "BUILTIN", ())
     monkeypatch.setenv(linkscore.FILE_ENV, str(reg))
     said = []
     assert linkscore.discover(log=said.append) == [os.path.join]      # once; bad one skipped
@@ -557,12 +662,17 @@ def test_the_search_attaches_the_chimera_warnings_once():
 # ------------------------------------------- contract pins (night counts, the link's lines)
 
 def test_router_and_linkage_shape_night_boundaries(monkeypatch):
-    """A new night starts strictly past a 0.5-day gap, in both the router and the guard."""
+    """Nights are the tree's 12-hour windows (``orbit_common.count_nights``), in both the
+    router and the guard -- never a gap rule, which reads an object followed around the
+    clock for days as a single night."""
     monkeypatch.setattr(sr, "seed_determined", lambda *a, **k: True)
     o = lambda *jds: [{"jd_utc": j} for j in jds]               # noqa: E731
-    assert sr.needs_sr(o(1.0, 1.5, 2.0, 2.5, 3.0), "", {})[0]  # gaps of exactly 0.5: one night
+    assert sr.needs_sr(o(1.0, 1.2, 1.49), "", {})[0]            # one night: SR
     assert not sr.needs_sr(o(1.0, 1.51), "", {})[0]            # two nights: fitted, determined
     assert sr._nights([1.0, 1.51, 2.99]) == 3
+    round_the_clock = [1.0 + 0.2 * k for k in range(13)]          # 2.4 d, no gap over 0.2 d
+    assert sr._nights(round_the_clock) == 5
+    assert not sr.needs_sr(o(*round_the_clock), "", {})[0]
     assert not sr.needs_sr(o(None), "", {})[0]
     one = _tracklet(1)
     assert sr.linkage_shape("\n".join(one)) == (1, pytest.approx(30 / 1440, abs=1e-5))
@@ -575,6 +685,7 @@ def test_router_and_linkage_shape_night_boundaries(monkeypatch):
 def test_sr_search_hands_back_second_lines_and_db_trksubs(monkeypatch):
     monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
     monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
+    monkeypatch.setattr(sr, "seed_night_problem", lambda *a: None)
     monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {
         "id": ["A", "B"], "tdb": [3.0, 5.0]})
     monkeypatch.setattr(sr, "rank", lambda *a: [{"ci": 1, "chi2": 1.0}])
@@ -608,6 +719,7 @@ def test_sr_search_never_links_the_seeds_own_detections(monkeypatch):
     fitted, the next one is."""
     monkeypatch.setattr(sr, "seed_station_ok", lambda *a: True)
     monkeypatch.setattr(sr, "seed_attributable", lambda *a: {"t0": 2460000.5, "tdb0": 0.0})
+    monkeypatch.setattr(sr, "seed_night_problem", lambda *a: None)
     monkeypatch.setattr(sr, "candidate_arrays", lambda rows, oc: {
         "id": ["OWN", "NEW"], "tdb": [3.0, 5.0]})
     monkeypatch.setattr(sr, "rank", lambda *a: [{"ci": 0, "chi2": 0.5}, {"ci": 1, "chi2": 1.0}])
