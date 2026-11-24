@@ -124,7 +124,7 @@ def download_gz_atomic(url, dst, *, download=None, verbose=False):
         with gzip.open(tmp, "rb") as f:                   # integrity: decompress it all
             while f.read(1 << 22):
                 pass
-        os.replace(tmp, dst)
+        datadirs.replace_file(tmp, dst)
     finally:
         tmp.unlink(missing_ok=True)
     return dst
@@ -201,7 +201,7 @@ def build_index(verbose=True):
             if attempt == 5:
                 raise
             continue                                    # truncated write -> rewrite
-        os.replace(tmp, MPCORB_NPZ)
+        datadirs.replace_file(tmp, MPCORB_NPZ)
         break
     if verbose:
         print(f"  indexed {len(packed):,} asteroids", flush=True)

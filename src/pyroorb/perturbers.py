@@ -37,6 +37,8 @@ from pathlib import Path
 
 import numpy as np
 
+from pyroorb import datadirs
+
 KERNEL_NAME = "pyroorb-perturbers-1900-2100-20km.bsp"
 KERNEL_ENV = "PYROORB_PERTURBER_KERNEL"
 SWITCH_ENV = "PYROORB_PERTURBERS"            # "off" / "0" / "no" disables the automatic screen
@@ -253,7 +255,7 @@ class _Table:
             # complete table wins and every reader maps a whole one.
             tmp = path.with_name(f"{path.stem}.{os.getpid()}.{threading.get_ident()}.tmp.npy")
             np.save(tmp, arr)
-            os.replace(tmp, path)
+            datadirs.replace_file(tmp, path)
             self.pos = np.load(path, mmap_mode="r")
 
     @staticmethod

@@ -162,7 +162,7 @@ def refresh_sources(max_age_s=MAX_AGE_S, verbose=False):
             if txt.count("\n") > 100:
                 tmp = cp.with_name(f"{cp.name}.{os.getpid()}.{threading.get_ident()}.part")
                 tmp.write_text(txt, encoding="utf-8")
-                os.replace(tmp, cp)
+                datadirs.replace_file(tmp, cp)
         except Exception as ex:                                     # noqa: BLE001
             if verbose:
                 print(f"comet elements refresh failed ({ex})", flush=True)

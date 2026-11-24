@@ -175,6 +175,36 @@ def write_cache(path, data):
     return True
 
 
+#: how long a rename onto a target Windows reports busy is retried (seconds)
+REPLACE_RETRY_SEC = 2.0
+
+
+def replace_file(src, dst, retry_sec=REPLACE_RETRY_SEC, _platform=None):
+    """``os.replace(src, dst)`` -- the atomic "a reader sees the old file or the new one" --
+    retried briefly while Windows refuses it.
+
+    On POSIX a rename replaces its target whatever else is happening to it. Windows refuses
+    with PermissionError ("Access is denied") while another writer is renaming onto the same
+    target or a reader holds it open, for as long as that other operation lasts: three
+    threads refreshing MPCORB together failed one of them that way. So on Windows the
+    rename is retried with a growing pause for up to ``retry_sec`` before the error is
+    raised; every caller replaces a complete file, so which writer lands last does not
+    matter. Elsewhere a PermissionError is a real one and is raised at once."""
+    import time
+    windows = (_platform or sys.platform) == "win32"
+    deadline = time.monotonic() + retry_sec
+    pause = 0.01
+    while True:
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if not windows or time.monotonic() >= deadline:
+                raise
+            time.sleep(pause)
+            pause = min(pause * 2, 0.2)
+
+
 def persistent_default():
     """Where restart-surviving state goes when ``LOCAL_PERSISTENT_FOLDER`` is unset."""
     return _checkout_dir(".local_persistent") or (user_data_dir() / "persistent")

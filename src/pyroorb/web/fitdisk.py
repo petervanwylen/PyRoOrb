@@ -42,6 +42,8 @@ import shutil
 import tempfile
 import threading
 
+from pyroorb import datadirs
+
 # Directory paths that are PERSISTENT on this deploy and must never hold an
 # ephemeral cache.  Railway mounts its volume at /data; the others are the
 # usual suspects a well-meaning override might reach for.
@@ -258,7 +260,7 @@ def put(key, payload, desig=None):
                 fh.write(data)
                 fh.flush()
                 os.fsync(fh.fileno())
-            os.replace(tmp, _path(d, key))
+            datadirs.replace_file(tmp, _path(d, key))
             return True
         except OSError as ex:
             if tmp:

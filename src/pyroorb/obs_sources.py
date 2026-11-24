@@ -236,7 +236,7 @@ def _write_obscodes(data):
     OBSCODES_CACHE.parent.mkdir(parents=True, exist_ok=True)
     tmp = OBSCODES_CACHE.with_name(OBSCODES_CACHE.name + ".part")
     tmp.write_bytes(data)
-    tmp.replace(OBSCODES_CACHE)             # atomic: a reader sees the old or the new file
+    datadirs.replace_file(tmp, OBSCODES_CACHE)  # atomic: a reader sees the old or the new file
     _OBSCODES_TOKEN = _content_token(data)  # callers hold _OBSCODES_LOCK
 
 
@@ -316,7 +316,7 @@ def _record_request(when=None):
         stamp.parent.mkdir(parents=True, exist_ok=True)
         tmp = stamp.with_name(stamp.name + ".part")
         tmp.write_text(repr(_OBSCODES_MISS_AT), encoding="utf-8")
-        tmp.replace(stamp)
+        datadirs.replace_file(tmp, stamp)
     except OSError:
         pass                      # a read-only cache directory: the in-process record still holds
 
