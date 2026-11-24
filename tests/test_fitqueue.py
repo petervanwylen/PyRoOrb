@@ -58,17 +58,67 @@ def _fresh_capacity(monkeypatch):
     fq.capacity._reset_for_tests()
 
 
+#: how long a test's teardown waits for its own work to finish writing (seconds)
+DRAIN_SEC = 30.0
+
+
+def _drain(ledger, submitted):
+    """Wait until every job this test submitted has finished AND every successful one has
+    written its disk record (``ledger``: writes owed vs made, counted as they happen, so a
+    test that clears the job table mid-way is still drained).  A job planted in the table by
+    hand is not in ``submitted``: it has no worker and never finishes or writes.
+
+    A worker writes a finished fit to the disk tier AFTER marking the job done, and resolves
+    the cache folder at write time -- so a job a test left running (one submitted and never
+    waited for) could finish during the NEXT test and write its key into that test's fresh
+    folder, which then answers that test's first submit from disk with no job at all
+    ("work never finished" on a slow runner).  Bounded: a test that deliberately parks a
+    job forever only costs the wait."""
+    deadline = time.time() + DRAIN_SEC
+    while time.time() < deadline:
+        with fq._LOCK:
+            running = any(fq._JOBS[j]["state"] != "done" for j in submitted if j in fq._JOBS)
+        if not running and ledger["made"] >= ledger["owed"]:
+            return
+        time.sleep(0.01)
+
+
 @pytest.fixture(autouse=True)
-def _clean_queue():
+def _clean_queue(monkeypatch):
     """Each test gets an empty table.  The worker threads are process-global and
     daemonised, so they are left running between tests -- only the state they
-    read is reset."""
+    read is reset, after the test's own work has finished writing (:func:`_drain`)."""
+    ledger = {"owed": 0, "made": 0}
+    real_put = fitdisk.put
+
+    def counting_put(*a, **k):
+        try:
+            return real_put(*a, **k)
+        finally:
+            ledger["made"] += 1
+    monkeypatch.setattr(fitdisk, "put", counting_put)
+    submitted = set()
+    real_submit = fq.submit
+
+    def recording_submit(key, work, *a, **k):
+        def owing_work():
+            payload = work()
+            # the queue writes exactly the successful payloads through to disk
+            if isinstance(payload, dict) and payload.get("ok"):
+                ledger["owed"] += 1
+            return payload
+        r = real_submit(key, owing_work, *a, **k)
+        if isinstance(r, dict) and r.get("job"):
+            submitted.add(r["job"])
+        return r
+    monkeypatch.setattr(fq, "submit", recording_submit)
     with fq._LOCK:
         fq._JOBS.clear()
         fq._BY_KEY.clear()
         fq._WAITING.clear()
         fq._DURATIONS.clear()
     yield
+    _drain(ledger, submitted)
     with fq._LOCK:
         fq._JOBS.clear()
         fq._BY_KEY.clear()
