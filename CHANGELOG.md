@@ -3,7 +3,41 @@
 PyRoOrb follows semantic versioning from 1.0.0; until then the 0.9.x releases may still
 change the Python API. 0.9.1 is the first release on PyPI.
 
-## 0.9.2 - 2026-11-15
+## 0.9.3 - 2026-11-24
+
+0.9.2 was prepared but never published to PyPI: 0.9.3 is the next release after 0.9.1 and
+also carries everything listed under 0.9.2 below.
+
+- New: an ITF search from a single tracklet. When the seed fixes no distance (one night, or
+  an arc whose own fit leaves the distance open), statistical ranging over a bound
+  (log rho, rhodot) family finds candidate tracklets, and the regular ITF search then runs
+  from the linked arc. Every such link is judged by one chimera rule, by night count (a
+  2-3 night guard; the link scorers at 3 nights and beyond; a 4+ night link no scorer can
+  judge is reported unjudged) and shown with its warnings; the hand-off never submits by
+  itself. ITF tracklets can be fetched by their trksub; an ambiguous trksub asks which one.
+- New: the mislinkage (chimera) score of 3-5 night single-opposition arcs
+  (`pyroorb.mislink`), also the built-in ITF link scorer. It is evaluated in numpy, so it
+  works on every install, and it refuses a model file its `model.meta.json` does not describe.
+- The ITF extra installs `xgboost-cpu` (the same library, without NVIDIA's ~400 MB GPU
+  library) everywhere but macOS, where `xgboost` has no GPU part: about 80 MB in all, not
+  about 500. `install.sh` and `install.ps1` replace a full `xgboost` already installed.
+- Fits: the asteroid-perturber screen keeps radar observations, and its label names the field
+  that actually ran; a refit with non-gravitational parameters keeps the requested perturbers;
+  a re-anchored orbit keeps its force model; a single-apparition fit that converged in a wrong
+  basin is audited and moved to a better one (`PYROORB_BASIN_AUDIT=0` turns this off); a far
+  bridge that failed is not tried again within one fit; the initial-orbit re-rank judges a
+  corrected basin on its fit, bound or not, and no longer refuses distant comets and TNOs; the
+  fit banner flags nights that sit coherently off the orbit ("this orbit has problems").
+- Identification checks judge a link only on what it adds to each body's own record: a concern
+  that record already has never blocks the link, a 'y' carries no except: line and a 'y2'
+  carries at least one, a body is identified by its number whatever label its lines carry, and
+  when a body's own record cannot be fitted alone the verdict is 'unknown' (shown, not sent)
+  only if that answer could have changed it. A web fit whose time runs out inside the check
+  keeps its fit.
+- The sky check's reach is the caller's: `max_days=` of `check_field` / `identify_tracklets`
+  (default: no limit).
+
+## 0.9.2 - 2026-11-15 (never published; included in 0.9.3)
 
 - New: a sky check, MPChecker-style. `pyroorb.check_field(ra, dec, time, obscode=...)` lists
   every catalogued asteroid and comet (and, for recent times, every NEO Confirmation Page
