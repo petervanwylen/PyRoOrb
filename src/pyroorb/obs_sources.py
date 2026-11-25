@@ -599,6 +599,15 @@ DUP_POS_DEG = 1.0 / 3600.0         # 1 arcsec
 # "1P", "73P-B", "C/2020 F3", "P/2019 LD2", "A/2017 U1", "C/2019 Q4-A".
 _COMET_UNPACKED_RE = __import__("re").compile(
     r"^(\d+[PDCXI](-[A-Z]{1,2})?|[PDCXIA]/\d{4} [A-Z]{1,2}\d*(-[A-Z]{1,2})?)$")
+# A split comet's FRAGMENT ("73P-C", "C/2019 Q4-A"): fetched from the SBN replica only (see
+# _fetch_observations).
+_COMET_FRAGMENT_RE = __import__("re").compile(
+    r"^(\d+[PDCXI]|[PDCXIA]/\d{4} [A-Z]{1,2}\d*)-[A-Z]{1,2}$")
+
+
+def is_comet_fragment(desig):
+    """True for an unpacked comet-fragment designation ("73P-C", "C/2019 Q4-A")."""
+    return bool(_COMET_FRAGMENT_RE.match(str(desig).strip()))
 
 
 def is_published_designation(desig):
@@ -795,7 +804,15 @@ def fetch_failure_message(meta):
         # Not a transport failure, but refused for the same reason: a trksub that names
         # several tracklets (or one already designated) contributed no rows, so fitting the
         # rest answers from less than was asked for.
-        return trksub_message(meta)
+        msg = trksub_message(meta)
+        frags = (meta or {}).get("fragments_unserved") or []
+        if msg or not frags:
+            return msg
+        parent = frags[0].rsplit("-", 1)[0]
+        return (f"no observations were found for {', '.join(frags)}: a comet fragment is "
+                f"fetched from the SBN replica only -- the MPC's observation service serves "
+                f"none under the fragment's name or the parent's ({parent}) -- and no replica "
+                f"is configured (SBN_DB_HOST), or it has none for this fragment.")
     names = sorted(failed)
     detail = str(failed[names[0]]).split(";")[0].strip()
     return (f"the MPC did not answer for {', '.join(names)} ({detail}) -- a transport "
@@ -823,10 +840,16 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
     # so a request carrying one skips straight to the per-designation path, where such a
     # token is routed temporary-first (see _fetch_temporary).
     temporary = {d for d in desig_list if routes_as_temporary(d)}
+    # A comet FRAGMENT ("73P-C") is fetched from the SBN replica only: the published-obs API
+    # answers empty for a fragment's own name and its parent's answer holds none of the
+    # fragment's rows (73P: 7 lines from 2006; C/2025 K1: 0 of fragment B's 336), while
+    # obs_sbn files every fragment under its own name. A request carrying one also skips the
+    # whole-batch fast path, which would return the other names' rows and quietly drop it.
+    fragments = {d for d in desig_list if is_comet_fragment(d)}
     # Fast path: a single whole-batch fetch from the published-obs API. This is the
     # common case (every designation is a published object) and returns immediately,
     # byte-for-byte as before.
-    if prefer_ades and not temporary:
+    if prefer_ades and not temporary and not fragments:
         try:
             obs, meta = fetch_combined_ades(desigs, obscodes, cache_dir=cache_dir)
             if obs:
@@ -837,7 +860,7 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
     # The published-obs API (ADES + OBS80) shares one backend that HTTP-500s on a
     # designation it can't find, so guard the OBS80 attempt: a failure here is the
     # signal to try the NEOCP, not a reason to abort.
-    if not temporary:
+    if not temporary and not fragments:
         try:
             obs, meta = fetch_combined(desigs, obscodes, cache_dir=cache_dir)
             if obs:
@@ -865,6 +888,7 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
     merged, used_neocp, used_sbn = [], False, False
     fetch_errors, fetch_errors_public = {}, {}
     unresolved = {}              # token -> its tracklets, when a trksub needs the user's word
+    fragments_unserved = []      # comet fragments the published service answers empty for
     for d in desig_list:
         if d in temporary:
             one, why, src = _fetch_temporary(d, obscodes, cache_dir, prefer_ades, unresolved)
@@ -880,6 +904,17 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
             merged += one
             continue
         one, why = [], []
+        if d in fragments:
+            one = _fetch_from_sbn(d, obscodes, why)
+            used_sbn |= bool(one)
+            if not one:
+                if why:
+                    _record_failure(d, why, fetch_errors, fetch_errors_public)
+                else:
+                    _log.warning("no observations found for %s", for_log(d))
+                    fragments_unserved.append(d)
+            merged += one
+            continue
         if prefer_ades:
             try:
                 one, _ = fetch_combined_ades([d], obscodes, cache_dir=cache_dir)
@@ -922,6 +957,8 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
                 "format": "OBS80"}
         if unresolved:
             meta["trksub_unresolved"] = unresolved
+        if fragments_unserved:
+            meta["fragments_unserved"] = fragments_unserved
         return merged, meta
     merged.sort(key=lambda o: o["jd_utc"])
     present = sorted({o["designation"] for o in merged})
@@ -941,6 +978,8 @@ def _fetch_observations(desigs, obscodes, cache_dir=None, prefer_ades=True):
         # Like fetch_errors, carried on the success path too: the rows that DID arrive are
         # the other designations' alone, and fitting them answers a different question.
         meta["trksub_unresolved"] = unresolved
+    if fragments_unserved:
+        meta["fragments_unserved"] = fragments_unserved   # same reason: a partner is missing
     if used_neocp:
         meta["source"] = "NEOCP"
     elif used_sbn:
@@ -1347,6 +1386,13 @@ def fetch_combined(desigs, obscodes, cache_dir=None):
     for r in radar_rows:
         r["desig"] = _unpack(r["desig"])
     present = sorted({o["designation"] for o in obs})     # string sort
+    if not present:
+        # An ANSWER with no rows (the API returns an empty OBS80 block for a name it files
+        # nothing under -- a comet fragment such as "73P-C"): empty, not a failure. Indexing
+        # present[0] here used to raise, which the caller then reported as "the MPC did not
+        # answer".
+        return [], {"designation": desigs[0] if desigs else "", "designations": [],
+                    "combined": False, "n_requested": len(desigs), "other_designations": []}
     meta = {"designation": present[0],
             "designations": present,
             "combined": len(present) > 1,

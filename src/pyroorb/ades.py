@@ -308,6 +308,12 @@ def fetch_neocp_xml(desig, cache=None):
     return txt
 
 
+# The 80-column listing is optional (a link without it falls back to the first tracklet) and
+# is fetched after the observations are in hand, so a stalled listing must not hold the fit:
+# it gets its own short socket timeout, not the observation fetch's 90 s.
+NEOCP_DISCOVERY_TIMEOUT_S = 10
+
+
 def fetch_neocp_obs80(desig, cache=None):
     """GET the 80-column listing (``obs=y``) for one NEOCP/temporary designation
     (cached as text).  Read ONLY for its col-13 discovery asterisk: the ADES XML of
@@ -319,7 +325,8 @@ def fetch_neocp_obs80(desig, cache=None):
         Path(cache).unlink()
     url = NEOCP_OBS_CGI + "?" + urllib.parse.urlencode({"Obj": desig, "obs": "y"})
     req = urllib.request.Request(url, method="GET")
-    txt = urllib.request.urlopen(req, context=_CTX, timeout=90).read().decode("utf-8", "replace")
+    txt = urllib.request.urlopen(req, context=_CTX,
+                                 timeout=NEOCP_DISCOVERY_TIMEOUT_S).read().decode("utf-8", "replace")
     if cache and txt.strip():
         datadirs.write_cache(cache, txt)
     return txt

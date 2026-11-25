@@ -132,6 +132,11 @@ EXCEPT_MIN_RESID_ARCSEC = 1.25  # an `except:` line is an MPC-facing claim that 
                            # EVERY obs beyond this total residual is listed. Partial-tracklet
                            # outliers and near-threshold whole tracklets are bad OBSERVATIONS,
                            # not bad tracklets -- excluded from the fit, never echoed.
+EXCEPT_MIN_TRACKLET_OBS = 2  # ...and only a tracklet of at least this many obs: a lone detection
+                           # dropped from the joint fit is one bad observation, not a tracklet
+                           # claimed to be another object, so it stays with its designation
+                           # unlisted and the link stays a 'y'. A single position cannot show
+                           # the motion that would make it a different object's tracklet.
 DUP_TOL_DAYS = 1.0e-4      # ~9 s: an excluded obs this close in time to a KEPT obs from the
                            # SAME station AND at the same sky position is the same detection
                            # cross-listed under another designation -- dropping it is
@@ -1323,6 +1328,8 @@ def _identify_pass(fit, _shape=False, _why=None):
     # astrometry the fit merely disfavors -- both stay excluded from the FIT but are NOT
     # exceptions. (2025 NM2 = 2021 WL5 lists exactly its junk ~76" 126 tracklet, matching the
     # MPC-accepted record; the I52/W05 sub-1.25" outliers are bad obs, not bad tracklets.)
+    # A one-observation "tracklet" is never listed (EXCEPT_MIN_TRACKLET_OBS): it is a bad
+    # observation, however far off, not a tracklet of another object.
     # ...and never a tracklet its body's OWN record, fitted alone, rejects too: that is the body's
     # junk astrometry, already in the MPC record, not a foreign object this link disowns. Decided
     # HERE, once, so the record, the exception shape and the y / y2 code read one list: decided
@@ -1331,8 +1338,9 @@ def _identify_pass(fit, _shape=False, _why=None):
     excepted, set_aside = [], []                  # the excepted tracklets, as index lists
     first_pass = fit.__dict__.get("_pre_drops") is None   # the second pass already excludes them
     for tr in _tracklets(times, codes, desigs):
-        if all(excluded[i] for i in tr) and (R is None or all(
-                math.hypot(R[i, 0], R[i, 1]) > EXCEPT_MIN_RESID_ARCSEC for i in tr)):
+        if len(tr) >= EXCEPT_MIN_TRACKLET_OBS and all(excluded[i] for i in tr) and (
+                R is None or all(math.hypot(R[i, 0], R[i, 1]) > EXCEPT_MIN_RESID_ARCSEC
+                                 for i in tr)):
             if first_pass and preexisting_exception(fit, list(tr)):
                 set_aside.append(_except_label(obs, tr))
                 continue

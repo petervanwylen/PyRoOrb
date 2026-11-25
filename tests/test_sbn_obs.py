@@ -40,6 +40,8 @@ OBS = [
     _row("a4", permid="499582", status="I"),              # not served by the API
     _row("b1", provid="2025 NT32", ref="   ", obstime_text=None),
     _row("c1", permid="2P"),
+    _row("f1", permid="73P-C"),                           # a numbered comet's fragment
+    _row("f2", permid="73P"),                             # its parent: a different body
 ]
 
 
@@ -94,6 +96,14 @@ def test_numbered_comet_is_a_number():
     primary, permid, _ = sbn_obs.resolve_family(FakeCursor(), "2P")
     assert (primary, permid) == ("P/1818 W1", "2P")
     assert [r["obsid"] for r in sbn_obs.family_records(FakeCursor(), "2P")] == ["c1"]
+
+
+def test_a_numbered_comets_fragment_is_its_own_permid():
+    # obs_sbn files "73P-C" under permid "73P-C" (the parent's rows are another body); read
+    # as a provisional designation it was looked up by provid and found nothing.
+    assert sbn_obs.resolve_family(FakeCursor(), "73P-C") == (None, "73P-C", [])
+    recs = sbn_obs.family_records(FakeCursor(), "73P-C")
+    assert [r["obsid"] for r in recs] == ["f1"]
 
 
 def test_unidentified_designation_is_its_own_family():

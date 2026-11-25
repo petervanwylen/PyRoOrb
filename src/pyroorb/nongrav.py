@@ -323,6 +323,33 @@ def nongrav_physical_warnings(params, H=None, with_kinds=False):
     return (text, kinds) if with_kinds else text
 
 
+# Comet A3/A1 advisory. Measured on JPL's published comet solutions (SBDB, 2026-11): of the
+# 112 that fit both A1 and A3, |A3|/|A1| has median 0.19, 90th percentile 0.77, nine above 1
+# and none above 3 (largest 2.9). A fitted ratio past 3 is outside every published solution;
+# the one such delivery seen (2P/Encke on its 2018-2026 arc, 22x) rested on the 60 days before
+# one perihelion, flipped sign without that return and vanished with more data. Advisory only:
+# the ratio is information about the fit, never a reason to change or refuse the model.
+COMET_A3_A1_ADVISORY_RATIO = 3.0
+
+
+def comet_ratio_warning(params):
+    """The advisory sentence (or None) for a COMET (Marsden g(r)) delivery whose out-of-plane
+    A3 is more than COMET_A3_A1_ADVISORY_RATIO times its radial A1. It says the ratio is not to
+    be trusted and what to compare, and claims nothing about the physics."""
+    a1 = float((params or {}).get("A1", 0.0) or 0.0)
+    a3 = float((params or {}).get("A3", 0.0) or 0.0)
+    if not a1 or not a3 or abs(a3) <= COMET_A3_A1_ADVISORY_RATIO * abs(a1):
+        return None
+    return (f"The selected non-gravitational model has values worth a second look: the fitted "
+            f"out-of-plane A3 = {a3:.2e} au/day^2 is {abs(a3) / abs(a1):.0f}x |A1| = "
+            f"{abs(a1):.2e}, a larger ratio than any published comet solution reaches "
+            f"(none above {COMET_A3_A1_ADVISORY_RATIO:.0f}x), so we don't trust the fitted A1 to "
+            f"A3 ratio. The A3 may be absorbing something the model does not describe (an "
+            f"out-gassing asymmetry about perihelion, say) or a data issue in part of the arc. "
+            f"Worth comparing before reading much into it: the A1+A2 (comet2) fit of the same "
+            f"arc, and the arc with one perihelion return left out.")
+
+
 def a3_asteroid_note(a3, a2, a1=0.0):
     """The advisory sentence for a NORMAL-direction A3 delivered on the asteroid (1/r^2) family.
     It reports the numbers (A3, and its size against A2 and A1 where those are fitted) and

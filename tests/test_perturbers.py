@@ -590,3 +590,34 @@ def test_a_screened_field_holds_through_reanchor_refit_and_products():
     for _ in range(2):
         with pytest.warns(UserWarning, match="leaves the window"):
             pyroorb.propagate(g, ["2150-01-01"])
+
+
+@pytest.mark.slow
+def test_refit_refuses_a_named_field_on_a_fit_solved_without_assist(monkeypatch):
+    """Without the DE440 ephemeris a fit is solved planets-only, and with_force_model turns the
+    asteroids off on that backend: refit(perturbers="16") returned a planets-only orbit with no
+    word, though a named field is solved in or refused."""
+    from pyroorb import fit_object as fo
+    g = _refit("PAIR_2016RM33")
+    monkeypatch.setattr(fo, "is_assist", lambda backend: False)
+    for asked in ("16", "all"):
+        with pytest.raises(ValueError, match="without ASSIST"):
+            pyroorb.refit(g, perturbers=asked)
+    pyroorb.refit(g, perturbers="off")          # planets-only is still what it says
+
+
+@pytest.mark.slow
+def test_a_nongrav_delivery_keeps_the_meta_of_its_own_force_model():
+    """The delivery re-binds the field (with_force_model drops a stale ``radar_used``: the
+    nongrav solve is optical), then rebuilt its meta from the pre-swap ctx, which put the radar
+    marker back on an optical-only orbit."""
+    from pyroorb import fit_object as fo
+    from _fixtures import FIX, load_fixture
+    from pyroorb import obs_sources
+    fx = load_fixture(f"{FIX}/162385.json")
+    g = fo.fit_orbit(fx["obs"], obs_sources.load_obscodes(), desig=fx["meta"]["designation"],
+                     meta=fx["meta"], force=False, auto_nongrav=False)
+    assert g.radar["applied"] and g._ctx["meta"].get("radar_used")
+    ng = fo.refine_nongrav(g, model="yarkovsky", revert_if_worse=False, asteroids=True)
+    assert "radar_used" not in ng._ctx["meta"]
+    assert ng._ctx["meta"]["nongrav_model"] == "yarkovsky"

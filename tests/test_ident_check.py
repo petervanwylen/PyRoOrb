@@ -1012,6 +1012,21 @@ def test_y2_is_offered_for_review_named_but_not_submittable():
     assert v["cautions"] == [], v["cautions"]
 
 
+def test_lone_dropped_detection_is_not_an_exception():
+    # PAIR_2015FA477 = 2015 FA477 = 2026 HR12: the joint fit keeps 36/37; the one obs it drops is
+    # FA477's LONE W84 detection of 2015-03-28, 36" off the joint orbit, which FA477's own solo fit
+    # keeps (so it is not set aside as the body's own junk). An except: line claims a TRACKLET is
+    # another object; one position shows no motion to make that claim, so a lone dropped detection
+    # is a bad observation kept with its designation: a clean, submittable 'y', no except: line.
+    fit = _fit(_fix("PAIR_2015FA477"), inject_line=True)
+    assert fit.n_excluded() == 1, f"expected the one lone detection dropped, got {fit.n_excluded()}"
+    txt = ident_check.identify(fit)
+    assert txt is not None and "except" not in txt, f"expected a clean A = B, got {txt!r}"
+    fit.n_requested = 2
+    v = ident_check.linkage_verdict(fit)
+    assert v["offer"] and v["code"] == "y" and v["clean"] and v["submittable"], v
+
+
 def test_y2_verdict_survives_an_ades_fit_with_no_obs80_lines():
     # The bug this split fixes: identify() renders its exceptions as VERBATIM 80-column records, so
     # a fit whose observations carry no `obs80_line` -- every ADES fetch, which is every fit the

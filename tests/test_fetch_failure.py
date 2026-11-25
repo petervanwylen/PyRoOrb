@@ -194,3 +194,74 @@ def test_itf_seed_fetch_refuses_a_partial_arc(monkeypatch):
     with pytest.raises(RuntimeError) as e:
         itfsearch._pub_obs80_from_fetch(["2019 XY9", "2005 QQ1"], {}, None)
     assert "seed fetch" in str(e.value) and "did not answer" in str(e.value)
+
+
+def test_an_empty_obs80_answer_is_empty_not_an_error(monkeypatch, tmp_path):
+    """The API answers a name it files nothing under (a comet fragment) with an empty OBS80
+    block. That is an answer: [] and a meta, never an IndexError the caller then reports as
+    "the MPC did not answer"."""
+    monkeypatch.setattr(osrc, "fetch_obs80", lambda d, cache=None: "\n")
+    obs, meta = osrc.fetch_combined(["73P-C"], {}, cache_dir=tmp_path)
+    assert obs == [] and meta["designations"] == [] and meta["designation"] == "73P-C"
+
+
+def _route_spy(monkeypatch, sbn_rows):
+    """Record which route each designation is fetched from; the replica answers `sbn_rows`."""
+    from pyroorb import ades
+    asked = []
+
+    def api(tag):
+        def f(desigs, *a, **k):
+            asked.append((tag, tuple(desigs)))
+            return [{"designation": d, "jd_utc": 2460000.0} for d in desigs if d == "73P"], {}
+        return f
+    monkeypatch.setattr(ades, "fetch_combined_ades", api("ADES"), raising=False)
+    monkeypatch.setattr(osrc, "fetch_combined", api("OBS80"), raising=False)
+    monkeypatch.setattr(ades, "fetch_combined_neocp", api("NEOCP"), raising=False)
+
+    def sbn(d, obscodes, why):
+        asked.append(("SBN", (d,)))
+        return [dict(r, designation=d) for r in sbn_rows]
+    monkeypatch.setattr(osrc, "_fetch_from_sbn", sbn)
+    return asked
+
+
+def test_a_fragment_is_fetched_from_the_replica_only(monkeypatch):
+    """The published-obs API serves no fragment astrometry under the fragment's name or the
+    parent's; the replica files it under the fragment's own name. A fragment never asks the
+    API (or the NEOCP)."""
+    asked = _route_spy(monkeypatch, [{"jd_utc": 2453800.0}])
+    obs, meta = osrc._fetch_observations(["73P-C"], {})
+    assert asked == [("SBN", ("73P-C",))]
+    assert len(obs) == 1 and meta["source"] == "SBN" and meta["designation"] == "73P-C"
+
+
+def test_a_request_with_a_fragment_skips_the_whole_batch_path(monkeypatch):
+    """The batch API call would answer for 73P alone and quietly drop the fragment, so a
+    request carrying one goes per designation: the parent from the API, the fragment from
+    the replica."""
+    asked = _route_spy(monkeypatch, [{"jd_utc": 2453800.0}])
+    obs, meta = osrc._fetch_observations(["73P-C", "73P"], {})
+    assert ("ADES", ("73P-C", "73P")) not in asked and ("OBS80", ("73P-C", "73P")) not in asked
+    assert ("SBN", ("73P-C",)) in asked and ("ADES", ("73P",)) in asked
+    assert sorted(meta["designations"]) == ["73P", "73P-C"]
+
+
+def test_a_fragment_the_replica_has_nothing_for_says_so(monkeypatch):
+    """No replica rows (none configured, or none for it): no transport failure is recorded
+    and the refusal says where fragments come from."""
+    asked = _route_spy(monkeypatch, [])
+    obs, meta = osrc._fetch_observations(["73P-C"], {})
+    assert obs == [] and asked == [("SBN", ("73P-C",))]
+    assert not (meta.get("fetch_errors") or {})
+    assert meta["fragments_unserved"] == ["73P-C"]
+    msg = osrc.fetch_failure_message(meta)
+    assert "73P-C" in msg and "SBN replica only" in msg and "(73P)" in msg
+    assert "did not answer" not in msg
+
+
+def test_comet_fragment_forms():
+    assert osrc.is_comet_fragment("73P-C") and osrc.is_comet_fragment("73P-BV")
+    assert osrc.is_comet_fragment("C/2019 Q4-A")
+    for d in ("73P", "C/2019 Q4", "2013 PY26", "P12pwHF", "433"):
+        assert not osrc.is_comet_fragment(d)

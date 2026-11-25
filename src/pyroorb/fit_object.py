@@ -1819,8 +1819,10 @@ def _deliver_nongrav_orbit(ctx, fit, model, result, mask, ng_diag=None,
     # Advisory (NON-blocking) physical warning for the SRP/asteroid family: if the fitted A1 implies
     # a non-physical bulk density for this size (or A1<0, or A2 over the Yarkovsky ceiling), flag it
     # so the coefficients are read with care -- we still deliver the fit (rocket bodies / dark comets
-    # are exactly such high-area/mass objects). Comet models are exempt: out-gassing has no density
-    # limit and the comet model sequence has its own comet_a_is_plausible guard.
+    # are exactly such high-area/mass objects). Comet models are exempt from these: out-gassing has
+    # no density limit and the comet model sequence has its own comet_a_is_plausible guard. A comet
+    # delivery is flagged only when its A3/A1 ratio lies outside every published comet solution
+    # (nongrav.comet_ratio_warning), again advisory only.
     ng_warn = None
     if gr is ng.INVSQ_GR:
         try:
@@ -1828,7 +1830,11 @@ def _deliver_nongrav_orbit(ctx, fit, model, result, mask, ng_diag=None,
         except Exception:
             _H = None
         ng_warn = ng.nongrav_physical_warnings(params, _H)
-    ctx2["meta"] = {**(ctx.get("meta") or {}), "nongrav_model": model,
+    elif gr is ng.COMET_GR:
+        ng_warn = ng.comet_ratio_warning(params)
+    # from ctx2, not ctx: a force-model swap above dropped a stale `radar_used` (this solve is
+    # optical) and recorded any `perturber_window` fallback; the old meta brought both back
+    ctx2["meta"] = {**(ctx2.get("meta") or {}), "nongrav_model": model,
                     "nongrav_asteroids": _ast_active,
                     "nongrav_params": params, "nongrav_sigmas": sigmas,
                     "nongrav_warning": ng_warn,
@@ -4408,7 +4414,40 @@ def _comet_extend_apparitions(ctx, fit, max_nfev, verbose=False):
     # ... re-anchored at ITS epoch (the full-arc evaluator can sit decades away), when the
     # included set is one apparition and the ctx can rebuild the evaluator.
     inc_apps = [(cs, ce) for (cs, ce) in clusters if base_mask[cs:ce + 1].any()]
-    if len(inc_apps) == 1:
+    if len(inc_apps) > 1:
+        # A few STRAGGLERS -- included apparitions holding under COMET_EXT_ANCHOR_FRAC of the
+        # richest one's included obs -- do not make a multi-apparition arc: they are what a
+        # redemption round leaves behind, not an apparition the orbit holds. Left in, they
+        # kept the evaluator at the full arc's mid-epoch, where the comet LM cannot converge:
+        # 21P's perturber refit redeemed 5 of 153 obs of a 1900s apparition, the evaluator
+        # stayed at 1962 fifty-six years from the data, and the extension stalled 44 chi2 above
+        # what the same obs and model reach at the seed apparition's own epoch. So anchor on
+        # the dominant apparition alone; the stragglers' apparitions join the growth queue and
+        # get the full join trial like any other. Kept only when that re-anchor succeeds.
+        counts = [int(base_mask[cs:ce + 1].sum()) for (cs, ce) in inc_apps]
+        top = int(np.argmax(counts))
+        rest = [k for k in range(len(inc_apps))
+                if k != top and counts[k] >= COMET_EXT_ANCHOR_FRAC * counts[top]]
+        if not rest:
+            cs, ce = inc_apps[top]
+            m = np.zeros(n, dtype=bool)
+            m[cs:ce + 1] = base_mask[cs:ce + 1]
+            try:
+                st, result = ev.fit(np.asarray(fit._state, float)[:6], m, thin=False)
+                narrowed = _build_orbit(ctx, st, m, result, fit.history)
+                re = _reanchor_apparition(narrowed, cs, ce, verbose)
+            except Exception:
+                re = None
+            if re is not None:
+                if verbose:
+                    print(f"  extend: {sum(counts) - counts[top]} straggler obs in "
+                          f"{len(inc_apps) - 1} other apparition(s) set aside for the growth")
+                fit = re
+                ctx = fit._ctx
+                ev = ctx["ev"]
+                base_mask = np.asarray(fit._mask, bool).copy()
+                inc_apps = [(cs, ce)]
+    elif len(inc_apps) == 1:
         re = _reanchor_apparition(fit, inc_apps[0][0], inc_apps[0][1], verbose)
         if re is not None:
             fit = re

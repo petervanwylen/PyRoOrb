@@ -427,7 +427,7 @@ def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None, perturb
         ``include`` does not have one entry per observation, keeps fewer observations than
         the model has parameters, ``nongrav`` is unknown, or the field named by
         ``perturbers`` does not cover the arc (the extra bodies cover 1900-2100, the 16
-        1800-2200).
+        1800-2200) or ``fit`` was solved without ASSIST, which alone integrates asteroids.
     """
     import numpy as _np
     from pyroorb import fit_object as _fo
@@ -459,7 +459,12 @@ def refit(fit, include=None, *, nongrav=None, radar=None, obscodes=None, perturb
         if asteroids:
             # a field named by the caller is solved in or refused, never relabelled: the
             # extra bodies cover 1900-2100 and the 16 1800-2200 (with_force_model would
-            # otherwise deliver the covering field under perturber_window)
+            # otherwise deliver the covering field under perturber_window), and only ASSIST
+            # integrates asteroids (with_force_model turns them off on any other backend)
+            if not _fo.is_assist(fit._ctx.get("backend")):
+                raise ValueError(f"perturbers={perturbers!r}: this fit's force model has no "
+                                 f"asteroid perturbers (it was solved without ASSIST and the "
+                                 f"DE440 ephemeris, planets-only)")
             _used, note = _fo._field_for_arc(fit._ctx, asteroids, fit)
             if note:
                 raise ValueError(f"perturbers={perturbers!r}: the arc ({note['arc']}) leaves "

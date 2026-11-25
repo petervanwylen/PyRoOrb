@@ -45,8 +45,11 @@ ADES_COLUMNS = (
     "subfrm", "sys", "trkid", "trkmpc", "trksub", "trx", "unctime", "vel1",
     "vel2", "vel3")
 PUBLISHED_STATUSES = ("P", "p")
-# a permanent number: a minor planet's, or a numbered comet's / interstellar's
-_NUMBER = re.compile(r"\d+[PDI]?")
+# A number: an asteroid's ("433"), a numbered comet's ("73P"), or a numbered comet's FRAGMENT
+# ("73P-C", "73P-BV"), which obs_sbn files under its own permid (73P-C: 3525 rows; the
+# parent "73P" holds none of them). A provisional comet's fragment ("C/2025 K1-B") is filed
+# under provid and resolves through the provisional branch.
+_NUMBER = re.compile(r"\d+(?:[PDI](?:-[A-Z]{1,2})?)?")
 
 
 def resolve_family(cur, desig):

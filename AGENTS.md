@@ -161,8 +161,9 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   that gives no answer (timeout, error, a child that died) is `unknown`, never `no`; its budget
   is the joint fit's 120 s plus two `ident_check.SOLO_MAX_SEC` solo fits (`cli._pair_timeout_sec`).
 - **'y' carries no except: line; 'y2' carries at least one** (`ident_check.EXCEPT_CLEAN_MAX_OBS`
-  0): an except: line names a WHOLE tracklet with every obs > `EXCEPT_MIN_RESID_ARCSEC` off;
-  anything nearer is bad astrometry kept with the object, and a tracklet the body's own record
+  0): an except: line names a WHOLE tracklet of 2+ obs (`EXCEPT_MIN_TRACKLET_OBS`) with every obs
+  > `EXCEPT_MIN_RESID_ARCSEC` off; a lone dropped detection, however far off, and anything nearer
+  are bad astrometry kept with the object, and a tracklet the body's own record
   rejects too (`preexisting_exception`) is set aside where the list is built
   (`_identify_pass`), so the record, the shape and the code read one list.
 - **An identification is held to the ITF submission floor** (`ident_check.itf_muster_problem`,
@@ -186,7 +187,7 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   labelled with the field that covers its arc (`fit_object._field_for_arc` in
   `with_force_model`, `force_assist.covering_field`), the asked one recorded as
   `FittedOrbit.perturber_window`; `perturbers="all"` / `refit(perturbers=...)` refuse an arc
-  the named field does not cover; a product leaving the window warns on every call
+  the named field does not cover (and `refit` a fit solved without ASSIST); a product leaving the window warns on every call
   (`products.warn_if_outside_field`); a sweep outside it runs wholly in the 16 (sb441-n16,
   else the kernel's), else planets-only (`force_assist._fallback_ephem`). Re-anchoring moves
   the state in the fit's own field (`products.fit_asteroids`; an explicit True moved a
@@ -223,7 +224,10 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
   the `force_model` label.
 - **Published-orbit seed** for >500 obs / >5 opps (`mpc_orbit.py`,
   `fit_object._fit_from_mpc_seed`, fetched in CLI/web only). Comet fallbacks:
-  `_catastrophic_seeded_alternative`, `_comet_extend_apparitions` (prefer recent apparitions).
+  `_catastrophic_seeded_alternative`, `_comet_extend_apparitions` (prefer recent apparitions;
+  anchored at the dominant apparition's own epoch, a few redeemed stragglers elsewhere --
+  under `COMET_EXT_ANCHOR_FRAC` of it -- set aside for the growth: left in, they held 21P's
+  evaluator at a 1962 mid-arc epoch where the comet LM stalled 44 chi2 short).
 - **Unbound orbits are earned, never special-cased by designation** (`hyperbolic.py`):
   bound first (`_prefer_bound_ecc`), refused only at 3σ under the measured station-night
   error model (`nightmodel.py`) plus the night bar or BIC
@@ -264,6 +268,9 @@ fixture's fit; re-baseline with `tests/update_goldens.py --write`, add objects w
 - **Nongrav discovery by BIC** (`_ng_choice`, `NONGRAV_BIC_MARGIN` 15; comet ladder
   `_comet_step_justified`); negative A1 refused; exact 0.0 = stall; marginal models
   jackknife-verified (`nongrav_jackknife_detail`, by tracklets, never warm-started).
+  A comet delivery with |A3| > 3 |A1| (`nongrav.comet_ratio_warning`,
+  `COMET_A3_A1_ADVISORY_RATIO`; no published JPL comet solution exceeds it) carries an advisory
+  that the fitted ratio is not trusted -- information only, never a selection rule.
 - **A sub-model floor compares one evaluation path** (`_floor_sub_models`): a richer trial's
   restricted orbit against the sub-model's own solution, never against the delivered chi2 (the two
   integrations differ by 0.04-0.4% on 2008 NA, which broke the nesting of the records).

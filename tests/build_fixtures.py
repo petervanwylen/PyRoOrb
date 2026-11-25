@@ -715,6 +715,10 @@ OBJECTS = [
     #   -- accepts it. Guards the whole chain end to end: 32/40 @ 0.09" and a clean 'y2' excepting
     #   both junk tracklets (2015-04-22 and 2021-10-02).
     ("PAIR_2015HP527", ["2015 HP527", "2025 PS30"]),
+    #   2015 FA477 = 2026 HR12: 36/37 @ 0.12"; the one obs dropped is FA477's LONE W84 detection of
+    #   2015-03-28, 36" off the joint orbit (FA477's own solo fit keeps it). A one-observation
+    #   tracklet is a bad observation, never an except: line, so this is a clean, submittable 'y'.
+    ("PAIR_2015FA477", ["2015 FA477", "2026 HR12"]),
     # --- HARD ASTROMETRY, not a mismatch (ident_check.kept_obs_fit's sigma clause) ---
     #   2025 MT356 = 243P, a COMET. The joint fit lands at 0.647" -- over the flat 0.6"
     #   MAX_KEPT_RMS that used to be an outright veto, so --ident-check filed a real

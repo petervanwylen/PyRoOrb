@@ -471,3 +471,58 @@ def test_extension_a_hearing_is_not_a_join_a_bad_sparse_apparition_is_still_refu
     assert [r["obs"] for r in rec["joined"]] == [list(sc.clusters[1])]
     assert sorted(r["obs"] for r in rec["refused"]) == [list(sc.clusters[0]), list(sc.clusters[2])]
     assert not mask[sc.clusters[0][0]:sc.clusters[0][1] + 1].any()
+
+
+def _reanchor_spy(monkeypatch, ctx2, result_rn=0.5, fail=False):
+    calls = []
+
+    def spy(f, s, e, v=False):
+        calls.append((s, e, np.asarray(f._mask, bool).copy()))
+        return None if fail else _FakeOrbit(ctx2, f._mask, result_rn)
+    monkeypatch.setattr(fo, "_reanchor_apparition", spy)
+    return calls
+
+
+def test_extension_sets_stragglers_aside_and_anchors_on_the_dominant_apparition(monkeypatch):
+    # app2 (200 obs) is the seed; a redemption round left 3 obs of app0 included. 3 < 25% of
+    # 200, so they are stragglers: the re-anchor runs on app2 ALONE, and app0 goes back to
+    # the growth queue for the full join trial like any other apparition.
+    sc = _Scenario(monkeypatch, [40, 20, 200], [1.0, 1.0, 1.0], base_app=2)
+    cs0 = sc.clusters[0][0]
+    sc.fit._mask[cs0:cs0 + 3] = True
+    calls = _reanchor_spy(monkeypatch, {"ev": sc.ev, "epoch_tdb": 2460000.0})
+    out = fo._comet_extend_apparitions(sc.ctx, sc.fit, 40)
+    assert out is not None
+    assert len(calls) == 1
+    s, e, m = calls[0]
+    assert (s, e) == tuple(sc.clusters[2])
+    assert not m[cs0:cs0 + 3].any() and m[s:e + 1].all()
+    assert out[4]["seed_obs"] == list(sc.clusters[2])
+    assert out[4]["epoch_tdb"] == 2460000.0
+    assert list(sc.clusters[0]) in [r["obs"] for r in out[4]["joined"]]
+
+
+def test_extension_keeps_two_substantial_apparitions_as_they_are(monkeypatch):
+    # 60 included obs of app0 is >= 25% of app2's 200: a real second apparition, not a
+    # straggler -- nothing is narrowed and no re-anchor is asked for.
+    sc = _Scenario(monkeypatch, [80, 20, 200], [1.0, 1.0, 1.0], base_app=2)
+    cs0 = sc.clusters[0][0]
+    sc.fit._mask[cs0:cs0 + 60] = True
+    calls = _reanchor_spy(monkeypatch, {"ev": sc.ev, "epoch_tdb": 2460000.0})
+    out = fo._comet_extend_apparitions(sc.ctx, sc.fit, 40)
+    assert out is not None
+    assert calls == []
+    assert out[4]["seed_obs"] is None
+
+
+def test_extension_keeps_the_stragglers_when_the_reanchor_fails(monkeypatch):
+    # a re-anchor that cannot be built (or is no better) leaves the arc exactly as it was
+    sc = _Scenario(monkeypatch, [40, 20, 200], [1.0, 1.0, 1.0], base_app=2)
+    cs0 = sc.clusters[0][0]
+    sc.fit._mask[cs0:cs0 + 3] = True
+    calls = _reanchor_spy(monkeypatch, None, fail=True)
+    out = fo._comet_extend_apparitions(sc.ctx, sc.fit, 40)
+    assert out is not None
+    assert len(calls) == 1
+    assert out[4]["seed_obs"] is None
+    assert out[0] is sc.ctx
